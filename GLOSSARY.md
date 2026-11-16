@@ -23,11 +23,11 @@ An ordered list of Phrases, each with an optional transpose.
 _Avoid_: Block, sequence
 
 **Phrase**:
-A short run of Steps; the unit where notes are written.
+A run of 1 to 32 Steps (16 by default); the unit where notes are written.
 _Avoid_: Pattern (that is PICO-8's word), SFX
 
 **Step**:
-One row of a Phrase: a note with its instrument, volume and effect.
+One row of a Phrase, equivalent to one PICO-8 note: a pitch with its instrument, volume and effect. A Step at volume 0 is silent and is shown as empty; a note is held by repeating it in the following Steps.
 _Avoid_: Row, note (when meaning the whole row)
 
 ### PICO-8 side
