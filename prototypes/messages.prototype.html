@@ -1,0 +1,250 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway decision aid for adamico/picotracker#17. Never merge.
+     Three ways to show messages, Export failures and Import warnings on the 106×45 grid (640×360, 6×8 cells, 5×7 font,
+     PICO-8 palette), mounted on the split-pane screen from the #16 prototype. Switch with ?variant=A|B|C, the bottom bar,
+     or keys 1–3. Fire each case from the panel on the right (or keys F1–F12 are NOT used; click the buttons).
+       A  Status line + log pane: one line at the bottom; lists open in the spare right-hand columns.
+       B  Modal box: a box over the panes that takes the keys until dismissed.
+       C  Report view + markers: a full-screen Report view (like the Instrument view); problems stay marked on the grid.
+     Keys on the fake tracker: Tab pane, arrows move, Enter = jump/confirm, Esc = dismiss/cancel, L = log/report, N = next problem.
+     All text in the messages is draft copy — part of what this ticket decides. -->
+<html><head><meta charset="utf-8"><title>Messages prototype</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px sans-serif}
+#stage{position:fixed;left:0;top:0;bottom:0;right:300px;display:flex;align-items:center;justify-content:center;background:#0b0b0b}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block;background:#000}
+#side{position:fixed;top:0;right:0;bottom:0;width:300px;background:#f4f4f4;color:#000;overflow:auto;padding:10px;box-sizing:border-box;font-size:12px}
+#side h3{margin:8px 0 4px;font-size:13px}#side button{display:block;width:100%;text-align:left;margin:2px 0;padding:4px 6px;border:1px solid #bbb;background:#fff;border-radius:4px;cursor:pointer;font-size:12px}
+#side button:hover{background:#e8f0ff}#side .vdesc{background:#fff;border:1px solid #ccc;border-radius:6px;padding:6px;margin-bottom:6px}
+#side .k{font-family:monospace;background:#ddd;padding:0 3px;border-radius:3px}
+#bar{position:fixed;bottom:12px;left:calc(50% - 150px);transform:translateX(-50%);background:#fff;color:#000;border-radius:20px;padding:6px 14px;box-shadow:0 2px 12px #000a;font:bold 13px sans-serif;display:flex;gap:12px;align-items:center;z-index:9}
+#bar button{border:0;background:#000;color:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer}
+</style></head><body>
+<div id="stage"><canvas id="c"></canvas></div>
+<div id="side"></div>
+<div id="bar"><button id="prev">◀</button><span id="lbl"></span><button id="next">▶</button></div>
+<script>
+// ---------------- 5×7 font (hand-drawn sketch from the #16 prototype, plus ! [ ] < % ') ----------------
+const F57={0:'.xxx./x...x/x..xx/x.x.x/xx..x/x...x/.xxx.',1:'..x../.xx../..x../..x../..x../..x../.xxx.',2:'.xxx./x...x/....x/...x./..x../.x.../xxxxx',3:'xxxxx/...x./..x../...x./....x/x...x/.xxx.',4:'...x./..xx./.x.x./x..x./xxxxx/...x./...x.',5:'xxxxx/x..../xxxx./....x/....x/x...x/.xxx.',6:'..xx./.x.../x..../xxxx./x...x/x...x/.xxx.',7:'xxxxx/....x/...x./..x../.x.../.x.../.x...',8:'.xxx./x...x/x...x/.xxx./x...x/x...x/.xxx.',9:'.xxx./x...x/x...x/.xxxx/....x/...x./.xx..',
+A:'.xxx./x...x/x...x/xxxxx/x...x/x...x/x...x',B:'xxxx./x...x/x...x/xxxx./x...x/x...x/xxxx.',C:'.xxx./x...x/x..../x..../x..../x...x/.xxx.',D:'xxx../x..x./x...x/x...x/x...x/x..x./xxx..',E:'xxxxx/x..../x..../xxxx./x..../x..../xxxxx',F:'xxxxx/x..../x..../xxxx./x..../x..../x....',G:'.xxx./x...x/x..../x.xxx/x...x/x...x/.xxxx',H:'x...x/x...x/x...x/xxxxx/x...x/x...x/x...x',I:'.xxx./..x../..x../..x../..x../..x../.xxx.',J:'..xxx/...x./...x./...x./...x./x..x./.xx..',K:'x...x/x..x./x.x../xx.../x.x../x..x./x...x',L:'x..../x..../x..../x..../x..../x..../xxxxx',M:'x...x/xx.xx/x.x.x/x.x.x/x...x/x...x/x...x',N:'x...x/x...x/xx..x/x.x.x/x..xx/x...x/x...x',O:'.xxx./x...x/x...x/x...x/x...x/x...x/.xxx.',P:'xxxx./x...x/x...x/xxxx./x..../x..../x....',Q:'.xxx./x...x/x...x/x...x/x.x.x/x..x./.xx.x',R:'xxxx./x...x/x...x/xxxx./x.x../x..x./x...x',S:'.xxxx/x..../x..../.xxx./....x/....x/xxxx.',T:'xxxxx/..x../..x../..x../..x../..x../..x..',U:'x...x/x...x/x...x/x...x/x...x/x...x/.xxx.',V:'x...x/x...x/x...x/x...x/x...x/.x.x./..x..',W:'x...x/x...x/x...x/x.x.x/x.x.x/x.x.x/.x.x.',X:'x...x/x...x/.x.x./..x../.x.x./x...x/x...x',Y:'x...x/x...x/x...x/.x.x./..x../..x../..x..',Z:'xxxxx/....x/...x./..x../.x.../x..../xxxxx',
+'-':'...../...../...../xxxxx/...../...../.....','+':'...../..x../..x../xxxxx/..x../..x../.....','#':'.x.x./.x.x./xxxxx/.x.x./xxxxx/.x.x./.x.x.','.':'...../...../...../...../...../.xx../.xx..',':':'...../.xx../.xx../...../.xx../.xx../.....','/':'...../....x/...x./..x../.x.../x..../.....','|':'..x../..x../..x../..x../..x../..x../..x..','~':'...../...../.x.../x.x.x/...x./...../.....','(':'...x./..x../.x.../.x.../.x.../..x../...x.',')':'.x.../..x../...x./...x./...x./..x../.x...','>':'x..../.x.../..x../...x./..x../.x.../x....','=':'...../...../xxxxx/...../xxxxx/...../.....','_':'...../...../...../...../...../...../xxxxx','?':'.xxx./x...x/....x/...x./..x../...../..x..',',':'...../...../...../...../.xx../..x../.x...','*':'...../..x../x.x.x/.xxx./x.x.x/..x../.....',
+'!':'..x../..x../..x../..x../..x../...../..x..','[':'.xxx./.x.../.x.../.x.../.x.../.x.../.xxx.',']':'.xxx./...x./...x./...x./...x./...x./.xxx.','<':'....x/...x./..x../.x.../..x../...x./....x','%':'xx..x/xx..x/...x./..x../.x.../x..xx/x..xx',"'":'..x../..x../.x.../...../...../...../.....'};
+const GL=Object.fromEntries(Object.entries(F57).map(([k,v])=>[k,v.split('/').map(r=>[...r].map(c=>c==='x'))]));
+const W=640,H=360,CW=6,CH=8,cols=106,rows=45;
+const PAL=['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#fff1e8','#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa'];
+const BG=0,FG=6,DIM=5,HI=10,TITLE=12,CUR=12,FILL=14,GRN=11,HEAD=13,WHITE=7,RED=8,ORA=9,BLUE=12,NAVY=1;
+const SEV={err:{c:RED,tag:'ERR'},warn:{c:ORA,tag:'WRN'},info:{c:GRN,tag:'OK '},ask:{c:BLUE,tag:'ASK'}};
+// ---------------- fake project ----------------
+const NOTES=['C-','C#','D-','D#','E-','F-','F#','G-','G#','A-','A#','B-'];
+const hex=(v,n=2)=>v==null?'-'.repeat(n):v.toString(16).toUpperCase().padStart(n,'0');
+const nn=n=>NOTES[((n%12)+12)%12]+Math.floor(n/12);
+const mkP=(notes,i=0,spd=16,len=16)=>({spd,len,steps:Array.from({length:32},(_,k)=>{const n=notes[k];return n==null?{n:24,i,v:0,fx:0}:{n,i,v:5,fx:k%8===6?1:0}})});
+const P={0:mkP([24,,,,31,,,,36,,,,31,,29,],2),1:mkP([36,36,36,,39,,41,,43,43,,,41,,39,,36,,,,34,,36,,,,,,,,,],9,12,32),2:mkP([12,,,,12,,,,15,,,,10],1),3:mkP([30,,30,,30,30,,30],6,16,8),4:mkP([48,,50,,52,,55,,57,,,,55],0x0b)};
+const ce=(ph,tsp=0,fill=false)=>({ph,tsp,fill});
+const C={0:[ce(0),ce(0,5),ce(1),ce(1,-2)],1:[ce(2),ce(2),ce(2,3),ce(2)],2:[ce(3,0,true),ce(3,0,true),ce(3,0,true),ce(3,0,true)],3:[ce(1,24),ce(1,7)],4:[ce(4,12),ce(4)]};
+for(const k in C)while(C[k].length<16)C[k].push(ce(null));
+const song=Array.from({length:64},()=>Array(8).fill(null));
+song[0]=[0,1,2,3,4,null,null,null];song[1]=[0,1,2,null,null,null,null,null];song[2]=[0,1,null,3,null,null,null,null];
+const cur={pane:0,t:0,srow:0,crow:0,prow:0};
+const chainId=()=>song[cur.srow][cur.t];
+const entry=()=>{const c=chainId();return c==null?null:C[c][cur.crow]};
+const phraseId=()=>entry()?.ph??null;
+// ---------------- scenarios (draft copy) ----------------
+// loc: {srow,t,crow,prow} — where Enter jumps to and what variant C marks.
+const L=(srow,t,crow,prow)=>({srow,t,crow,prow});
+const SC=[
+ {g:'Info',id:'save',label:'Save Project',kind:'info',title:'SAVED',sum:'SAVED DEMO.PTRK',items:[]},
+ {g:'Info',id:'expok',label:'Export succeeds',kind:'info',title:'EXPORTED',sum:'EXPORTED TO DEMO.P8: 14 SFX, 3 PATTERNS. T1-T4',items:[]},
+ {g:'Export failures',id:'sfx',label:'Out of SFX slots',kind:'fail',title:'EXPORT FAILED',sum:'EXPORT FAILED: OUT OF SFX SLOTS',
+  items:[{sev:'err',text:'NEEDS 27 SFX, THE CLAIM HAS 24 (08-1F). WIDEN THE CLAIM, OR REUSE PHRASES SO MORE SFX ARE SHARED.',act:'C EDIT CLAIM'}]},
+ {g:'Export failures',id:'pat',label:'Out of Pattern slots',kind:'fail',title:'EXPORT FAILED',sum:'EXPORT FAILED: OUT OF PATTERN SLOTS',
+  items:[{sev:'err',text:'NEEDS 11 PATTERNS (ONE PER CHAIN ROW), THE CLAIM HAS 8 (00-07). WIDEN THE CLAIM OR SHORTEN THE SONG.',act:'C EDIT CLAIM'}]},
+ {g:'Export failures',id:'noclaim',label:'No Claim',kind:'fail',title:'EXPORT FAILED',sum:'EXPORT FAILED: NO CLAIM IN DEMO.P8',
+  items:[{sev:'err',text:'THIS PROJECT CLAIMS NO SFX OR PATTERNS IN DEMO.P8, SO THERE IS NOWHERE TO WRITE. PICK A CLAIM FIRST.',act:'C EDIT CLAIM'}]},
+ {g:'Export failures',id:'pitch',label:'Pitch outside 0–63 (4 notes)',kind:'fail',title:'EXPORT FAILED',sum:'EXPORT FAILED: 4 NOTES ABOVE D#5',
+  items:[ [8,'G-3','G-5'],[9,'G-3','G-5'],[6,'F-3','F-5'],[12,'F-3','F-5'] ].map(([k,a,b])=>({sev:'err',text:`T4 ROW 00 CHAIN 03.0 PHRASE 01 STEP ${hex(k)}: ${a} +18 = ${b}, ABOVE D#5`,loc:L(0,3,0,k)})).concat([{sev:'err',text:'PICO-8 PLAYS C-0 TO D#5. LOWER THE CHAIN TRANSPOSE OR THE NOTES.'}])},
+ {g:'Export failures',id:'inst',label:'More than 8 Custom Instruments',kind:'fail',title:'EXPORT FAILED',sum:'EXPORT FAILED: 10 CUSTOM INSTRUMENTS, ROOM FOR 8',
+  items:[{sev:'err',text:'T1-T4 USE 10 CUSTOM INSTRUMENTS. A CART HOLDS 8, IN SFX 0-7, AND THE CLAIM LEAVES 8 FREE.'}].concat(
+   ['08','09','0A','0B','0C','0D','0E','0F','10','11'].map((id,j)=>({sev:j<8?'info':'err',text:`INSTR ${id} FIRST USED T${(j%4)+1} PHRASE ${hex(j%5)} STEP ${hex(j*3%16)}${j<8?'':'  (NO ROOM)'}`,loc:L(0,j%4,0,j*3%16)})))},
+ {g:'Export failures',id:'multi',label:'Several failures at once',kind:'fail',title:'EXPORT FAILED',sum:'EXPORT FAILED: 3 PROBLEMS',
+  items:[{sev:'err',text:'NEEDS 11 PATTERNS, THE CLAIM HAS 8 (00-07).',act:'C EDIT CLAIM'},
+   {sev:'err',text:'T4 ROW 00 CHAIN 03.0 PHRASE 01 STEP 08: G-3 +18 = G-5, ABOVE D#5',loc:L(0,3,0,8)},
+   {sev:'err',text:'T4 ROW 00 CHAIN 03.0 PHRASE 01 STEP 09: G-3 +18 = G-5, ABOVE D#5',loc:L(0,3,0,9)}]},
+ {g:'Export: needs an answer',id:'drift',label:'Claimed bytes changed in PICO-8',kind:'ask',title:'CART CHANGED',sum:'SFX 0A 0B 11, PATTERN 03 CHANGED IN DEMO.P8 SINCE LAST EXPORT. OVERWRITE?',
+  items:[{sev:'warn',text:'SFX 0A, 0B AND 11 AND PATTERN 03 IN DEMO.P8 WERE EDITED SINCE THE LAST EXPORT, PROBABLY IN PICO-8. EXPORT WILL OVERWRITE THEM.'}],
+  ask:[['ENTER','OVERWRITE'],['ESC','CANCEL']]},
+ {g:'Export: needs an answer',id:'missing',label:'Target Cart moved or missing',kind:'ask',title:'CART NOT FOUND',sum:'DEMO.P8 NOT FOUND AT ../CARTS/DEMO.P8. LOCATE IT?',
+  items:[{sev:'warn',text:'THE TARGET CART ../CARTS/DEMO.P8 IS GONE. LOCATE IT TO KEEP THE CLAIM, OR PICK ANOTHER CART AND CLAIM.'}],
+  ask:[['ENTER','LOCATE'],['ESC','CANCEL']]},
+ {g:'Import warnings',id:'cart',label:'Cart Import with warnings',kind:'import',title:'IMPORTED',sum:'IMPORTED SONG 1 OF DEMO.P8 WITH 6 WARNINGS',
+  items:[{sev:'warn',text:'PATTERN 04 ENDS INSIDE A STEP: T3 PHRASE 02 LOST ITS LAST STEP.',loc:L(1,2,0,12)},
+   {sev:'warn',text:'SFX 12 LOOPS 00-07: STEPS 08-1F NEVER PLAY AND WERE DROPPED. (T2 PHRASE 02)',loc:L(0,1,0,0)},
+   {sev:'warn',text:'SFX 15 LEAD-IN NEEDS 40 STEPS UNROLLED: KEPT AS FILL OVER THE LOOP BODY ONLY. (T3 CHAIN 02.1)',loc:L(0,2,1)},
+   {sev:'warn',text:'SFX 1C HAS SPD 0: SET TO SPEED 1, TIMING FOLLOWS PICO-8.',loc:L(0,0,2,0)},
+   {sev:'warn',text:'5 SFX NOT IN THE SONG BECAME LOOSE PHRASES 10-14, NOT CLAIMED. THEIR LOOPS WERE DROPPED.'},
+   {sev:'info',text:'CLAIM: 14 SFX, PATTERNS 00-07.'}]},
+ {g:'Import warnings',id:'midi',label:'MIDI Import with warnings',kind:'import',title:'IMPORTED',sum:'IMPORTED SONG.MID WITH 6 WARNINGS',
+  items:[{sev:'warn',text:'11 VOICES, 8 TRACKS: DROPPED STRINGS 2, STRINGS 3, CH10 HATS.'},
+   {sev:'warn',text:'PIANO VOICE SPANS 70 SEMITONES: 12 NOTES FOLDED BY AN OCTAVE. (T1)',loc:L(0,0,0,4)},
+   {sev:'warn',text:'14 NOTES LANDED ON A STEP ALREADY TAKEN: THE LATER NOTE WON. FIRST: T2 PHRASE 02 STEP 04',loc:L(0,1,0,4)},
+   {sev:'warn',text:'CC7 AND CC11 (VOLUME, EXPRESSION) IGNORED.'},
+   {sev:'warn',text:'DROPPED: PITCH BEND, CC1, CC10, CC91.'},
+   {sev:'warn',text:'2 TEMPO CHANGES CLOSER THAN ONE STEP: THE LAST ONE WON. (ROW 01)',loc:L(1,0,0)},
+   {sev:'info',text:'NO TARGET CART YET: THE FIRST EXPORT WILL ASK FOR ONE.'}]},
+];
+// ---------------- message state ----------------
+let vk='A';
+let act=null;          // the active result {sc, sel, scroll, shownAt}
+const log=[];          // A: every result, newest last
+let markers=[];        // C: locs that stay marked until the next Export/Import
+let reportOpen=false;  // C: Report view showing
+let logOpen=false;     // A: log pane showing
+let statusMsg=null;    // A/C transient status
+function fire(id){const sc=SC.find(s=>s.id===id);const now=new Date();
+  const r={sc,sel:firstSel(sc),scroll:0,at:now.toTimeString().slice(0,5)};act=r;log.push(r);
+  if(sc.kind==='fail'||sc.kind==='import')markers=sc.items.filter(i=>i.loc&&i.sev!=='info').map(i=>i.loc);
+  if(sc.kind==='info')markers=sc.id==='expok'?[]:markers;
+  statusMsg={sc,until:sc.kind==='info'?performance.now()+3000:Infinity};
+  if(vk==='A'){logOpen=sc.items.length>1||sc.kind==='fail'&&sc.items.length>0}
+  if(vk==='C'){reportOpen=sc.kind!=='info'}
+  draw()}
+const firstSel=sc=>Math.max(0,sc.items.findIndex(i=>i.loc));
+function jump(loc){if(!loc)return;Object.assign(cur,{srow:loc.srow,t:loc.t,crow:loc.crow??0,prow:loc.prow??0});cur.pane=loc.prow!=null?2:loc.crow!=null?1:0}
+function dismiss(){statusMsg=null;if(vk==='B')act=null;if(vk==='C')reportOpen=false;if(vk==='A')logOpen=false}
+// ---------------- grid ----------------
+let G;
+function clear(){G=Array.from({length:rows},()=>Array.from({length:cols},()=>({c:' ',f:FG,b:BG})))}
+function put(x,y,s,f=FG,b=BG){s=String(s).toUpperCase();if(y<0||y>=rows)return;for(let i=0;i<s.length;i++){if(x+i>=cols)return;if(x+i>=0)G[y][x+i]={c:s[i],f,b}}}
+function fillRect(x,y,w,h,b){for(let j=y;j<y+h&&j<rows;j++)for(let i=x;i<x+w&&i<cols;i++)G[j][i]={c:' ',f:FG,b}}
+function vline(x,y0,y1){for(let y=y0;y<=Math.min(y1,rows-1);y++)if(x<cols)G[y][x]={c:'|',f:1,b:BG,line:1}}
+function box(x,y,w,h,border,bg){fillRect(x,y,w,h,bg);for(let i=x;i<x+w;i++){G[y][i]={c:'-',f:border,b:bg};G[y+h-1][i]={c:'-',f:border,b:bg}}
+  for(let j=y;j<y+h;j++){G[j][x]={c:'|',f:border,b:bg};G[j][x+w-1]={c:'|',f:border,b:bg}}for(const[i,j]of[[x,y],[x+w-1,y],[x,y+h-1],[x+w-1,y+h-1]])G[j][i]={c:'+',f:border,b:bg}}
+function wrap(s,w){const out=[];let line='';for(const word of s.split(' ')){if((line+' '+word).trim().length>w){out.push(line);line=word}else line=(line?line+' ':'')+word}if(line)out.push(line);return out}
+const isMarked=(srow,t,crow,prow)=>vk==='C'&&markers.some(m=>m.srow===srow&&m.t===t&&(crow==null||m.crow===crow)&&(prow==null||m.prow===prow));
+// ---------------- panes ----------------
+const W_SONG=28,W_CHAIN=33,W_PHR=19;
+function rowLen(k){let m=0,mf=0;for(let t=0;t<8;t++){const c=song[cur.srow][t];if(c==null)continue;const e=C[c][k];if(e.ph==null)continue;const L=P[e.ph].len*P[e.ph].spd;if(e.fill)mf=Math.max(mf,L);else m=Math.max(m,L)}return m||mf}
+function songPane(x,y,h){const f=cur.pane===0;put(x,y,'SONG',TITLE);put(x+4,y,'  T1 T2 T3 T4 T5 T6 T7 T8',HEAD);
+  const n=h-1,top=Math.max(0,Math.min(cur.srow-(n>>1),64-n));
+  for(let r=0;r<n;r++){const R=top+r;put(x,y+1+r,hex(R),R%4?HEAD:GRN);for(let t=0;t<8;t++){const c=song[R][t];const on=R===cur.srow&&t===cur.t;const mk=isMarked(R,t);
+    put(x+4+t*3,y+1+r,hex(c),on?(f?BG:HI):mk?WHITE:c==null?DIM:FG,on&&f?CUR:mk?RED:BG)}}}
+function chainPane(x,y,h){const f=cur.pane===1;const c=chainId();put(x,y,'CHAIN '+hex(c),TITLE);put(x+9,y,' T'+(cur.t+1)+' ROW '+hex(cur.srow),HEAD);
+  put(x,y+1,'K PH TSP FILL',HEAD);
+  for(let k=0;k<16;k++){const e=c==null?ce(null):C[c][k];const on=k===cur.crow;const fg=e.ph==null?DIM:FG;const mk=isMarked(cur.srow,cur.t,k);
+    put(x,y+2+k,hex(k,1),mk?RED:HEAD);put(x+2,y+2+k,hex(e.ph),on&&f?BG:mk?WHITE:fg,on&&f?CUR:mk?RED:BG);put(x+5,y+2+k,(e.tsp>=0?'+':'-')+hex(Math.abs(e.tsp)),fg);put(x+9,y+2+k,e.fill?'FILL':'----',e.fill?FILL:DIM)}
+  const sy=y+19;put(x,sy,'CHAIN ROWS',TITLE);put(x,sy+1,'K T1 T2 T3 T4 T5 T6 T7 T8 TICK',HEAD);
+  const n=Math.min(16,h-21);
+  for(let k=0;k<n;k++){put(x,sy+2+k,hex(k,1),HEAD);for(let t=0;t<8;t++){const cc=song[cur.srow][t];const e=cc==null?null:C[cc][k];
+      put(x+2+t*3,sy+2+k,e?.ph==null?'--':hex(e.ph),(t===cur.t&&k===cur.crow)?HI:e?.fill?FILL:e?.ph==null?DIM:GRN)}
+    const Lr=rowLen(k);put(x+27,sy+2+k,Lr?String(Lr).padStart(4):'   -',Lr?FG:DIM)}}
+function phrasePane(x,y,h){const f=cur.pane===2;const id=phraseId(),p=P[id],e=entry();put(x,y,'PHRASE '+hex(id),TITLE);
+  if(!p){put(x,y+2,'(EMPTY)',DIM);return}
+  put(x,y+1,'SPD '+hex(p.spd)+' ~'+Math.round(1807/p.spd)+'BPM',FG);put(x,y+2,'LEN '+hex(p.len)+' NZ0 BZ0',FG);put(x,y+3,'DT0 RV1 DP0',FG);
+  put(x,y+4,'   NOT IN V F',HEAD);
+  for(let k=0;k<p.len&&5+k<h;k++){const s=p.steps[k],sil=s.v===0,on=k===cur.prow&&f;const yy=y+5+k;const mk=isMarked(cur.srow,cur.t,cur.crow,k);
+    put(x,yy,hex(k)+' ',mk?RED:k%4?HEAD:GRN);put(x+3,yy,sil?'---':nn(s.n),on?BG:mk?WHITE:sil?DIM:FG,on?CUR:mk?RED:BG);put(x+6,yy,' ',FG);
+    put(x+7,yy,sil?'--':hex(s.i),sil?DIM:s.i>=8?FILL:FG);put(x+9,yy,' '+(sil?'-':s.v)+' '+s.fx,sil?DIM:FG)}}
+function extraPane(x,y,w,h){put(x,y,'TRACKS',TITLE);for(let t=0;t<8;t++)put(x,y+1+t,'T'+(t+1)+(t<4?' EXP CH'+t:' ----  '),t<4?GRN:DIM);
+  put(x,y+22,'CART DEMO.P8',FG);put(x,y+23,'CLAIM SFX 08-1F',FG);put(x,y+24,'      PAT 00-07',FG)}
+// ---------------- message renderers ----------------
+const PX=0,PY=2,PH=rows-3,RIGHT_X=W_SONG+W_CHAIN+W_PHR+3,RIGHT_W=cols-RIGHT_X;
+function itemLines(it,w){const tag=SEV[it.sev];const lines=wrap(it.text,w-4);return lines.map((l,i)=>({pre:i?'    ':tag.tag+' ',txt:l,c:tag.c,first:i===0}))}
+function listItems(sc,x,y,w,h,sel){ // draws items with a cursor; returns nothing
+  let yy=y;sc.items.forEach((it,i)=>{const ls=itemLines(it,w);ls.forEach((l,j)=>{if(yy>=y+h)return;const on=i===sel;
+    put(x,yy,l.pre,l.c,on?NAVY:BG);put(x+4,yy,l.txt.padEnd(w-4),on?WHITE:FG,on?NAVY:BG);yy++});
+    if(it.loc&&yy<y+h){put(x+4,yy,'ENTER: GO THERE',i===sel?HI:DIM);yy++}
+    if(it.act&&yy<y+h){put(x+4,yy,it.act,i===sel?HI:DIM);yy++}});}
+// A: status line + log pane
+function renderA(){const sm=statusMsg&&performance.now()<statusMsg.until?statusMsg.sc:null;
+  if(logOpen&&act){const x=RIGHT_X,w=RIGHT_W;fillRect(x,PY,w,PH,BG);vline(x-1,PY,PY+PH-1);
+    put(x,PY,'LOG',TITLE);put(x+4,PY,(act.at+' '+act.sc.title).slice(0,w-4),SEV[act.sc.kind==='fail'?'err':act.sc.kind==='import'?'warn':act.sc.kind==='ask'?'ask':'info'].c);
+    listItems(act.sc,x,PY+2,w,PH-6,act.sel);
+    put(x,PY+PH-3,'OLDER:',DIM);log.slice(-4,-1).reverse().forEach((r,i)=>put(x+7,PY+PH-3+i,(r.at+' '+r.sc.title).slice(0,w-7),DIM));}
+  // status line: bottom row
+  fillRect(0,rows-1,cols,1,BG);
+  if(sm){const sev=sm.kind==='fail'?'err':sm.kind==='import'?'warn':sm.kind==='ask'?'ask':'info';const c=SEV[sev].c;
+    let s=(sm.kind==='fail'||sm.kind==='import'?'! ':'')+sm.sum;let tail=sm.ask?'  '+sm.ask.map(a=>a[0]+' '+a[1]).join('  '):(sm.items.length?'  L LOG':'');
+    put(0,rows-1,' '.repeat(cols),BG,sm.kind==='ask'||sm.kind==='fail'?c:BG);put(1,rows-1,s,sm.kind==='ask'||sm.kind==='fail'?BG:c,sm.kind==='ask'||sm.kind==='fail'?c:BG);put(1+s.length,rows-1,tail,sm.kind==='ask'||sm.kind==='fail'?WHITE:DIM,sm.kind==='ask'||sm.kind==='fail'?c:BG)}
+  else put(0,rows-1,'TAB PANE  ARROWS MOVE  SPACE PLAY  L LOG  1-3 VARIANT',DIM)}
+// B: modal box
+function renderB(){put(0,rows-1,'TAB PANE  ARROWS MOVE  SPACE PLAY  1-3 VARIANT',DIM);if(!act)return;const sc=act.sc;
+  if(sc.kind==='info'){ // small box top-right that closes itself
+    if(performance.now()>statusMsg?.until){act=null;return}
+    const w=Math.min(60,sc.sum.length+4),x=cols-w-1,y=1;box(x,y,w,3,GRN,BG);put(x+2,y+1,sc.sum,GRN);return}
+  const sev=sc.kind==='fail'?'err':sc.kind==='import'?'warn':'ask';const c=SEV[sev].c;
+  const w=70,x=(cols-w)>>1;let body=[];sc.items.forEach(it=>body.push(...itemLines(it,w-4),...(it.loc?[{pre:'    ',txt:'ENTER: GO THERE',c:DIM,hint:1}]:[]),...(it.act?[{pre:'    ',txt:it.act,c:DIM,hint:1}]:[])));
+  const h=Math.min(rows-6,body.length+6),y=(rows-h)>>1;
+  box(x,y,w,h,c,NAVY);fillRect(x+1,y+1,w-2,1,c);put(x+2,y+1,sc.title+'  '+sc.sum.replace(sc.title+': ','').slice(0,w-6-sc.title.length),BG,c);
+  // lines with selection on the item containing act.sel
+  let yy=y+3,i=0,lineIt=[];sc.items.forEach((it,k)=>{const n=itemLines(it,w-4).length+(it.loc?1:0)+(it.act?1:0);for(let j=0;j<n;j++)lineIt.push(k)});
+  const vis=h-6;const firstLine=lineIt.indexOf(act.sel);act.scroll=Math.max(0,Math.min(act.scroll,firstLine),firstLine-vis+3);
+  body.slice(act.scroll,act.scroll+vis).forEach((l,j)=>{const on=lineIt[act.scroll+j]===act.sel;put(x+2,yy+j,l.pre,l.c,on?BG:NAVY);put(x+6,yy+j,l.txt.padEnd(w-8),l.hint?(on?HI:DIM):on?WHITE:FG,on?BG:NAVY)});
+  if(body.length>vis)put(x+w-8,y+h-3,(act.scroll+vis<body.length?'MORE..':'      '),DIM,NAVY);
+  const btn=sc.ask?sc.ask.map(a=>'['+a[0]+' '+a[1]+']').join('  '):sc.items.some(i=>i.loc)?'[UP/DOWN PICK]  [ENTER GO THERE]  [ESC CLOSE]':'[ESC CLOSE]';
+  put(x+w-2-btn.length,y+h-2,btn,WHITE,NAVY)}
+// C: Report view + markers
+function renderC(){const sm=statusMsg&&performance.now()<statusMsg.until?statusMsg.sc:null;
+  const nm=markers.length;put(cols-12,0,nm?('! '+nm+' MARKED').padStart(12):'',RED);
+  put(0,rows-1,'TAB PANE  ARROWS MOVE  L REPORT  N NEXT MARK  1-3 VARIANT',DIM);
+  if(sm&&sm.kind==='info'){fillRect(0,rows-1,cols,1,BG);put(1,rows-1,sm.sum,GRN)}
+  if(!reportOpen||!act)return;const sc=act.sc;
+  fillRect(0,1,cols,rows-1,BG);const sev=sc.kind==='fail'?'err':sc.kind==='import'?'warn':sc.kind==='ask'?'ask':'info';
+  put(0,2,'REPORT',TITLE);put(8,2,act.at+'  '+sc.sum,SEV[sev].c);
+  put(0,3,'-'.repeat(cols),NAVY);
+  put(0,4,'    WHAT'.padEnd(80)+'WHERE',HEAD);
+  let yy=5;sc.items.forEach((it,i)=>{const on=i===act.sel;const ls=wrap(it.text,74);const where=it.loc?`T${it.loc.t+1} ROW ${hex(it.loc.srow)}`+(it.loc.crow!=null?` K${hex(it.loc.crow,1)}`:'')+(it.loc.prow!=null?` ST ${hex(it.loc.prow)}`:''):it.act||'';
+    ls.forEach((l,j)=>{put(0,yy,j?'    ':SEV[it.sev].tag+' ',SEV[it.sev].c,on?NAVY:BG);put(4,yy,l.padEnd(76),on?WHITE:FG,on?NAVY:BG);if(!j)put(80,yy,where.padEnd(26),on?HI:DIM,on?NAVY:BG);yy++})});
+  if(sc.ask){yy+=2;put(4,yy,sc.ask.map(a=>a[0]+' '+a[1]).join('    '),BG,BLUE)}
+  put(0,rows-1,' '.repeat(cols));put(0,rows-1,'UP/DOWN PICK  ENTER GO THERE (MARKS STAY ON THE GRID)  ESC BACK  L REOPEN LATER',DIM)}
+// ---------------- layout + draw ----------------
+function layout(){clear();
+  put(0,0,'PICOTRACKER  DEMO.PTRK  STOP  OCT 2',HI);
+  const y=PY,h=PH-1;let x=0;songPane(x,y,h);x+=W_SONG+1;vline(x-1,y,y+h-1);chainPane(x,y,h);x+=W_CHAIN+1;vline(x-1,y,y+h-1);phrasePane(x,y,h);x+=W_PHR+1;vline(x-1,y,y+h-1);extraPane(x,y,cols-x,h);
+  ({A:renderA,B:renderB,C:renderC})[vk]()}
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');const rgb=PAL.map(h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)));
+function draw(){layout();cv.width=W;cv.height=H;const img=ctx.createImageData(W,H),d=img.data;
+  const px=(x,y,c)=>{const o=(y*W+x)*4,q=rgb[c];d[o]=q[0];d[o+1]=q[1];d[o+2]=q[2];d[o+3]=255};
+  for(let i=0;i<W*H;i++)d[i*4+3]=255;
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const cell=G[y][x];const X=x*CW,Y=y*CH;
+    if(cell.b)for(let j=0;j<CH;j++)for(let i=0;i<CW;i++)px(X+i,Y+j,cell.b);
+    if(cell.line){for(let j=0;j<CH;j++)px(X+3,Y+j,1);continue}
+    const g=GL[cell.c];if(!g)continue;for(let j=0;j<7;j++)for(let i=0;i<5;i++)if(g[j][i])px(X+i,Y+j,cell.f)}
+  ctx.putImageData(img,0,0);fit()}
+function fit(){const dpr=devicePixelRatio||1;const st=document.getElementById('stage');const Wd=st.clientWidth*dpr,Hd=st.clientHeight*dpr;const s=Math.max(1,Math.floor(Math.min(Wd/W,Hd/H)));
+  cv.style.width=W*s/dpr+'px';cv.style.height=H*s/dpr+'px'}
+// ---------------- side panel ----------------
+const VD={A:['Status line + log pane','One line at the bottom carries every message. Info fades after 3 s; failures and questions stay, coloured, until Esc. A result with a list opens a LOG pane in the spare right-hand columns, beside the panes, so you can fix things while reading it. Questions are answered on the status line (Enter/Esc). L reopens the log.'],
+ B:['Modal box','Every failure, question and Import result is a box over the panes that holds the keys until Esc. Up/Down picks an item; Enter jumps to it and closes the box. Info is a small box top-right that closes by itself.'],
+ C:['Report view + markers','Failures and Import results open a full-screen Report view, like the Instrument view. Esc goes back to the panes, where every problem stays marked in red until the next Export or Import. N jumps to the next mark; L reopens the Report. Info goes on the bottom line.']};
+function side(){const g={};SC.forEach(s=>(g[s.g]??=[]).push(s));
+  document.getElementById('side').innerHTML=`<div class="vdesc"><b>${vk}: ${VD[vk][0]}</b><br>${VD[vk][1]}</div>
+  <div>Keys: <span class=k>Tab</span> pane, arrows move, <span class=k>Enter</span> go there / yes, <span class=k>Esc</span> close / no, <span class=k>L</span> log/report, <span class=k>N</span> next mark, <span class=k>1</span>–<span class=k>3</span> variant.</div>`+
+  Object.entries(g).map(([k,v])=>`<h3>${k}</h3>`+v.map(s=>`<button data-id="${s.id}">${s.label}</button>`).join('')).join('')+
+  `<p style="color:#666">Text in the messages is draft copy; changing it is part of this ticket. Click a button, then use the keyboard on the screen.</p>`;
+  document.querySelectorAll('#side button').forEach(b=>b.onclick=()=>{fire(b.dataset.id);b.blur()})}
+// ---------------- keys ----------------
+addEventListener('keydown',e=>{const k=e.key;
+  if(/^[1-3]$/.test(k)){setV('ABC'[+k-1]);return}
+  const modal=vk==='B'&&act&&act.sc.kind!=='info', report=vk==='C'&&reportOpen&&act, inLog=vk==='A'&&logOpen&&act&&cur.pane===3;
+  const asking=act&&act.sc.ask&&(statusMsg?.sc===act.sc||modal||report);
+  if(k==='Escape'){if(asking){statusMsg={sc:{kind:'info',sum:'EXPORT CANCELLED',items:[]},until:performance.now()+2500};if(vk==='B')act={sc:statusMsg.sc};if(vk==='C')reportOpen=false;if(vk==='A')logOpen=false;draw();return}dismiss();draw();return}
+  if(k==='Enter'&&asking){const msg=act.sc.id==='drift'?'EXPORTED TO DEMO.P8 (OVERWROTE SFX 0A 0B 11, PATTERN 03)':'LOCATE CART... (FILE PICKER, SEE TARGET CART TICKET)';statusMsg={sc:{kind:'info',sum:msg,items:[]},until:performance.now()+3500};if(vk==='B')act={sc:statusMsg.sc};reportOpen=false;logOpen=false;draw();e.preventDefault();return}
+  if(k==='l'||k==='L'){if(vk==='A'&&act){logOpen=!logOpen;if(logOpen)cur.pane=3;else if(cur.pane===3)cur.pane=0}if(vk==='C'&&act)reportOpen=!reportOpen;draw();return}
+  if((k==='n'||k==='N')&&vk==='C'&&markers.length){const i=(markers.findIndex(m=>m.srow===cur.srow&&m.t===cur.t&&m.crow===cur.crow&&m.prow===cur.prow)+1)%markers.length;jump(markers[i]);draw();return}
+  const sel=modal||report||inLog;
+  if(sel&&(k==='ArrowUp'||k==='ArrowDown')){const n=act.sc.items.length;act.sel=(act.sel+(k==='ArrowUp'?n-1:1))%n;e.preventDefault();draw();return}
+  if(sel&&k==='Enter'){const it=act.sc.items[act.sel];if(it.loc){jump(it.loc);if(vk==='B')act=null;if(vk==='C')reportOpen=false}e.preventDefault();draw();return}
+  if(modal||report){e.preventDefault();return} // the box/report holds the keys
+  if(k==='Tab'){const np=vk==='A'&&logOpen&&act?4:3;cur.pane=(cur.pane+(e.shiftKey?np-1:1))%np;e.preventDefault();draw();return}
+  const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[k];if(!d)return;e.preventDefault();
+  const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+  if(cur.pane===0){cur.t=cl(cur.t+d[0],0,7);cur.srow=cl(cur.srow+d[1],0,63)}else if(cur.pane===1)cur.crow=cl(cur.crow+d[1],0,15);else if(cur.pane===2)cur.prow=cl(cur.prow+d[1],0,(P[phraseId()]?.len??16)-1);
+  draw()});
+addEventListener('resize',fit);
+const keys=['A','B','C'];
+function setV(k){vk=k;act=null;statusMsg=null;markers=[];reportOpen=false;logOpen=false;if(cur.pane>2)cur.pane=0;const u=new URL(location);u.searchParams.set('variant',k);history.replaceState(null,'',u);document.getElementById('lbl').textContent=k+' ('+VD[k][0]+')';side();draw()}
+document.getElementById('prev').onclick=()=>setV(keys[(keys.indexOf(vk)+2)%3]);
+document.getElementById('next').onclick=()=>setV(keys[(keys.indexOf(vk)+1)%3]);
+const q=new URLSearchParams(location.search).get('variant');setV(keys.includes(q)?q:'A');
+setInterval(()=>{if(statusMsg&&statusMsg.until!==Infinity)draw()},250);
+</script></body></html>
