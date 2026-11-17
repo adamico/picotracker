@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chain Alignment Prototype</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1d1b18;--mut:#6b665e;--line:#e3dfd6;--card:#fff;--acc:#d6336c;--ok:#2f9e44;--warn:#e8590c;--err:#c92a2a;
+ --t0:#4dabf7;--t1:#69db7c;--t2:#ffa94d;--t3:#b197fc}
+@media (prefers-color-scheme:dark){:root{--bg:#16151a;--fg:#ece9e4;--mut:#9a958c;--line:#2e2c33;--card:#1e1d23}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 80px}
+h1{margin:0 0 4px;font-size:24px}h2{font-size:17px;margin:28px 0 10px}h3{font-size:15px;margin:0 0 8px}
+p{margin:6px 0}.mut{color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0}
+.intro{border-left:4px solid var(--acc)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+button{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button.done{opacity:.45}
+input,select{font:inherit;padding:3px 5px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--fg)}
+input[type=number]{width:60px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+td,th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.tabs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.tl{position:relative;margin:6px 0 2px}
+.lane{position:relative;height:26px;margin:3px 0;background:repeating-linear-gradient(90deg,transparent 0 calc(var(--px)*16 - 1px),var(--line) 0 calc(var(--px)*16))}
+.lane .lbl{position:absolute;left:-74px;width:70px;text-align:right;font-size:12px;color:var(--mut);top:4px}
+.blk{position:absolute;top:2px;height:22px;border-radius:4px;font-size:11px;padding:2px 4px;overflow:hidden;white-space:nowrap;color:#111}
+.blk.sil{background:repeating-linear-gradient(45deg,transparent 0 4px,var(--line) 4px 8px)!important;color:var(--mut)}
+.cut{position:absolute;top:-4px;bottom:-4px;width:0;border-left:2px dashed var(--acc)}
+.tlwrap{padding-left:78px;overflow-x:auto}
+.kv{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0}
+.kv b{font-size:20px;display:block}
+.msg{font-size:13px;margin:3px 0;padding:3px 8px;border-radius:5px}
+.msg.err{background:color-mix(in srgb,var(--err) 14%,transparent);color:var(--err)}
+.msg.warn{background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--warn)}
+.msg.ok{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+.chg{outline:2px solid var(--acc);outline-offset:2px}
+code{font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>Chain alignment: lockstep vs free-running</h1>
+<p class="mut">PROTOTYPE, throwaway. Decision aid for Q1 of "How Export compiles a Project into a Cart" (adamico/picotracker#10).</p>
+
+<div class="card intro">
+<p><b>The question.</b> A Song row holds one Chain per Track, and each Chain is a list of Phrases. A PICO-8 Pattern holds one SFX per channel and ends when its left-most non-looping channel ends. How should parallel Chains become Patterns?</p>
+<p><b>Lockstep (a):</b> the k-th Phrase of every Track plays together as one Pattern. The next position starts when the longest one ends, and shorter ones go silent. Each Phrase is one SFX.</p>
+<p><b>Free-running (b):</b> each Chain plays its Phrases back to back, like the M8. Export cuts time wherever any Track's Phrase begins or ends, and splits Phrases into SFX at those cuts. A cut that lands mid-Step can't be exported, and a cut mid-arpeggio-group shifts the arpeggio.</p>
+<p><b>Lockstep + repeat-to-fill (c):</b> PICO-8's own model. A Cart is a flat list of Patterns, with no Chains. Each Pattern is 4 SFX that play together, and a looping SFX repeats until the Pattern ends. Here one Chain position is one Pattern, and a Chain entry marked ⟳ compiles to a looping SFX. The position lasts as long as its longest non-⟳ Phrase.</p>
+<p class="mut">Each timeline below is one Song row on a shared Tick axis (gridlines every 16 Ticks). Dashed lines mark where a new Pattern starts. Hatched blocks are silence.</p>
+</div>
+
+<h2>Guided walkthroughs</h2>
+<div class="card">
+<div class="tabs" id="tabs"></div>
+<div id="scen"></div>
+</div>
+
+<h2>Current Song row</h2>
+<div class="grid2">
+<div class="card">
+<h3>Phrases</h3>
+<table id="phr"></table>
+<div class="steps"><button id="addP">+ new Phrase</button></div>
+</div>
+<div class="card">
+<h3>Chains (one per Track)</h3>
+<table id="chn"></table>
+</div>
+</div>
+
+<h2>What Export would produce</h2>
+<div class="grid2">
+<div class="card" id="outA"></div>
+<div class="card" id="outB"></div>
+<div class="card" id="outC" style="grid-column:1/-1"></div>
+</div>
+</main>
+
+<script>
+/* ===== Pure module: liftable, no DOM ===== */
+const Align = (() => {
+  const ticks = p => p.steps * p.speed;
+  // A Chain entry "Kick*" means: repeat this Phrase until the Chain position ends.
+  const ent = s => ({ name: s.replace("*", ""), rep: s.endsWith("*") });
+
+  // Lockstep: position k = k-th Phrase of each Track = one Pattern.
+  // fill=false: (a) every Phrase plays once. fill=true: (c) "*" entries
+  // compile to a looping SFX, as PICO-8 does within a Pattern.
+  function lockstep(row, fill = false) {
+    const { phrases, chains } = row;
+    const positions = Math.max(0, ...chains.map(c => c.length));
+    const patterns = [], blocks = chains.map(() => []), msgs = [];
+    const sfx = new Set();
+    let t = 0;
+    for (let k = 0; k < positions; k++) {
+      const here = chains.map(c => { if (!c[k]) return null; const e = ent(c[k]); return { p: phrases[e.name], rep: fill && e.rep }; });
+      const plain = here.filter(h => h && !h.rep), pool = plain.length ? plain : here.filter(h => h);
+      const len = Math.max(0, ...pool.map(h => ticks(h.p)));
+      here.forEach((h, i) => {
+        if (!h) { blocks[i].push({ start: t, len, silent: true, label: "off" }); return; }
+        const pl = ticks(h.p);
+        sfx.add(h.p.name + (h.rep ? "⟳" : ""));
+        if (h.rep) {
+          for (let s = 0; s < len; s += pl) blocks[i].push({ start: t + s, len: Math.min(pl, len - s), label: (s ? "⟳ " : "") + h.p.name });
+          return;
+        }
+        blocks[i].push({ start: t, len: Math.min(pl, len), label: h.p.name });
+        if (pl < len) blocks[i].push({ start: t + pl, len: len - pl, silent: true, label: "silent" });
+      });
+      // PICO-8: the Pattern ends when the left-most non-looping channel ends.
+      const lead = here.findIndex(h => h && !h.rep);
+      if (lead >= 0 && ticks(here[lead].p) < len)
+        msgs.push({ kind: "warn", text: `Pattern ${k + 1}: the left-most non-looping channel (Track ${lead + 1}) is shorter than the longest Phrase, so PICO-8 would cut the Pattern short. Round 2 decides the fix.` });
+      patterns.push({ start: t, len });
+      t += len;
+    }
+    return { patterns, blocks, sfxCount: sfx.size, total: t, msgs };
+  }
+
+  // Free-running: each Chain back to back; cut at union of boundaries.
+  function freeRunning(row) {
+    const { phrases, chains } = row;
+    const spans = chains.map(c => { let t = 0; return c.map(n => { const p = phrases[ent(n).name]; const s = { p, start: t, end: t + ticks(p) }; t = s.end; return s; }); });
+    const total = Math.max(0, ...spans.map(s => s.length ? s[s.length - 1].end : 0));
+    const cutSet = new Set([0, total]);
+    spans.forEach(s => s.forEach(x => { cutSet.add(x.start); cutSet.add(x.end); }));
+    const cuts = [...cutSet].sort((a, b) => a - b);
+    const patterns = [], blocks = chains.map(() => []), msgs = [], sfx = new Set();
+    for (let j = 0; j + 1 < cuts.length; j++) {
+      const a = cuts[j], b = cuts[j + 1];
+      patterns.push({ start: a, len: b - a });
+      spans.forEach((s, i) => {
+        const x = s.find(x => x.start <= a && a < x.end);
+        if (!x) { blocks[i].push({ start: a, len: b - a, silent: true, label: "off" }); return; }
+        const offT = a - x.start, endT = Math.min(b, x.end) - x.start;
+        const p = x.p, s0 = offT / p.speed, s1 = endT / p.speed;
+        const split = !(offT === 0 && x.end === b);
+        let bad = false;
+        if (!Number.isInteger(s0) || !Number.isInteger(s1)) {
+          bad = true;
+          msgs.push({ kind: "err", text: `Pattern ${j + 1}: a cut lands mid-Step in "${p.name}" on Track ${i + 1} (Step ${s0.toFixed(2)}–${s1.toFixed(2)}). Export fails.` });
+        } else if (split && p.arp && (s0 % 4 || (s1 % 4 && s1 !== p.steps))) {
+          msgs.push({ kind: "warn", text: `Pattern ${j + 1}: "${p.name}" on Track ${i + 1} is split at Step ${s0 % 4 ? s0 : s1}, which is not a multiple of 4, so its arpeggio groups shift.` });
+        }
+        const label = split ? `${p.name}[${Number.isInteger(s0) ? s0 : s0.toFixed(1)}–${Number.isInteger(s1) ? s1 : s1.toFixed(1)})` : p.name;
+        blocks[i].push({ start: a, len: Math.min(b, x.end) - a, label, bad });
+        sfx.add(label);
+      });
+    }
+    return { patterns, blocks, sfxCount: sfx.size, total, msgs };
+  }
+  return { lockstep, freeRunning, ticks };
+})();
+
+/* ===== Page shell ===== */
+const P = (name, steps, speed, arp = false) => ({ name, steps, speed, arp });
+const SCEN = [
+  { title: "Even Phrases", desc: "Every Track uses 16-Step Phrases at Speed 16. This is the common case: both models should give the same result.",
+    row: { phrases: { Lead: P("Lead", 16, 16), Bass: P("Bass", 16, 16), Drm: P("Drm", 16, 16) }, chains: [["Lead", "Lead"], ["Bass", "Bass"], ["Drm", "Drm"], []] },
+    steps: [["Add a 3rd Lead to Track 1", r => r.chains[0].push("Lead")], ["Make Drm 32 Steps long", r => r.phrases.Drm.steps = 32]] },
+  { title: "Uneven Chains", desc: "Track 1 plays two 16-Step Phrases while Track 2 plays one 32-Step Phrase. In the M8 these line up. Watch the total length and the silence.",
+    row: { phrases: { A: P("A", 16, 16), Long: P("Long", 32, 16) }, chains: [["A", "A"], ["Long"], [], []] },
+    steps: [["Add a 2nd Long on Track 2", r => r.chains[1].push("Long")], ["Add two more A on Track 1", r => r.chains[0].push("A", "A")]] },
+  { title: "Short drum loop", desc: "A typical M8 idiom: a 32-Step bass under a Chain of four 8-Step drum hits. Lockstep makes the drums wait for the bass. Free-running splits the bass into 4 SFX.",
+    row: { phrases: { Bass: P("Bass", 32, 16), Kick: P("Kick", 8, 16) }, chains: [["Bass"], ["Kick", "Kick", "Kick", "Kick"], [], []] },
+    steps: [["Swap: put the drums on Track 1", r => { const t = r.chains[0]; r.chains[0] = r.chains[1]; r.chains[1] = t; }], ["Halve the bass to 16 Steps", r => r.phrases.Bass.steps = 16]] },
+  { title: "Drum loop, PICO-8 style", desc: "The same groove written the PICO-8 way: one Kick in the Chain, marked ⟳ (repeat until the position ends). Only (c) reads ⟳; it compiles to a looping SFX, so the whole groove is one Pattern. (a) and (b) treat ⟳ Kick as a single Kick.",
+    row: { phrases: { Bass: P("Bass", 32, 16), Kick: P("Kick", 8, 16) }, chains: [["Bass"], ["Kick*"], [], []] },
+    steps: [["Make Kick 6 Steps (doesn't divide 32)", r => r.phrases.Kick.steps = 6], ["Put the drums on Track 1", r => { const t = r.chains[0]; r.chains[0] = r.chains[1]; r.chains[1] = t; }], ["Turn off ⟳ on Kick", r => r.chains[0] = ["Kick"]]] },
+  { title: "Double-time drums", desc: "Drums at Speed 8 with 32 Steps, against a melody at Speed 16 with 16 Steps. Both last 256 Ticks, so both models line up.",
+    row: { phrases: { Mel: P("Mel", 16, 16), Hat: P("Hat", 32, 8) }, chains: [["Mel", "Mel"], ["Hat", "Hat"], [], []] },
+    steps: [["Make Mel 12 Steps", r => r.phrases.Mel.steps = 12]] },
+  { title: "Cut mid-Step", desc: "Speeds that don't divide evenly. Track 1 lasts 48 Ticks (3 Steps × 16), and Track 2's Steps are 10 Ticks each. A free-running cut at Tick 48 falls inside a Step.",
+    row: { phrases: { Tri: P("Tri", 3, 16), Ten: P("Ten", 8, 10) }, chains: [["Tri", "Tri"], ["Ten"], [], []] },
+    steps: [["Change Ten to Speed 8", r => r.phrases.Ten.speed = 8]] },
+  { title: "Arpeggio split", desc: "Arpeggio Phrases of 6 Steps against one of 12. Free-running splits the 12-Step Phrase at Step 6, in the middle of a group of 4.",
+    row: { phrases: { Six: P("Six", 6, 16, true), Twelve: P("Twelve", 12, 16, true) }, chains: [["Six", "Six"], ["Twelve"], [], []] },
+    steps: [["Make Six 8 Steps and Twelve 16", r => { r.phrases.Six.steps = 8; r.phrases.Twelve.steps = 16; }]] },
+];
+
+let row, scen = 0, stepIx = 0, lastChange = "";
+const clone = o => JSON.parse(JSON.stringify(o));
+function loadScen(i) { scen = i; stepIx = 0; row = clone(SCEN[i].row); lastChange = "Scenario loaded"; render(); }
+
+function renderTabs() {
+  document.getElementById("tabs").innerHTML = SCEN.map((s, i) => `<button class="${i === scen ? "on" : ""}" onclick="loadScen(${i})">${s.title}</button>`).join("");
+  const s = SCEN[scen];
+  document.getElementById("scen").innerHTML = `<p>${s.desc}</p><div class="steps">` +
+    `<button onclick="loadScen(${scen})">↺ Reset</button>` +
+    s.steps.map((st, j) => `<button class="${j < stepIx ? "done" : j === stepIx ? "pri" : ""}" ${j === stepIx ? "" : "disabled"} onclick="doStep(${j})">${j + 1}. ${st[0]}</button>`).join("") +
+    `</div><p class="mut" style="margin-top:8px">Last change: ${lastChange}</p>`;
+}
+function doStep(j) { const st = SCEN[scen].steps[j]; st[1](row); stepIx = j + 1; lastChange = st[0]; render(); }
+
+function renderEditor() {
+  const names = Object.keys(row.phrases);
+  document.getElementById("phr").innerHTML = `<tr><th>Phrase</th><th>Steps</th><th>Speed</th><th>Ticks</th><th>Arp</th></tr>` +
+    names.map(n => { const p = row.phrases[n]; return `<tr><td><b>${n}</b></td>
+      <td><input type="number" min="1" max="32" value="${p.steps}" onchange="setP('${n}','steps',this.value)"></td>
+      <td><input type="number" min="1" max="255" value="${p.speed}" onchange="setP('${n}','speed',this.value)"></td>
+      <td class="mut">${Align.ticks(p)}</td>
+      <td><input type="checkbox" ${p.arp ? "checked" : ""} onchange="setP('${n}','arp',this.checked)"></td></tr>`; }).join("");
+  document.getElementById("chn").innerHTML = row.chains.map((c, i) => `<tr><td style="color:var(--t${i});font-weight:600">Track ${i + 1}</td><td>` +
+    c.map((n, k) => `<span><button title="toggle repeat-to-fill" onclick="tgC(${i},${k})" style="padding:0 5px;margin-right:2px">${ent(n).rep ? "⟳" : "·"}</button>${ent(n).name}<button title="remove" onclick="rmC(${i},${k})" style="padding:0 5px;margin:0 6px 0 2px">×</button></span>`).join("") +
+    `<select onchange="addC(${i},this.value)"><option value="">+ add</option>${names.map(n => `<option>${n}</option>`).join("")}</select></td></tr>`).join("");
+}
+function setP(n, k, v) { row.phrases[n][k] = k === "arp" ? v : Math.max(1, Math.min(k === "steps" ? 32 : 255, +v || 1)); lastChange = `${n}: ${k} → ${row.phrases[n][k]}`; render(); }
+function addC(i, n) { if (!n) return; row.chains[i].push(n); lastChange = `Track ${i + 1}: added ${n}`; render(); }
+const ent = s => ({ name: s.replace("*", ""), rep: s.endsWith("*") });
+function tgC(i, k) { const e = ent(row.chains[i][k]); row.chains[i][k] = e.rep ? e.name : e.name + "*"; lastChange = `Track ${i + 1}: ${e.name} repeat ${e.rep ? "off" : "on"}`; render(); }
+function rmC(i, k) { const n = row.chains[i].splice(k, 1)[0]; lastChange = `Track ${i + 1}: removed ${n}`; render(); }
+document.getElementById("addP").onclick = () => { const n = "P" + (Object.keys(row.phrases).length + 1); row.phrases[n] = P(n, 16, 16); lastChange = `New Phrase ${n}`; render(); };
+
+function renderOut(el, title, r, other) {
+  const maxT = Math.max(r.total, other.total, 1);
+  const px = Math.max(1, Math.min(4, 760 / maxT));
+  const lanes = r.blocks.map((bs, i) => `<div class="lane" style="--px:${px}px;width:${maxT * px}px"><span class="lbl">Track ${i + 1}</span>` +
+    bs.map(b => `<div class="blk ${b.silent ? "sil" : ""}" style="left:${b.start * px}px;width:${Math.max(2, b.len * px - 2)}px;background:var(--t${i});${b.bad ? "outline:2px solid var(--err)" : ""}" title="${b.label} · ${b.len} Ticks">${b.label}</div>`).join("") + `</div>`).join("");
+  const cuts = r.patterns.map(p => `<div class="cut" style="left:${p.start * px}px"></div>`).join("");
+  const msgs = r.msgs.length ? r.msgs.map(m => `<div class="msg ${m.kind}">${m.text}</div>`).join("") : `<div class="msg ok">Exports cleanly.</div>`;
+  el.innerHTML = `<h3>${title}</h3>
+    <div class="kv"><div><b>${r.total}</b><span class="mut">Ticks in row</span></div><div><b>${r.patterns.length}</b><span class="mut">Patterns</span></div><div><b>${r.sfxCount}</b><span class="mut">distinct SFX</span></div></div>
+    <div class="tlwrap"><div class="tl">${cuts}${lanes}</div></div>
+    <p class="mut" style="font-size:13px">Pattern lengths: ${r.patterns.map(p => p.len).join(", ") || "none"}</p>${msgs}`;
+}
+function render() {
+  renderTabs(); renderEditor();
+  const a = Align.lockstep(row), b = Align.freeRunning(row), c = Align.lockstep(row, true);
+  const big = [a, b, c].reduce((m, r) => r.total > m.total ? r : m);
+  renderOut(document.getElementById("outA"), "(a) Lockstep", a, big);
+  renderOut(document.getElementById("outB"), "(b) Free-running", b, big);
+  renderOut(document.getElementById("outC"), "(c) Lockstep + repeat-to-fill (PICO-8 Pattern model)", c, big);
+}
+loadScen(0);
+</script>
+</body>
+</html>
