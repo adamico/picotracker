@@ -1,0 +1,13 @@
+# PROTOTYPE — throwaway playback spike for adamico/picotracker#15. Never merged.
+[package]
+name = "playback-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+cpal = "0.18"
+png = "0.17"
+
+[profile.dev]
+opt-level = 2

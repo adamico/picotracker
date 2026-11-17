@@ -1,0 +1,28 @@
+sfx08 sfx 8 waveform 0 through effects 0..7 (4 notes each)
+sfx09 sfx 9 waveform 1 through effects 0..7 (4 notes each)
+sfx10 sfx 10 waveform 2 through effects 0..7 (4 notes each)
+sfx11 sfx 11 waveform 3 through effects 0..7 (4 notes each)
+sfx12 sfx 12 waveform 4 through effects 0..7 (4 notes each)
+sfx13 sfx 13 waveform 5 through effects 0..7 (4 notes each)
+sfx14 sfx 14 waveform 6 through effects 0..7 (4 notes each)
+sfx15 sfx 15 waveform 7 through effects 0..7 (4 notes each)
+sfx16 sfx 16 noise with NOIZ
+sfx17 sfx 17 noise with BUZZ (brown noise)
+sfx18 sfx 18 all waveforms with BUZZ
+sfx19 sfx 19 all waveforms with DETUNE 1
+sfx20 sfx 20 all waveforms with DETUNE 2
+sfx21 sfx 21 saw melody with REVERB 1
+sfx22 sfx 22 saw melody with REVERB 2 (zepto8 bug, fake-08 fix)
+sfx23 sfx 23 saw melody with DAMPEN 1
+sfx24 sfx 24 saw melody with DAMPEN 2
+sfx25 sfx 25 SFX instrument 0: repeats, gap, pitch changes, slide, drop (retrigger rule)
+sfx26 sfx 26 fast arp at speed 8 (arp rate halved)
+sfx27 sfx 27 fast arp at speed 9
+sfx28 sfx 28 looping SFX (loop 0-8, speed 12)
+sfx29 sfx 29 LEN 12 SFX (speed 12)
+sfx30 sfx 30 looping SFX (loop 0-16, speed 6)
+music0 music 0 waveforms 0-3 together
+music1 music 1 waveforms 4-7 together
+music2 music 2 pattern length: loop + LEN (LEN wins)
+music3 music 3 pattern length: all looping (longest)
+music4 music 4 SFX instrument + reverb + arp together
