@@ -1,0 +1,177 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway decision aid for adamico/picotracker#14. Never merge.
+     Three variants of the Song/Chain/Phrase/Instrument views + key bindings, switch with ?variant=A|B|C
+     (or the bottom bar). Click the screen first so it gets keys. -->
+<html><head><meta charset="utf-8"><title>Views and keys prototype</title>
+<style>
+body{background:#111;color:#ccc;font:13px monospace;margin:0;padding:16px;display:flex;gap:20px;flex-wrap:wrap}
+#scr{background:#000;outline:2px solid #333;white-space:pre;font:16px/18px monospace;padding:10px;color:#c2c3c7;min-width:40ch}
+#scr:focus{outline-color:#29adff}
+.t{color:#ffec27}.d{color:#5f574f}.c{background:#29adff;color:#000}.p{color:#00e436}.f{color:#ff77a8}.h{color:#83769c}.sel{background:#7e2553;color:#fff}.pl{background:#1d2b53}
+.pane{display:inline-block;vertical-align:top;margin-right:2ch}
+#side{max-width:520px}#side h3{color:#ffec27;margin:4px 0}#side table{border-collapse:collapse}#side td{padding:1px 8px 1px 0;vertical-align:top}#side td:first-child{color:#29adff;white-space:nowrap}
+#state{white-space:pre;color:#888;font-size:11px;max-height:260px;overflow:auto;border-top:1px solid #333;margin-top:8px;padding-top:4px}
+#bar{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:#fff;color:#000;border-radius:20px;padding:6px 14px;box-shadow:0 2px 12px #000a;font:bold 13px sans-serif;display:flex;gap:12px;align-items:center}
+#bar button{border:0;background:#000;color:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer}
+</style></head><body>
+<div><div id="scr" tabindex="0"></div><div id="msg" style="color:#ff77a8;margin-top:6px;height:1em"></div></div>
+<div id="side"><h3 id="vname"></h3><div id="keys"></div><div id="state"></div></div>
+<div id="bar"><button id="prev">◀</button><span id="lbl"></span><button id="next">▶</button></div>
+<script>
+// ---------- model (in memory, fake data) ----------
+const NOTES=['C-','C#','D-','D#','E-','F-','F#','G-','G#','A-','A#','B-'];
+const hex=(v,n=2)=>v==null?'-'.repeat(n):v.toString(16).toUpperCase().padStart(n,'0');
+const nn=n=>NOTES[n%12]+Math.floor(n/12);
+const mkPhrase=(notes,i=0)=>({spd:16,len:16,filt:{noiz:0,buzz:0,det:0,rev:0,damp:0},
+  steps:Array.from({length:32},(_,k)=>{const n=notes[k];return n==null?{n:24,i,v:0,fx:0}:{n,i,v:5,fx:0}})});
+const P={0:mkPhrase([24,,,,31,,,,36,,,,31],2),1:mkPhrase([36,36,36,,39,,41,,43,43,,,41,,39],4),2:mkPhrase([12,,,,12,,,,15,,,,10],1),3:mkPhrase([30,,30,,30,30,,30],6)};
+P[3].len=8;
+const ce=(ph,tsp=0,fill=false)=>({ph,tsp,fill});
+const C={0:[ce(0),ce(0,5),ce(1),ce(1,-2)],1:[ce(2),ce(2),ce(2,3),ce(2)],2:[ce(3,0,true),ce(3,0,true),ce(3,0,true),ce(3,0,true)]};
+for(const k in C)while(C[k].length<16)C[k].push(ce(null));
+const song=Array.from({length:32},()=>Array(8).fill(null));song[0]=[0,1,2,null,null,null,null,null];song[1]=[0,1,null,null,null,null,null,null];
+const INST=['TRI','TSAW','SAW','SQR','PULSE','ORGAN','NOISE','PHASR'];
+const custom={8:{kind:'WAVE',name:'BELL',wave:Array.from({length:64},(_,i)=>Math.round(32+31*Math.sin(i/64*2*Math.PI)*Math.cos(i/16)))},
+              9:{kind:'SFX',name:'PLUCK',ph:mkPhrase([24,24,36,24,,,,],3)}};
+const cur={view:'song',t:0,srow:0,crow:0,prow:0,col:0,hdr:-1,inst:8,wx:0,sel:null};
+let last={chain:0,ph:0,n:24,i:2,v:5,fx:0},clip=null,play=null,pane=0,msgT;
+const msg=s=>{document.getElementById('msg').textContent=s;clearTimeout(msgT);msgT=setTimeout(()=>msg(''),2500)};
+const chainId=()=>song[cur.srow][cur.t];
+const entry=()=>{const c=chainId();return c==null?null:C[c][cur.crow]};
+const phraseId=()=>{const e=entry();return e?e.ph:null};
+const freeId=o=>{let i=0;while(o[i]!=null)i++;return i};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+// length of each Chain row (ADR 0005): longest non-Fill Phrase; all-Fill → longest
+function rowLen(srow,k){let m=0,mf=0;for(let t=0;t<8;t++){const c=song[srow][t];if(c==null)continue;const e=C[c][k];if(e.ph==null)continue;const L=P[e.ph].len*P[e.ph].spd;if(e.fill)mf=Math.max(mf,L);else m=Math.max(m,L)}return m||mf}
+// ---------- generic cell edit (used by every variant) ----------
+function edit(d,coarse){
+  const v=cur.view;
+  if(v==='song'){const c=chainId();song[cur.srow][cur.t]=clamp((c??last.chain)+d*(coarse?16:1),0,255);C[song[cur.srow][cur.t]]??=Array.from({length:16},()=>ce(null));last.chain=song[cur.srow][cur.t]}
+  else if(v==='chain'){const e=entry();if(!e)return msg('no Chain here: put one in the Song first');
+    if(cur.col===0){e.ph=clamp((e.ph??last.ph)+d*(coarse?16:1),0,255);P[e.ph]??=mkPhrase([]);last.ph=e.ph}
+    else if(cur.col===1)e.tsp=clamp(e.tsp+d*(coarse?12:1),-128,127);else e.fill=!e.fill}
+  else if(v==='phrase'){const p=P[phraseId()];if(!p)return msg('no Phrase here');
+    if(cur.hdr>=0){const k=HDR[cur.hdr];if(k==='spd')p.spd=clamp(p.spd+d*(coarse?16:1),1,255);else if(k==='len')p.len=clamp(p.len+d*(coarse?4:1),1,32);else p.filt[k]=clamp(p.filt[k]+d,0,k==='noiz'||k==='buzz'?1:2);return}
+    const s=p.steps[cur.prow];
+    if(cur.col===0){if(s.v===0){s.v=last.v;s.n=last.n;s.i=last.i}else s.n=clamp(s.n+d*(coarse?12:1),0,63);last.n=s.n}
+    else if(cur.col===1){s.i=clamp(s.i+d*(coarse?16:1),0,255);last.i=s.i}
+    else if(cur.col===2){s.v=clamp(s.v+d,0,7);last.v=s.v}else s.fx=clamp(s.fx+d,0,7)}
+  else if(v==='inst'){const ci=custom[cur.inst];if(ci?.kind==='WAVE')ci.wave[cur.wx]=clamp(ci.wave[cur.wx]+d*(coarse?8:1),0,63)}
+}
+function clearCell(){const v=cur.view;
+  if(v==='song')song[cur.srow][cur.t]=null;
+  else if(v==='chain'){const e=entry();if(e){if(cur.col===0)e.ph=null;else if(cur.col===1)e.tsp=0;else e.fill=false}}
+  else if(v==='phrase'){const p=P[phraseId()];if(p&&cur.hdr<0)p.steps[cur.prow].v=0}}
+function newUnused(){ if(cur.view==='song'){const id=freeId(C);C[id]=Array.from({length:16},()=>ce(null));song[cur.srow][cur.t]=id;msg('new Chain '+hex(id))}
+  else if(cur.view==='chain'&&entry()){const id=freeId(P);P[id]=mkPhrase([]);entry().ph=id;msg('new Phrase '+hex(id))}}
+function clone(){ if(cur.view==='song'&&chainId()!=null){const id=freeId(C);C[id]=C[chainId()].map(e=>({...e}));song[cur.srow][cur.t]=id;msg('cloned Chain → '+hex(id))}
+  else if(cur.view==='chain'&&phraseId()!=null){const id=freeId(P);P[id]=JSON.parse(JSON.stringify(P[phraseId()]));entry().ph=id;msg('cloned Phrase → '+hex(id))}}
+const HDR=['spd','len','noiz','buzz','det','rev','damp'];
+const COLS={song:8,chain:3,phrase:4,inst:1};
+function move(dx,dy){const v=cur.view;
+  if(v==='song'){cur.t=clamp(cur.t+dx,0,7);cur.srow=clamp(cur.srow+dy,0,31)}
+  else if(v==='chain'){cur.col=clamp(cur.col+dx,0,2);cur.crow=clamp(cur.crow+dy,0,15)}
+  else if(v==='phrase'){if(cur.hdr>=0){cur.hdr=clamp(cur.hdr+dx,0,6);if(dy>0)cur.hdr=-1}else{cur.col=clamp(cur.col+dx,0,3);if(dy<0&&cur.prow===0){cur.hdr=0;return}const p=P[phraseId()];cur.prow=clamp(cur.prow+dy,0,(p?.len??16)-1)}}
+  else if(v==='inst'){if(dy){cur.inst=clamp(cur.inst+dy,0,9)}cur.wx=clamp(cur.wx+dx*1,0,63)}}
+function togglePlay(){if(play){clearInterval(play.h);play=null;return}
+  const scope=cur.view;play={row:0,h:setInterval(()=>{play.row++;if(play.row>=(P[phraseId()]?.len??16))play.row=0;draw()},(P[phraseId()]?.spd??16)*1000/120)};msg('▶ playing '+scope+' (fake: playhead only)')}
+// ---------- rendering ----------
+const S=(t,c='')=>c?`<span class="${c}">${t}</span>`:t;
+function songLines(focus=true){const L=[S('SONG','t')+'        '+S('T1 T2 T3 T4 T5 T6 T7 T8','h')];
+  const top=clamp(cur.srow-7,0,16);
+  for(let r=top;r<top+16;r++){let s=S(hex(r),'h')+'  ';for(let t=0;t<8;t++){const c=song[r][t];const on=focus&&r===cur.srow&&t===cur.t;s+=S(hex(c),on?'c':c==null?'d':'')+' '}L.push(s)}
+  return L}
+function chainLines(focus=true){const c=chainId();const L=[S('CHAIN '+hex(c),'t')+S(`  T${cur.t+1} row ${hex(cur.srow)}`,'h'),S('   PH TSP FILL','h')];
+  for(let k=0;k<16;k++){const e=c==null?ce(null):C[c][k];const on=x=>focus&&k===cur.crow&&cur.col===x?'c':'';
+    L.push(S(hex(k,1),'h')+'  '+S(hex(e.ph),on(0)||(e.ph==null?'d':''))+' '+S((e.tsp>=0?'+':'-')+hex(Math.abs(e.tsp)),on(1)||(e.ph==null?'d':''))+'  '+S(e.fill?'FILL':'----',on(2)||(e.fill?'f':'d')))}
+  return L}
+function lockstepLines(){const L=[S('CHAIN ROWS (lockstep, ADR 0005)','t'),S(' k  T1 T2 T3 T4 T5 T6 T7 T8  TICKS','h')];
+  for(let k=0;k<8;k++){let s=' '+hex(k,1)+'  ';for(let t=0;t<8;t++){const c=song[cur.srow][t];const e=c==null?null:C[c][k];const txt=e?.ph==null?'--':hex(e.ph);s+=S(txt,(t===cur.t&&k===cur.crow)?'c':e?.fill?'f':e?.ph==null?'d':'p')+' '}
+    const len=rowLen(cur.srow,k);L.push(s+' '+(len?String(len).padStart(4):S('   -','d')))}
+  L.push(S(' pink = Fill (loops to fill the row)','h'));return L}
+function phraseLines(focus=true){const id=phraseId(),p=P[id];const L=[S('PHRASE '+hex(id),'t')+S(` T${cur.t+1} ch${hex(chainId())}`,'h')];
+  if(!p){L.push(S('(no Phrase under the Chain cursor)','d'));return L}
+  const bpm=Math.round(1807/p.spd);
+  let h='';HDR.forEach((k,i)=>{const val=k==='spd'||k==='len'?hex(p[k]):String(p.filt[k]);h+=S(k.toUpperCase()+' '+val,focus&&cur.hdr===i?'c':'')+(i===1?'  ':' ')});
+  L.push(h);L.push(S(`~${bpm} BPM   N   I  V F`,'h'));
+  for(let k=0;k<p.len;k++){const s=p.steps[k];const on=x=>focus&&cur.hdr<0&&k===cur.prow&&cur.col===x?'c':'';const silent=s.v===0;
+    let line=S(hex(k),k%4===0?'p':'h')+'         '+S(silent?'---':nn(s.n),on(0)||(silent?'d':''))+' '+S(silent?'--':hex(s.i),on(1)||(silent?'d':s.i>=8?'f':''))+' '+S(silent?'-':String(s.v),on(2)||(silent?'d':''))+' '+S(String(s.fx),on(3)||(s.fx?'':'d'));
+    if(play&&play.row===k)line=S(line,'pl');L.push(line)}
+  return L}
+function instLines(){const ci=custom[cur.inst];const L=[S('INSTRUMENT '+hex(cur.inst),'t')+'  '+S(cur.inst<8?'BUILT-IN '+INST[cur.inst]:ci?ci.kind+' '+ci.name:'(empty)','h')];
+  if(cur.inst<8){L.push(S('Built-in Instruments have no settings.','d'));return L}
+  if(ci?.kind==='WAVE'){for(let y=7;y>=0;y--){let s='';for(let x=0;x<64;x+=2){const v=ci.wave[x]>>3;s+=S(v>=y?'█':' ',x===cur.wx-(cur.wx%2)?'p':'')}L.push(s)}L.push(S(`sample ${hex(cur.wx)} = ${hex(ci.wave[cur.wx])}  (64 samples, ←→ pick, edit up/down)`,'h'))}
+  if(ci?.kind==='SFX'){L.push(S('SFX Instrument = a mini Phrase: SPD, filters, LOOP start/end','h'));ci.ph.steps.slice(0,8).forEach((s,k)=>L.push(S(hex(k),'h')+'  '+(s.v?nn(s.n)+' '+hex(s.i)+' '+s.v:S('--- -- -','d'))))}
+  return L}
+function viewMap(){const vs=['song','chain','phrase','inst'];return vs.map(v=>S(v==='inst'?'INST':v.toUpperCase(),v===cur.view?'c':'d')).join(S('→','d'))}
+// ---------- variants ----------
+const V={
+A:{name:'M8-faithful: one view, Z=EDIT X=OPTION modal chords',
+  keys:[['Arrows','move cursor'],['Shift+←/→','change view (Song ↔ Chain ↔ Phrase ↔ Inst)'],['Z (tap)','on empty cell: insert last value'],['Z+arrows','edit value: ←→ fine, ↑↓ coarse (octave / 16)'],['Z Z (double tap)','new unused Chain / Phrase'],['Z+X','cut cell'],['Shift+X then Z','clone Chain / Phrase'],['X+↑/↓','jump to prev/next Chain (Chain) or Phrase (Phrase)'],['X+←/→','jump to prev/next Track'],['Space','play/stop'],['Fill','move to FILL column, Z+any arrow toggles']],
+  render(){const v=cur.view;const L=v==='song'?songLines():v==='chain'?[...chainLines(),'',...lockstepLines().slice(0,10)]:v==='phrase'?phraseLines():instLines();return [viewMap(),'',...L].join('\n')},
+  down(e){const k=e.key;if(k==='z'||k==='Z'){if(!held.z){held.z=true;held.zUsed=false;if(held.x){clearCell();held.zUsed=true;msg('cut')}else if(held.shiftX){clone();held.shiftX=false;held.zUsed=true}}return true}
+    if(k==='x'||k==='X'){held.x=true;if(e.shiftKey)held.shiftX=true;return true}
+    const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[k];
+    if(k===' '){togglePlay();return true}
+    if(!d)return false;
+    if(held.z){held.zUsed=true;d[0]?edit(d[0],false):edit(-d[1],true);return true}
+    if(e.shiftKey){const vs=['song','chain','phrase','inst'];cur.view=vs[clamp(vs.indexOf(cur.view)+d[0],0,3)];cur.col=0;cur.hdr=-1;return true}
+    if(held.x){if(d[0])cur.t=clamp(cur.t+d[0],0,7);else if(cur.view==='chain')cur.srow=clamp(cur.srow+d[1],0,31);else cur.crow=clamp(cur.crow+d[1],0,15);return true}
+    move(...d);return true},
+  up(e){const k=e.key.toLowerCase();if(k==='z'){held.z=false;if(!held.zUsed){const now=Date.now();if(now-held.zLast<300){newUnused();held.zLast=0}else{held.zLast=now;edit(0,false)}}}if(k==='x')held.x=false}},
+B:{name:'PC tracker: one view, Enter drills in, type hex & piano keys',
+  keys:[['Arrows','move cursor'],['Enter','drill in: Song→Chain→Phrase→Instrument (on I column); on FILL toggles'],['Esc / Backspace','back up one view'],['F1 F2 F3 F4','jump to Song / Chain / Phrase / Instrument'],['0–9 A–F','type hex into Chain, Phrase no., I, V, F (two digits shift in)'],['Piano keys','note column: Z S X D C V G B H N J M (low) Q 2 W 3 E R 5 T 6 Y 7 U (high)'],['[ ]','octave down / up (shown top right)'],['Shift+↑/↓','nudge value ±1; Ctrl+↑/↓ coarse'],['Del','clear cell'],['Ctrl+N','new unused Chain / Phrase'],['Ctrl+D','clone Chain / Phrase'],['Ctrl+C / Ctrl+V','copy / paste cell'],['Space','play/stop']],
+  render(){const v=cur.view;const L=v==='song'?songLines():v==='chain'?[...chainLines(),'',...lockstepLines().slice(0,10)]:v==='phrase'?phraseLines():instLines();return [viewMap()+'   '+S('OCT '+oct,'h'),'',...L].join('\n')},
+  down:pcDown},
+C:{name:'Split panes: Song | Chain | Phrase always visible, PC keys',
+  keys:[['Tab / Shift+Tab','move focus between panes (Song, Chain, Phrase); Inst = F4'],['Enter','focus the next pane right (or toggle FILL)'],['Esc','focus the pane left'],['…','everything else as variant B: hex typing, piano keys, [ ], Shift/Ctrl+↑↓, Del, Ctrl+N/D/C/V, Space'],['Note','the Chain and Phrase panes follow the Song cursor live, so moving in Song previews its Chain']],
+  render(){if(cur.view==='inst')return viewMap()+'\n\n'+instLines().join('\n');
+    const cols=[songLines(cur.view==='song'),[...chainLines(cur.view==='chain'),'',...lockstepLines().slice(0,10)],phraseLines(cur.view==='phrase')];
+    const w=[34,36,30];const n=Math.max(...cols.map(c=>c.length));let out=[viewMap()+'   '+S('OCT '+oct,'h'),''];
+    for(let i=0;i<n;i++)out.push(cols.map((c,j)=>{const s=c[i]??'';const vis=s.replace(/<[^>]+>/g,'').length;return s+' '.repeat(Math.max(1,w[j]-vis))}).join(S('│','d')));
+    return out.join('\n')},
+  down(e){if(e.key==='Tab'){const vs=['song','chain','phrase'];cur.view=vs[(vs.indexOf(cur.view)+(e.shiftKey?2:1))%3]||'song';cur.col=0;cur.hdr=-1;return true}return pcDown(e)}}
+};
+const held={z:false,x:false,zUsed:false,zLast:0,shiftX:false};let oct=2;let typed='';
+const PIANO='zsxdcvgbhnjm',PIANO2='q2w3er5t6y7u';
+function pcDown(e){const k=e.key,v=cur.view;
+  const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[k];
+  if(d){if(e.shiftKey&&d[1]){edit(-d[1],false);return true}if(e.ctrlKey&&d[1]){edit(-d[1],true);return true}typed='';move(...d);return true}
+  if(k===' '){togglePlay();return true}
+  if(e.ctrlKey){const l=k.toLowerCase();if(l==='n'){newUnused();return true}if(l==='d'){clone();return true}
+    if(l==='c'){clip=JSON.stringify(v==='song'?chainId():v==='chain'?entry():P[phraseId()]?.steps[cur.prow]);msg('copied');return true}
+    if(l==='v'&&clip){const x=JSON.parse(clip);if(v==='song')song[cur.srow][cur.t]=x;else if(v==='chain'&&entry())Object.assign(entry(),x);else if(v==='phrase'&&P[phraseId()])Object.assign(P[phraseId()].steps[cur.prow],x);msg('pasted');return true}return false}
+  const vs=['song','chain','phrase','inst'];
+  if(/^F[1-4]$/.test(k)){cur.view=vs[+k[1]-1];cur.col=0;cur.hdr=-1;return true}
+  if(k==='Enter'){if(v==='chain'&&cur.col===2){edit(1);return true}
+    if(v==='phrase'&&cur.col===1){cur.inst=P[phraseId()]?.steps[cur.prow].i??0;cur.view='inst';return true}
+    if(v==='song'&&chainId()==null){song[cur.srow][cur.t]=last.chain;return true}
+    if(v==='chain'&&phraseId()==null&&entry()){entry().ph=last.ph;return true}
+    if(v!=='phrase'&&v!=='inst'){cur.view=vs[vs.indexOf(v)+1];cur.col=0;cur.hdr=-1}return true}
+  if(k==='Escape'||k==='Backspace'){if(v!=='song')cur.view=v==='inst'?'phrase':vs[vs.indexOf(v)-1];return true}
+  if(k==='Delete'){clearCell();return true}
+  if(k==='['){oct=clamp(oct-1,0,4);return true}if(k===']'){oct=clamp(oct+1,0,4);return true}
+  if(v==='phrase'&&cur.col===0&&cur.hdr<0){const l=k.toLowerCase();let i=PIANO.indexOf(l),o=0;if(i<0){i=PIANO2.indexOf(l);o=1}
+    if(i>=0&&P[phraseId()]){const s=P[phraseId()].steps[cur.prow];s.n=clamp((oct+o)*12+i,0,63);s.v=s.v||last.v;s.i=last.i;last.n=s.n;const p=P[phraseId()];cur.prow=Math.min(cur.prow+1,p.len-1);return true}}
+  if(/^[0-9a-fA-F]$/.test(k)){typed=(typed+k).slice(-2);const n=parseInt(typed,16);
+    if(v==='song'){song[cur.srow][cur.t]=n;C[n]??=Array.from({length:16},()=>ce(null))}
+    else if(v==='chain'&&entry()){if(cur.col===0){entry().ph=n;P[n]??=mkPhrase([])}else if(cur.col===1)entry().tsp=n>127?n-256:n}
+    else if(v==='phrase'&&P[phraseId()]&&cur.hdr<0){const s=P[phraseId()].steps[cur.prow];if(cur.col===1)s.i=n;else if(cur.col===2)s.v=clamp(parseInt(k,16),0,7);else if(cur.col===3)s.fx=clamp(parseInt(k,16),0,7)}
+    return true}
+  return false}
+// ---------- wiring ----------
+const keysV=Object.keys(V);let vk=new URLSearchParams(location.search).get('variant')||'A';if(!V[vk])vk='A';
+const scr=document.getElementById('scr');
+function draw(){scr.innerHTML=V[vk].render();document.getElementById('vname').textContent=vk+' — '+V[vk].name;
+  document.getElementById('keys').innerHTML='<table>'+V[vk].keys.map(([a,b])=>`<tr><td>${a}</td><td>${b}</td></tr>`).join('')+'</table>';
+  document.getElementById('lbl').textContent=vk+' ('+V[vk].name.split(':')[0]+')';
+  document.getElementById('state').textContent='STATE\ncursor '+JSON.stringify(cur)+'\nsong row '+hex(cur.srow)+': '+JSON.stringify(song[cur.srow])+'\nchain '+hex(chainId())+': '+JSON.stringify(C[chainId()]?.slice(0,6))+'\nphrase '+hex(phraseId())+': '+JSON.stringify(P[phraseId()]?{spd:P[phraseId()].spd,len:P[phraseId()].len,filt:P[phraseId()].filt,step:P[phraseId()].steps[cur.prow]}:null)+'\nlast '+JSON.stringify(last)}
+function setV(k){vk=k;const u=new URL(location);u.searchParams.set('variant',k);history.replaceState(null,'',u);if(vk==='C'&&cur.view==='inst')cur.view='song';draw();scr.focus()}
+document.getElementById('prev').onclick=()=>setV(keysV[(keysV.indexOf(vk)+keysV.length-1)%keysV.length]);
+document.getElementById('next').onclick=()=>setV(keysV[(keysV.indexOf(vk)+1)%keysV.length]);
+scr.addEventListener('keydown',e=>{if(V[vk].down(e)){e.preventDefault();draw()}});
+scr.addEventListener('keyup',e=>{V[vk].up?.(e);draw()});
+// arrows on the page (not the screen) switch variants
+document.addEventListener('keydown',e=>{if(document.activeElement===scr)return;if(e.key==='ArrowLeft')document.getElementById('prev').click();if(e.key==='ArrowRight')document.getElementById('next').click()});
+draw();scr.focus();
+</script></body></html>
