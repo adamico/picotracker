@@ -19,8 +19,16 @@ One of the Song's 8 vertical lanes, played by one voice. Export picks 4 of them 
 _Avoid_: Channel (that is PICO-8's word)
 
 **Chain**:
-An ordered list of Phrases, each with an optional transpose.
+An ordered list of Phrases, each with an optional transpose and an optional Fill.
 _Avoid_: Block, sequence
+
+**Chain row**:
+The k-th entry of every Track's Chain within one Song row. They play together, and the Chain row lasts as long as its longest Phrase not marked Fill. Exported as one Pattern.
+_Avoid_: Position, bar
+
+**Fill**:
+A mark on a Chain entry: repeat its Phrase until the Chain row ends.
+_Avoid_: Loop (Phrases have no loop points)
 
 **Phrase**:
 A run of 1 to 32 Steps (16 by default); the unit where notes are written.
