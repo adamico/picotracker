@@ -86,8 +86,12 @@ _Avoid_: Music (ambiguous), frame
 Compiling a Project into a Cart's SFX and Patterns. May lose information the Cart cannot hold.
 _Avoid_: Save (saving writes the Project)
 
+**Target Cart**:
+The one Cart a Project Exports into, if any. A Project can have no Target Cart, for example after a MIDI Import.
+_Avoid_: Linked cart, output cart
+
 **Claim**:
-The SFX slots and the range of Patterns in a Cart that a Project owns. The SFX part is any set of slots; the Pattern part is one contiguous range. Export writes only inside the Claim.
+The SFX slots and the range of Patterns in the Project's Target Cart that the Project owns. The SFX part is any set of slots; the Pattern part is one contiguous range. Export writes only inside the Claim.
 _Avoid_: Reservation, allocation
 
 **Import**:
