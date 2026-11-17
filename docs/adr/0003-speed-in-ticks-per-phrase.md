@@ -1,4 +1,5 @@
 # Tempo is a Speed in Ticks, held by each Phrase
+_Partly superseded by [ADR 0005](0005-chain-rows-play-in-lockstep.md): Song row timing now applies to each Chain row, and Cart Import turns loops into Fill instead of unrolling them._
 
 Each Phrase stores a Speed: how many Ticks each of its Steps lasts (1–255), exactly like a PICO-8 SFX's SPD. New Phrases take the Project's default Speed. The editor shows an approximate BPM, assuming 4 Steps per beat (BPM ≈ 1807 / Speed), but never stores one.
 
