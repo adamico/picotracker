@@ -30,6 +30,26 @@ _Avoid_: Pattern (that is PICO-8's word), SFX
 One row of a Phrase, equivalent to one PICO-8 note: a pitch with its instrument, volume and effect. A Step at volume 0 is silent and is shown as empty; a note is held by repeating it in the following Steps.
 _Avoid_: Row, note (when meaning the whole row)
 
+**Instrument**:
+What a Step plays: one of the 8 Built-in Instruments or one of the Project's Custom Instruments.
+_Avoid_: Waveform (ambiguous), patch
+
+**Built-in Instrument**:
+One of PICO-8's 8 fixed sounds (triangle, tilted saw, saw, square, pulse, organ, noise, phaser). They have no settings.
+_Avoid_: Waveform
+
+**Custom Instrument**:
+An Instrument defined in the Project, either an SFX Instrument or a Waveform Instrument. A Project can hold many; at most 8 fit in a Cart.
+_Avoid_: Sample
+
+**SFX Instrument**:
+A Custom Instrument made of a short run of Steps with its own Speed, filters and loop, played relative to C2 by each note that uses it.
+_Avoid_: Macro
+
+**Waveform Instrument**:
+A Custom Instrument made of one 64-sample looping wave.
+_Avoid_: Sample, wavetable
+
 **Speed**:
 How many Ticks each Step of a Phrase lasts (1–255). Each Phrase has its own Speed; the tempo in BPM is only a readout of it.
 _Avoid_: Tempo, BPM (when meaning the stored value)
