@@ -19,7 +19,7 @@ One of the Song's 8 vertical lanes, played by one voice. Export picks 4 of them 
 _Avoid_: Channel (that is PICO-8's word)
 
 **Chain**:
-An ordered list of Phrases, each with an optional transpose and an optional Fill.
+An ordered list of entries, each either a Phrase (with an optional transpose and an optional Fill) or empty. An empty entry leaves its Track silent for that Chain row.
 _Avoid_: Block, sequence
 
 **Chain row**:
@@ -85,6 +85,10 @@ _Avoid_: Music (ambiguous), frame
 **Export**:
 Compiling a Project into a Cart's SFX and Patterns. May lose information the Cart cannot hold.
 _Avoid_: Save (saving writes the Project)
+
+**Claim**:
+The SFX slots and the range of Patterns in a Cart that a Project owns. The SFX part is any set of slots; the Pattern part is one contiguous range. Export writes only inside the Claim.
+_Avoid_: Reservation, allocation
 
 **Import**:
 Reconstructing a Project from outside material: a Cart's SFX and Patterns (Cart Import) or a Standard MIDI File (MIDI Import).
