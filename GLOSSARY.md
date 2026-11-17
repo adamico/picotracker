@@ -30,6 +30,14 @@ _Avoid_: Pattern (that is PICO-8's word), SFX
 One row of a Phrase, equivalent to one PICO-8 note: a pitch with its instrument, volume and effect. A Step at volume 0 is silent and is shown as empty; a note is held by repeating it in the following Steps.
 _Avoid_: Row, note (when meaning the whole row)
 
+**Speed**:
+How many Ticks each Step of a Phrase lasts (1–255). Each Phrase has its own Speed; the tempo in BPM is only a readout of it.
+_Avoid_: Tempo, BPM (when meaning the stored value)
+
+**Tick**:
+PICO-8's unit of sound time, about 1/120 of a second.
+_Avoid_: Frame
+
 ### PICO-8 side
 
 **Cart**:
