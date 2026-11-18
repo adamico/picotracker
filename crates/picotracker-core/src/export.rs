@@ -5,7 +5,7 @@
 //! Fill and no Custom Instruments. Anything else is refused as [`ExportFailure::NotSimple`] rather
 //! than Exported so that it plays differently.
 
-use crate::cart::{Cart, CartError};
+use crate::cart::{Cart, CartError, SLOTS};
 use crate::project::{
     CHAIN_ENTRIES, ChainEntry, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase,
     Project, SONG_ROWS,
@@ -40,6 +40,8 @@ const DISABLED_CHANNEL: u8 = 0x41;
 pub enum ExportFailure {
     NoExportTracks,
     EmptyClaim,
+    /// The Claim names an SFX or a Pattern that no Cart has.
+    BadClaim,
     EmptySong,
     TooFewSfx {
         needed: usize,
@@ -73,6 +75,7 @@ impl fmt::Display for ExportFailure {
                 formatter,
                 "THIS PROJECT CLAIMS NO SFX OR PATTERNS, SO THERE IS NOWHERE TO WRITE"
             ),
+            Self::BadClaim => write!(formatter, "THE CLAIM NAMES SLOTS A CART DOES NOT HAVE"),
             Self::EmptySong => write!(formatter, "THE SONG IS EMPTY"),
             Self::TooFewSfx { needed, claimed } => {
                 write!(formatter, "NEEDS {needed} SFX, THE CLAIM HAS {claimed}")
@@ -141,11 +144,30 @@ impl CompiledSong {
     }
 }
 
+/// Whether every slot a Claim names exists in a Cart.
+fn claim_is_valid(claim: &Claim) -> bool {
+    let exists = |slot: u8| usize::from(slot) < SLOTS;
+    claim.sfx.iter().all(|slot| exists(*slot))
+        && claim
+            .patterns
+            .is_none_or(|(first, last)| first <= last && exists(last))
+}
+
+/// A Claim that names each SFX slot once, in the order it first named them.
+fn without_repeats(claim: &Claim) -> Claim {
+    let mut seen = BTreeSet::new();
+    Claim {
+        sfx: claim
+            .sfx
+            .iter()
+            .copied()
+            .filter(|slot| seen.insert(*slot))
+            .collect(),
+        patterns: claim.patterns,
+    }
+}
+
 /// Compiles a Project into the bytes of its Target Cart, changing nothing outside the Claim.
-///
-/// # Panics
-///
-/// Panics if the Claim names a slot of 64 or more.
 pub fn export(
     project: &Project,
     claim: &Claim,
@@ -156,19 +178,20 @@ pub fn export(
     if !has_tracks {
         failures.push(ExportFailure::NoExportTracks);
     }
+    let claim = &without_repeats(claim);
     let claim_is_empty = claim.sfx.is_empty() && claim.patterns.is_none();
     if claim_is_empty {
         failures.push(ExportFailure::EmptyClaim);
+    }
+    let claim_is_valid = claim_is_valid(claim);
+    if !claim_is_valid {
+        failures.push(ExportFailure::BadClaim);
     }
     let chain_rows = chain_rows(project);
     if chain_rows.is_empty() {
         failures.push(ExportFailure::EmptySong);
     }
-    let song = if has_tracks {
-        compile_song(project, &chain_rows, &mut failures)
-    } else {
-        CompiledSong::default()
-    };
+    let song = compile_song(project, &chain_rows, has_tracks, &mut failures);
 
     let sfx_slots: Vec<u8> = claim
         .sfx
@@ -180,7 +203,7 @@ pub fn export(
     let pattern_slots: Vec<u8> = claim
         .patterns
         .map_or(Vec::new(), |(first, last)| (first..=last).collect());
-    if !claim_is_empty {
+    if !claim_is_empty && claim_is_valid {
         check_room(&song, &sfx_slots, &pattern_slots, &mut failures);
     }
 
@@ -204,23 +227,41 @@ pub fn export(
     })
 }
 
+/// The Song rows that play, in order: up to the first empty row, and then, if the Song loop row
+/// lies past that gap, from the loop row up to the next empty row.
+fn song_rows(project: &Project) -> Vec<usize> {
+    let rows_from =
+        |first: usize| (first..SONG_ROWS).take_while(|&row| !project.song_row_is_empty(row));
+    let mut rows: Vec<usize> = rows_from(0).collect();
+    let past_a_gap = project
+        .song_loop_row()
+        .filter(|row| !rows.is_empty() && !rows.contains(row));
+    if let Some(loop_row) = past_a_gap {
+        rows.extend(rows_from(loop_row));
+    }
+    rows
+}
+
 /// Every Chain row that plays, in Song order, as a Song row and an entry number.
 fn chain_rows(project: &Project) -> Vec<(usize, usize)> {
-    (0..SONG_ROWS)
-        .take_while(|&row| !project.song_row_is_empty(row))
+    song_rows(project)
+        .into_iter()
         .flat_map(|row| (0..CHAIN_ENTRIES).map(move |k| (row, k)))
         .filter(|&(row, k)| project.chain_row_ticks(row, k) > 0)
         .collect()
 }
 
+/// Compiles every Chain row. With no Export Tracks there is nothing to bake, but each Chain row
+/// still counts as a Pattern, so that a Claim that is too small is reported as well.
 fn compile_song(
     project: &Project,
     chain_rows: &[(usize, usize)],
+    has_tracks: bool,
     failures: &mut Vec<ExportFailure>,
 ) -> CompiledSong {
     let mut song = CompiledSong::default();
     for &(song_row, chain_row) in chain_rows {
-        if !is_simple(project, song_row, chain_row) {
+        if has_tracks && !is_simple(project, song_row, chain_row) {
             failures.push(ExportFailure::NotSimple {
                 song_row,
                 chain_row,
