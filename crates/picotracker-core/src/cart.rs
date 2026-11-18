@@ -1,8 +1,10 @@
 //! Cart codec: reads `.p8` or `.p8.png` bytes into Cart data and writes claimed SFX and Patterns
 //! back into the original bytes.
 //!
-//! Only the read side exists so far. [`Cart`] holds the music data exactly as Cart memory lays it
-//! out, so that writing can put the same bytes back.
+//! [`Cart`] holds the music data exactly as Cart memory lays it out, so that writing can put the
+//! same bytes back.
+
+mod write;
 
 use crate::project::Claim;
 use std::fmt;
@@ -202,6 +204,24 @@ impl Cart {
         self.patterns[usize::from(slot)]
     }
 
+    /// Replaces the 68 bytes of an SFX.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slot is 64 or more.
+    pub fn set_sfx_bytes(&mut self, slot: u8, bytes: [u8; 68]) {
+        self.sfx[usize::from(slot)] = bytes;
+    }
+
+    /// Replaces the 4 bytes of a Pattern.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slot is 64 or more.
+    pub fn set_pattern_bytes(&mut self, slot: u8, bytes: [u8; 4]) {
+        self.patterns[usize::from(slot)] = bytes;
+    }
+
     /// An SFX, read from its bytes.
     ///
     /// # Panics
@@ -272,6 +292,25 @@ fn read_png(bytes: &[u8]) -> Result<Cart, CartError> {
 /// The Cart bytes held in the low 2 bits of each pixel's channels, up to the end of the music.
 /// The alpha bits are data, so the pixels are taken exactly as stored.
 fn decode_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    Some(
+        png_pixels(bytes)?
+            .as_chunks::<PNG_CHANNELS>()
+            .0
+            .iter()
+            .take(MUSIC_END)
+            .map(|pixel| pixel_byte(*pixel))
+            .collect(),
+    )
+}
+
+/// The Cart byte one pixel holds.
+fn pixel_byte(pixel: [u8; PNG_CHANNELS]) -> u8 {
+    let [r, g, b, a] = pixel.map(|bits| bits & 3);
+    a << 6 | r << 4 | g << 2 | b
+}
+
+/// The decoded RGBA pixels of a `.p8.png` image, if it has a Cart's size and format.
+fn png_pixels(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut reader = png::Decoder::new(Cursor::new(bytes)).read_info().ok()?;
     let info = reader.info();
     let is_cart = info.width == PNG_WIDTH
@@ -283,18 +322,7 @@ fn decode_png(bytes: &[u8]) -> Option<Vec<u8>> {
     }
     let mut pixels = vec![0; reader.output_buffer_size()?];
     reader.next_frame(&mut pixels).ok()?;
-    Some(
-        pixels
-            .as_chunks::<PNG_CHANNELS>()
-            .0
-            .iter()
-            .take(MUSIC_END)
-            .map(|pixel| {
-                let [r, g, b, a] = pixel.map(|bits| bits & 3);
-                a << 6 | r << 4 | g << 2 | b
-            })
-            .collect(),
-    )
+    Some(pixels)
 }
 
 /// Which section of a `.p8` file a line belongs to.
