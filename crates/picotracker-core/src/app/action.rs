@@ -115,4 +115,6 @@ pub enum KeyContext {
     FileName,
     /// The MIDI Import dialog, which has keys of its own.
     MidiImport,
+    /// The new Speed that Change Speed is asking for: hexadecimal digits are typed directly.
+    SpeedEntry,
 }

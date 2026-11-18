@@ -68,6 +68,7 @@ pub(super) enum Accepted {
     BrowseToOpen,
     BrowseToImport,
     SaveOver(PathBuf),
+    PurgeUnused,
 }
 
 /// A question on the status line, waiting for Enter or Esc.
@@ -75,6 +76,16 @@ pub(super) enum Accepted {
 pub(super) struct Question {
     pub(super) text: String,
     accepted: Accepted,
+}
+
+impl Question {
+    /// Asks whether to go ahead with Purge unused.
+    pub(super) fn purge_unused(text: String) -> Self {
+        Self {
+            text,
+            accepted: Accepted::PurgeUnused,
+        }
+    }
 }
 
 /// A file request still being carried out.
@@ -329,6 +340,7 @@ impl App {
         self.saved_project = project.clone();
         self.project = project;
         self.history.clear();
+        self.speed_entry = None;
         self.selection = None;
         self.clipboard = None;
         self.project_path = path;
@@ -421,6 +433,7 @@ impl App {
                         Accepted::BrowseToOpen => self.browse(Purpose::Open),
                         Accepted::BrowseToImport => self.browse(Purpose::Import),
                         Accepted::SaveOver(path) => self.write_project(path),
+                        Accepted::PurgeUnused => self.purge_unused(),
                     }
                 }
             }
