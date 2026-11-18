@@ -1,17 +1,34 @@
 //! The Song pane: rows of Chains, one column per Track.
 
 use super::{
-    EMPTY, HEADING, VALUE, draw_styled_value, draw_title, id_text, nudged_id, stepped, typed_value,
+    EMPTY, HEADING, VALUE, draw_row_label, draw_styled_value, draw_title, id_text, nudged_id,
+    stepped, typed_value,
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
+use crate::player::TrackMix;
 use crate::project::{ChainId, Project, SONG_ROWS, TRACKS};
-use crate::screen::grid::Grid;
+use crate::screen::grid::{Grid, Style};
+use crate::screen::palette::Colour;
+
+const SOLOED: Style = Style::fg(Colour::Yellow);
 
 /// Rows above the first Song row: the title and the Track headers.
 const HEADER_ROWS: usize = 2;
 const FIRST_TRACK_COLUMN: usize = 4;
 const TRACK_WIDTH: usize = 3;
+
+/// The letter and style of a Track's header. A Track both muted and soloed is heard, so it shows
+/// as soloed.
+fn track_header(track_mix: &TrackMix, track: usize) -> (char, Style) {
+    if track_mix.is_soloed(track) {
+        ('S', SOLOED)
+    } else if track_mix.is_muted(track) {
+        ('M', EMPTY)
+    } else {
+        ('T', HEADING)
+    }
+}
 
 /// The Song pane's cursor.
 #[derive(Debug, Default)]
@@ -66,6 +83,14 @@ impl SongPane {
         self.row = stepped(self.row, rows, SONG_ROWS);
     }
 
+    /// Moves the cursor to the Song row the Playhead is on.
+    pub fn follow(&mut self, row: usize) {
+        if self.row != row {
+            self.row = row;
+            self.finish_typing();
+        }
+    }
+
     /// Ends the Chain number being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
         self.typed_digit = None;
@@ -98,7 +123,15 @@ impl SongPane {
         project.set_song_loop_row(row);
     }
 
-    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, project: &Project) {
+    pub fn draw(
+        &self,
+        grid: &mut Grid,
+        area: Area,
+        focused: bool,
+        project: &Project,
+        track_mix: &TrackMix,
+        playing_row: Option<usize>,
+    ) {
         let loop_row = project
             .song_loop_row()
             .map_or_else(|| "--".to_owned(), |row| format!("{row:02X}"));
@@ -106,7 +139,8 @@ impl SongPane {
         draw_title(grid, area.column, 0, &title, focused);
         for track in 0..TRACKS {
             let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
-            grid.put(column, 1, &format!("T{}", track + 1), HEADING);
+            let (letter, style) = track_header(track_mix, track);
+            grid.put(column, 1, &format!("{letter}{}", track + 1), style);
         }
 
         let visible = area.rows - HEADER_ROWS;
@@ -117,7 +151,14 @@ impl SongPane {
         for offset in 0..visible {
             let row = HEADER_ROWS + offset;
             let song_row = top + offset;
-            grid.put(area.column, row, &format!("{song_row:02X}"), HEADING);
+            let label = format!("{song_row:02X}");
+            draw_row_label(
+                grid,
+                area.column,
+                row,
+                &label,
+                playing_row == Some(song_row),
+            );
             for track in 0..TRACKS {
                 let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
                 let is_cursor = focused && song_row == self.row && track == self.track;

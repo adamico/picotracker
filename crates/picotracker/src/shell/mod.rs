@@ -15,13 +15,16 @@ use picotracker_core::screen::viewport::integer_scale;
 use pixels::{Pixels, SurfaceTexture};
 use std::error::Error;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
+
+/// How often the window checks where playback has got to.
+const PLAYBACK_REFRESH: Duration = Duration::from_millis(16);
 
 /// Opens the window and runs until it closes.
 pub fn run() -> Result<(), Box<dyn Error>> {
@@ -105,6 +108,15 @@ impl Shell {
         event_loop.exit();
     }
 
+    /// Passes the app's audio requests to the synth thread.
+    fn send_audio_requests(&mut self) {
+        for request in self.app.take_audio_requests() {
+            if let Some(audio) = self.audio.as_mut() {
+                audio.send(request);
+            }
+        }
+    }
+
     /// Carries out the app's file requests, including any that the results lead to.
     fn run_file_requests(&mut self) {
         loop {
@@ -133,15 +145,21 @@ impl ApplicationHandler for Shell {
         }
     }
 
+    /// Lets time pass, shows where playback has got to, and wakes again for whatever is next.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        let changed = self.app.advance_time(now - self.last_tick);
+        let mut changed = self.app.advance_time(now - self.last_tick);
         self.last_tick = now;
+        if let Some(report) = self.audio.as_mut().and_then(AudioOutput::latest_report) {
+            changed |= self.app.show_playback(&report);
+        }
         if changed && let Some(surface) = self.surface.as_ref() {
             surface.window.request_redraw();
         }
-        event_loop.set_control_flow(match self.app.time_until_status_change() {
-            Some(wait) => ControlFlow::WaitUntil(now + wait),
+        let status_change = self.app.time_until_status_change().map(|wait| now + wait);
+        let next_report = self.audio.is_some().then_some(now + PLAYBACK_REFRESH);
+        event_loop.set_control_flow(match status_change.into_iter().chain(next_report).min() {
+            Some(wake) => ControlFlow::WaitUntil(wake),
             None => ControlFlow::Wait,
         });
     }
@@ -172,29 +190,22 @@ impl ApplicationHandler for Shell {
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                if let Some(audio) = self.audio.as_ref() {
-                    self.app.playback_finished(audio.finished_play());
-                }
                 let context = self.app.key_context();
                 let action = keys::key_press(&event, self.modifiers)
                     .and_then(|press| self.keymap.action_in(press, context));
                 if let Some(action) = action {
                     self.app.apply(action);
-                    for request in self.app.take_audio_requests() {
-                        if let Some(audio) = self.audio.as_mut() {
-                            audio.send(request);
-                        }
-                    }
+                    self.send_audio_requests();
                     self.run_file_requests();
-                    for request in self.app.take_audio_requests() {
-                        if let Some(audio) = self.audio.as_mut() {
-                            audio.send(request);
-                        }
-                    }
+                    self.send_audio_requests();
                     if let Some(surface) = self.surface.as_ref() {
                         surface.window.request_redraw();
                     }
                 }
+            }
+            WindowEvent::KeyboardInput { .. } => {
+                self.app.key_released();
+                self.send_audio_requests();
             }
             _ => {}
         }
