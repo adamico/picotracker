@@ -23,6 +23,8 @@ pub(super) fn bindings() -> Vec<(Key, Modifiers, Action)> {
         (Key::Right, NONE, Action::Move(Direction::Right)),
         (Key::Tab, NONE, Action::FocusNext),
         (Key::Tab, SHIFT, Action::FocusPrevious),
+        (Key::Enter, NONE, Action::Confirm),
+        (Key::Escape, NONE, Action::Cancel),
         (Key::Char('n'), CTRL, Action::NewProject),
         (Key::Char('o'), CTRL, Action::OpenProject),
         (Key::Char('s'), CTRL, Action::Save),

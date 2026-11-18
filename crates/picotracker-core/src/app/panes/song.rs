@@ -33,6 +33,12 @@ impl SongPane {
         self.track
     }
 
+    /// Puts the cursor on a Song row and a Track.
+    pub fn jump_to(&mut self, row: usize, track: usize) {
+        self.row = row.min(SONG_ROWS - 1);
+        self.track = track.min(TRACKS - 1);
+    }
+
     pub fn move_cursor(&mut self, direction: Direction) {
         let (columns, rows) = direction.delta();
         self.track = stepped(self.track, columns, TRACKS);

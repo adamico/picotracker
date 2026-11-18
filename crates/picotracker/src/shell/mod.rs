@@ -4,6 +4,7 @@
 //! the rest of the window to black. This module holds no application logic.
 
 mod audio;
+mod files;
 mod keys;
 
 use audio::AudioOutput;
@@ -14,6 +15,7 @@ use picotracker_core::screen::viewport::integer_scale;
 use pixels::{Pixels, SurfaceTexture};
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, WindowEvent};
@@ -76,6 +78,8 @@ struct Shell {
     surface: Option<Surface>,
     /// The sound output. The app still runs without one.
     audio: Option<AudioOutput>,
+    /// When the app was last told how much time has passed.
+    last_tick: Instant,
     failure: Option<Box<dyn Error>>,
 }
 
@@ -89,6 +93,7 @@ impl Default for Shell {
             audio: AudioOutput::start()
                 .inspect_err(|error| eprintln!("picotracker: no sound: {error}"))
                 .ok(),
+            last_tick: Instant::now(),
             failure: None,
         }
     }
@@ -98,6 +103,19 @@ impl Shell {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: Box<dyn Error>) {
         self.failure = Some(error);
         event_loop.exit();
+    }
+
+    /// Carries out the app's file requests, including any that the results lead to.
+    fn run_file_requests(&mut self) {
+        loop {
+            let requests = self.app.take_file_requests();
+            if requests.is_empty() {
+                return;
+            }
+            for request in requests {
+                self.app.receive_file(files::carry_out(request));
+            }
+        }
     }
 }
 
@@ -115,20 +133,39 @@ impl ApplicationHandler for Shell {
         }
     }
 
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        let changed = self.app.advance_time(now - self.last_tick);
+        self.last_tick = now;
+        if changed && let Some(surface) = self.surface.as_ref() {
+            surface.window.request_redraw();
+        }
+        event_loop.set_control_flow(match self.app.time_until_status_change() {
+            Some(wait) => ControlFlow::WaitUntil(now + wait),
+            None => ControlFlow::Wait,
+        });
+    }
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
-        let Some(surface) = self.surface.as_mut() else {
+        if self.surface.is_none() {
             return;
-        };
+        }
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
+                let Some(surface) = self.surface.as_mut() else {
+                    return;
+                };
                 match surface.pixels.resize_surface(size.width, size.height) {
                     Ok(()) => surface.window.request_redraw(),
                     Err(error) => self.fail(event_loop, error.into()),
                 }
             }
             WindowEvent::RedrawRequested => {
+                let Some(surface) = self.surface.as_mut() else {
+                    return;
+                };
                 if let Err(error) = surface.draw(&self.app) {
                     self.fail(event_loop, error);
                 }
@@ -148,7 +185,15 @@ impl ApplicationHandler for Shell {
                             audio.send(request);
                         }
                     }
-                    surface.window.request_redraw();
+                    self.run_file_requests();
+                    for request in self.app.take_audio_requests() {
+                        if let Some(audio) = self.audio.as_mut() {
+                            audio.send(request);
+                        }
+                    }
+                    if let Some(surface) = self.surface.as_ref() {
+                        surface.window.request_redraw();
+                    }
                 }
             }
             _ => {}
