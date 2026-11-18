@@ -20,6 +20,8 @@ pub(super) struct Spot {
     pub(super) song: SongSpot,
     pub(super) chain: ChainSpot,
     pub(super) phrase: PhraseSpot,
+    /// The channel under the Overview's cursor.
+    pub(super) overview: usize,
 }
 
 /// The repeated actions that merge into one step.
