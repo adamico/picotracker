@@ -1,14 +1,10 @@
-//! New, Open, Save and Save As. The App core never touches the disk: it asks for files with
+//! New, Open, Save and Save As, and the file requests behind them. The App core never touches the disk: it asks for files with
 //! `FileRequest`s and is given the results as `FileResponse`s.
 
 use super::exporting::FinishedExport;
-use super::messages::{Location, LogItem, Report, Severity};
+use super::messages::Report;
 use super::panes::file_list::{Choice, FileList, Purpose};
-use super::panes::midi_dialog::{MidiDialog, Outcome};
 use super::{Action, App, Focus};
-use crate::cart::Cart;
-use crate::cart_import::{self, ImportWarning};
-use crate::midi_import::{self, Warning};
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
 use crate::project_file;
@@ -105,25 +101,6 @@ pub(super) enum Waiting {
     ExportWriting(PathBuf, FinishedExport),
 }
 
-/// What a file can be Imported as.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ImportKind {
-    Cart,
-    Midi,
-}
-
-/// Decides how a file is Imported, from its name. Files of no kind are not listed for Import.
-pub(super) fn import_kind(file_name: &str) -> Option<ImportKind> {
-    let name = file_name.to_lowercase();
-    if name.ends_with(".p8") || name.ends_with(".p8.png") {
-        Some(ImportKind::Cart)
-    } else if name.ends_with(".mid") || name.ends_with(".midi") {
-        Some(ImportKind::Midi)
-    } else {
-        None
-    }
-}
-
 /// The file name of a path in capitals, as messages show it.
 pub(super) fn shown_name(path: &Path) -> String {
     path.file_name()
@@ -132,48 +109,10 @@ pub(super) fn shown_name(path: &Path) -> String {
         .to_uppercase()
 }
 
-fn folder_of(path: &Path) -> PathBuf {
+pub(super) fn folder_of(path: &Path) -> PathBuf {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
         _ => PathBuf::from("."),
-    }
-}
-
-/// A Cart Import warning as a Log item, which jumps to the place it is about.
-fn cart_log_item(warning: ImportWarning) -> LogItem {
-    let item = LogItem::new(Severity::Warning, warning.text);
-    match warning.place {
-        Some(place) => item.at(Location {
-            song_row: place.song_row,
-            track: place.track,
-            chain_row: place.chain_row,
-            step: place.step,
-        }),
-        None => item,
-    }
-}
-
-/// The result of an Import: its warnings, if any, go to the Log.
-fn import_report(source: &str, warnings: Vec<LogItem>) -> Report {
-    if warnings.is_empty() {
-        return Report::info(format!("IMPORTED {source}"));
-    }
-    let count = warnings.len();
-    let plural = if count == 1 { "" } else { "S" };
-    Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(warnings)
-}
-
-/// A MIDI Import warning as a Log item, which jumps to the place it is about.
-fn midi_log_item(warning: Warning) -> LogItem {
-    let item = LogItem::new(Severity::Warning, warning.text);
-    match warning.spot {
-        Some(spot) => item.at(Location {
-            song_row: spot.song_row,
-            track: spot.track,
-            chain_row: spot.chain_row,
-            step: spot.step,
-        }),
-        None => item,
     }
 }
 
@@ -248,80 +187,10 @@ impl App {
             .push(FileRequest::WriteBytes { path, contents });
     }
 
-    fn finish_importing(&mut self, path: PathBuf, contents: &[u8]) {
-        self.file_list = None;
-        let file_name = path
-            .file_name()
-            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-        match import_kind(&file_name) {
-            Some(ImportKind::Cart) => self.import_cart(path, &file_name, contents),
-            Some(ImportKind::Midi) => self.start_midi_import(path, contents),
-            None => {}
-        }
-    }
-
-    /// Opens the MIDI Import dialog on a file's bytes, or says why the file cannot be Imported.
-    pub fn start_midi_import(&mut self, path: impl AsRef<Path>, contents: &[u8]) {
-        let path = path.as_ref();
-        let name = shown_name(path);
-        match midi_import::analyse(contents) {
-            Ok(analysis) => {
-                let dialog = MidiDialog::new(name, folder_of(path), analysis);
-                self.midi_dialog = Some(Box::new(dialog));
-            }
-            Err(error) => self.report(Report::failure(format!("CANNOT IMPORT {name}: {error}"))),
-        }
-    }
-
-    /// The MIDI Import dialog takes the keys while it is open.
-    pub(super) fn use_midi_dialog(&mut self, action: Action) {
-        let Some(dialog) = self.midi_dialog.as_mut() else {
-            return;
-        };
-        match dialog.apply(action) {
-            Outcome::Stay => {}
-            Outcome::Cancel => self.midi_dialog = None,
-            Outcome::Import => {
-                if let Some(dialog) = self.midi_dialog.take() {
-                    let (name, folder, imported) = dialog.finish();
-                    self.directory = folder;
-                    self.replace_project(imported.project, None);
-                    let items = imported.warnings.into_iter().map(midi_log_item).collect();
-                    self.report(import_report(&name, items));
-                }
-            }
-        }
-    }
-
-    /// Opens a Cart's first song as a new Project, which has no file until it is saved.
-    fn import_cart(&mut self, path: PathBuf, file_name: &str, contents: &[u8]) {
-        let name = shown_name(&path);
-        let cart = match Cart::read(contents) {
-            Ok(cart) => cart,
-            Err(error) => {
-                self.report(Report::failure(format!("CANNOT IMPORT {name}: {error}")));
-                return;
-            }
-        };
-        let imported = cart_import::import(&cart, file_name);
-        let has_song = imported
-            .project
-            .target_cart()
-            .is_some_and(|target| target.claim.patterns.is_some());
-        let source = if has_song {
-            format!("SONG 1 OF {name}")
-        } else {
-            name
-        };
-        self.directory = folder_of(&path);
-        self.replace_project(imported.project, None);
-        let items = imported.warnings.into_iter().map(cart_log_item).collect();
-        self.report(import_report(&source, items));
-    }
-
     fn finish_writing(&mut self, path: &Path) {
         match self.waiting.take() {
             Some(Waiting::Writing(written, project)) if written == path => {
+                self.adopt_saved_cart_path(&project);
                 self.saved_project = *project;
                 self.directory = folder_of(&written);
                 self.report(Report::info(format!("SAVED {}", shown_name(&written))));
@@ -367,7 +236,7 @@ impl App {
 
     /// Puts another Project in place, opening at the top of the Song with the Song pane focused.
     /// Playback stops, and Mute and Solo do not carry over to the new Project.
-    fn replace_project(&mut self, project: Project, path: Option<PathBuf>) {
+    pub(super) fn replace_project(&mut self, project: Project, path: Option<PathBuf>) {
         if self.playing || self.previewing {
             self.playing = false;
             self.previewing = false;
@@ -458,11 +327,12 @@ impl App {
 
     fn write_project(&mut self, path: PathBuf) {
         self.file_list = None;
+        let project = self.project_saved_in(&folder_of(&path));
         self.file_requests.push(FileRequest::Write {
             path: path.clone(),
-            contents: project_file::write(&self.project),
+            contents: project_file::write(&project),
         });
-        self.waiting = Some(Waiting::Writing(path, Box::new(self.project.clone())));
+        self.waiting = Some(Waiting::Writing(path, Box::new(project)));
     }
 
     /// Enter says yes to the question and Esc says no. Other keys wait for an answer.

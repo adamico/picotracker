@@ -3,12 +3,45 @@
 
 use super::App;
 use super::files::{Waiting, shown_name};
-use super::messages::{Location, LogItem, Report, Severity};
+use super::messages::{LogItem, Report, Severity};
 use crate::export::{self, ExportFailure, Exported};
-use crate::project::EXPORT_CHANNELS;
-use std::path::{Path, PathBuf};
+use crate::project::{EXPORT_CHANNELS, Project, SongPlace};
+use std::path::{Component, Path, PathBuf};
 
 const NO_TARGET_CART: &str = "EXPORT FAILED: NO TARGET CART";
+
+/// A path with every `.` and `..` worked out, without asking the disk.
+fn resolved(path: &Path) -> Option<PathBuf> {
+    let mut resolved = PathBuf::new();
+    for component in std::path::absolute(path).ok()?.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other),
+        }
+    }
+    Some(resolved)
+}
+
+/// The way from a folder to a file. Paths that share no root stay absolute.
+fn relative_path(folder: &Path, file: &Path) -> Option<PathBuf> {
+    let (folder, file) = (resolved(folder)?, resolved(file)?);
+    let shared = folder
+        .components()
+        .zip(file.components())
+        .take_while(|(from, to)| from == to)
+        .count();
+    if shared == 0 {
+        return Some(file);
+    }
+    let climbs = folder
+        .components()
+        .skip(shared)
+        .map(|_| Component::ParentDir);
+    Some(climbs.chain(file.components().skip(shared)).collect())
+}
 
 /// An Export whose Cart is being written.
 #[derive(Debug)]
@@ -33,7 +66,7 @@ fn tracks_text(tracks: [Option<u8>; EXPORT_CHANNELS]) -> String {
 }
 
 /// Where a failure can be fixed, if it has one place.
-fn failure_location(failure: ExportFailure) -> Option<Location> {
+fn failure_location(failure: ExportFailure) -> Option<SongPlace> {
     match failure {
         ExportFailure::NoteOutOfRange {
             step,
@@ -41,7 +74,7 @@ fn failure_location(failure: ExportFailure) -> Option<Location> {
             song_row,
             chain_row,
             ..
-        } => Some(Location {
+        } => Some(SongPlace {
             song_row,
             track,
             chain_row,
@@ -50,7 +83,7 @@ fn failure_location(failure: ExportFailure) -> Option<Location> {
         ExportFailure::NotSimple {
             song_row,
             chain_row,
-        } => Some(Location {
+        } => Some(SongPlace {
             song_row,
             track: 0,
             chain_row,
@@ -84,15 +117,42 @@ fn failure_report(cart_name: &str, failures: &[ExportFailure]) -> Report {
 }
 
 impl App {
-    /// Where the Target Cart is: its path is relative to the Project file.
-    fn target_cart_path(&self, cart: &str) -> PathBuf {
-        let folder = self
-            .project_path
+    /// The folder the Target Cart's path starts from.
+    fn target_cart_folder(&self) -> &Path {
+        self.project_path
             .as_deref()
             .and_then(Path::parent)
             .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or(&self.directory);
-        folder.join(cart)
+            .unwrap_or(&self.directory)
+    }
+
+    /// Where the Target Cart is: its path is relative to the Project file.
+    fn target_cart_path(&self, cart: &str) -> PathBuf {
+        self.target_cart_folder().join(cart)
+    }
+
+    /// The Project as a file in this folder holds it: the path changes so that the Target Cart
+    /// stays the same Cart. A file in the same folder keeps the path exactly as it was.
+    pub(super) fn project_saved_in(&self, folder: &Path) -> Project {
+        let mut project = self.project.clone();
+        let moved = resolved(self.target_cart_folder()) != resolved(folder);
+        if let Some(mut target) = self.project.target_cart().cloned().filter(|_| moved) {
+            let cart = self.target_cart_path(&target.path);
+            if let Some(path) = relative_path(folder, &cart) {
+                target.path = path.to_string_lossy().into_owned();
+                project.set_target_cart(Some(target));
+            }
+        }
+        project
+    }
+
+    /// Takes on the Target Cart path that a finished save gave the Project.
+    pub(super) fn adopt_saved_cart_path(&mut self, saved: &Project) {
+        if let (Some(saved), Some(current)) = (saved.target_cart(), self.project.target_cart()) {
+            let mut current = current.clone();
+            current.path.clone_from(&saved.path);
+            self.project.set_target_cart(Some(current));
+        }
     }
 
     /// Starts an Export by asking for the Target Cart's bytes.

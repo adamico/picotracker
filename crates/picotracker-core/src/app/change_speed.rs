@@ -2,7 +2,7 @@
 
 use super::messages::Report;
 use super::restructure::counted;
-use super::selection::{Block, CellPosition};
+use super::selection::{CellPosition, CellRange};
 use super::{Action, App, CHAIN_ENTRIES, Focus, NO_PHRASE_HERE};
 use crate::project::{ChainId, PhraseId, SONG_ROWS, TRACKS};
 
@@ -115,8 +115,8 @@ fn all_chains() -> impl Iterator<Item = ChainId> {
 }
 
 /// Every cell of the Song.
-fn whole_song() -> Block {
-    Block::between(
+fn whole_song() -> CellRange {
+    CellRange::between(
         CellPosition { column: 0, row: 0 },
         CellPosition {
             column: TRACKS - 1,
@@ -138,20 +138,20 @@ impl App {
 
     /// The distinct Phrases to scale, and how many of them are also used outside the scope.
     fn speed_scope(&self) -> (Vec<PhraseId>, usize) {
-        match (self.focus, self.selected_block()) {
-            (Focus::Song, Some(block)) => self.song_scope(block),
-            (Focus::Chain, Some(block)) => self.chain_scope(block),
+        match (self.focus, self.selected_cells()) {
+            (Focus::Song, Some(cells)) => self.song_scope(cells),
+            (Focus::Chain, Some(cells)) => self.chain_scope(cells),
             _ => self.song_scope(whole_song()),
         }
     }
 
-    /// The Phrases of the Chains in a block of Song cells. A Phrase is used elsewhere when a Chain
-    /// outside the block plays it, or when one of the block's Chains is also placed outside it.
-    fn song_scope(&self, block: Block) -> (Vec<PhraseId>, usize) {
-        let chains = self.chains_in(block);
+    /// The Phrases of the Chains in a cells of Song cells. A Phrase is used elsewhere when a Chain
+    /// outside the cells plays it, or when one of the cells's Chains is also placed outside it.
+    fn song_scope(&self, cells: CellRange) -> (Vec<PhraseId>, usize) {
+        let chains = self.chains_in(cells);
         let phrases = self.phrases_of(&chains);
         let outside: Vec<ChainId> = all_chains()
-            .filter(|chain| !chains.contains(chain) || self.placed_outside(*chain, block))
+            .filter(|chain| !chains.contains(chain) || self.placed_outside(*chain, cells))
             .collect();
         let played_outside = self.phrases_of(&outside);
         let used_elsewhere = phrases
@@ -161,10 +161,10 @@ impl App {
         (phrases, used_elsewhere)
     }
 
-    fn placed_outside(&self, chain: ChainId, block: Block) -> bool {
+    fn placed_outside(&self, chain: ChainId, cells: CellRange) -> bool {
         (0..SONG_ROWS).any(|row| {
             (0..TRACKS).any(|track| {
-                let inside = block.rows().contains(&row) && block.columns().contains(&track);
+                let inside = cells.rows().contains(&row) && cells.columns().contains(&track);
                 !inside && self.project.song_cell(row, track) == Some(chain)
             })
         })
@@ -172,7 +172,7 @@ impl App {
 
     /// The Phrases of the selected entries of the Chain on show. A Phrase is used elsewhere when
     /// another entry of this Chain or any other Chain plays it.
-    fn chain_scope(&self, block: Block) -> (Vec<PhraseId>, usize) {
+    fn chain_scope(&self, cells: CellRange) -> (Vec<PhraseId>, usize) {
         let Some(id) = self.chain_under_cursor() else {
             return (Vec::new(), 0);
         };
@@ -181,7 +181,7 @@ impl App {
             rows.filter_map(|row| chain.entry(row).map(|entry| entry.phrase()))
                 .collect()
         };
-        let mut phrases = phrases_at(&mut block.rows());
+        let mut phrases = phrases_at(&mut cells.rows());
         let mut seen = Vec::new();
         phrases.retain(|phrase| {
             let first = !seen.contains(phrase);
@@ -191,7 +191,7 @@ impl App {
         let others: Vec<ChainId> = all_chains().filter(|other| *other != id).collect();
         let mut played_outside = self.phrases_of(&others);
         played_outside.extend(phrases_at(
-            &mut (0..CHAIN_ENTRIES).filter(|row| !block.rows().contains(row)),
+            &mut (0..CHAIN_ENTRIES).filter(|row| !cells.rows().contains(row)),
         ));
         let used_elsewhere = phrases
             .iter()

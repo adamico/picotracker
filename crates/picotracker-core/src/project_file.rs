@@ -6,8 +6,8 @@
 use crate::project::{
     CART_SLOTS, CHAIN_ENTRIES, ChainEntry, ChainId, Claim, CustomInstrument, EXPORT_CHANNELS,
     FIRST_CUSTOM_INSTRUMENT, Filters, InstrumentSound, MAX_FILTER_LEVEL, MAX_INSTRUMENT_NAME,
-    MAX_STEPS, Phrase, PhraseId, Project, SONG_ROWS, SfxInstrument, Step, TRACKS, TargetCart,
-    WAVEFORM_SAMPLES, WaveformInstrument,
+    MAX_STEPS, NOTE_NAMES, Phrase, PhraseId, Project, SONG_ROWS, SfxInstrument, Step, TRACKS,
+    TargetCart, WAVEFORM_SAMPLES, WaveformInstrument,
 };
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
@@ -24,9 +24,6 @@ const MIGRATIONS: [Migration; FORMAT_VERSION as usize - 1] = [];
 
 const SILENT_TOKEN: &str = "--- -- - -";
 const EMPTY_CELL: &str = "--";
-const NOTE_NAMES: [&str; 12] = [
-    "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
-];
 const SEMITONES_PER_OCTAVE: u8 = 12;
 
 /// Why a `.ptrk` file could not be read.

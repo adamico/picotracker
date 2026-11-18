@@ -1,9 +1,12 @@
 //! Editing while the music plays: actions in, offline-rendered samples from the Player.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::player::Player;
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::synth::{SAMPLE_RATE, SAMPLES_PER_TICK};
+use support::apply;
 
 const UP: Action = Action::Move(Direction::Up);
 const DOWN: Action = Action::Move(Direction::Down);
@@ -55,12 +58,6 @@ fn render(app: &mut App, player: &mut Player, steps: usize) -> Vec<f32> {
         player.handle(request);
     }
     player.render(steps * STEP_SAMPLES)
-}
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
 }
 
 fn step_frequency(samples: &[f32], step: usize) -> f32 {

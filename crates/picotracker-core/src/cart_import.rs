@@ -7,7 +7,8 @@ mod rebuild;
 
 use crate::cart::{Cart, SLOTS};
 use crate::project::{
-    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, TargetCart,
+    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, SongPlace,
+    TargetCart,
 };
 use rebuild::{RebuiltChannel, RebuiltPattern, has_bit_7, rebuild_pattern};
 use std::collections::BTreeSet;
@@ -45,15 +46,6 @@ impl ImportWarning {
             place: Some(place),
         }
     }
-}
-
-/// A place in the imported Song.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SongPlace {
-    pub song_row: usize,
-    pub track: usize,
-    pub chain_row: usize,
-    pub step: usize,
 }
 
 /// The Patterns of one song.
@@ -96,12 +88,12 @@ fn first_song(cart: &Cart) -> Option<SongRange> {
 
 /// Gives equal Phrases and equal Chains one id each.
 #[derive(Default)]
-struct Shared {
+struct SharedItems {
     phrases: Vec<Phrase>,
     chains: Vec<Chain>,
 }
 
-impl Shared {
+impl SharedItems {
     /// The id of this Phrase, unless the Project has no id left for it.
     fn phrase(&mut self, project: &mut Project, phrase: Phrase) -> Option<PhraseId> {
         let known = self.phrases.iter().position(|known| *known == phrase);
@@ -142,10 +134,10 @@ pub fn import(cart: &Cart, cart_path: &str) -> ImportedCart {
     let mut claim = Claim::default();
     if let Some(song) = first_song(cart) {
         claim = SongBuilder::new(cart, &mut project, &mut warnings).build(song);
-        let more_music = (song.last..LAST_SLOT).any(|slot| !cart.pattern(slot + 1).is_empty());
-        if more_music {
+        let more_songs = (song.last..LAST_SLOT).any(|slot| !cart.pattern(slot + 1).is_empty());
+        if more_songs {
             warnings.push(ImportWarning::general(
-                "CART HOLDS MORE MUSIC: IMPORTED SONG 1 ONLY",
+                "CART HOLDS MORE SONGS: IMPORTED SONG 1 ONLY",
             ));
         }
     }
@@ -186,7 +178,7 @@ struct SongBuilder<'a> {
     cart: &'a Cart,
     project: &'a mut Project,
     warnings: &'a mut Vec<ImportWarning>,
-    shared: Shared,
+    shared: SharedItems,
     /// The SFX the Patterns play directly.
     played: BTreeSet<u8>,
     /// The SFX that played notes use as instruments.
@@ -204,7 +196,7 @@ impl<'a> SongBuilder<'a> {
             cart,
             project,
             warnings,
-            shared: Shared::default(),
+            shared: SharedItems::default(),
             played: BTreeSet::new(),
             instruments: BTreeSet::new(),
             with_instruments: BTreeSet::new(),
@@ -309,9 +301,36 @@ impl<'a> SongBuilder<'a> {
                 step: 0,
             };
             let phrase = self.place_entry(&mut chain, k, played, channel);
+            let arpeggio_changed = channel.entry.as_ref().and_then(|e| e.arpeggio_changed);
+            if let Some(step) = arpeggio_changed {
+                self.warnings.push(ImportWarning::at(
+                    SongPlace { step, ..place },
+                    format!(
+                        "PATTERN {slot:02X} T{} STEP {step:02X} PLAYS A DIFFERENT ARPEGGIO AFTER \
+                         IMPORT.",
+                        track + 1
+                    ),
+                ));
+            }
             if channel.lost_step {
                 let warning = lost_step_warning(slot, k == last_row, place, phrase);
                 self.warnings.push(warning);
+            }
+            let sounds = channel
+                .entry
+                .as_ref()
+                .is_some_and(|e| !e.phrase.is_silent());
+            if channel.early_ticks > 0 && sounds {
+                let ticks = channel.early_ticks;
+                let plural = if ticks == 1 { "" } else { "S" };
+                self.warnings.push(ImportWarning::at(
+                    place,
+                    format!(
+                        "PATTERN {slot:02X} SPLITS INSIDE A STEP: T{} PLAYS ITS LATER STEPS \
+                         {ticks} TICK{plural} EARLY.",
+                        track + 1
+                    ),
+                ));
             }
             if let Some(needed) = channel.unroll_needed {
                 self.warnings.push(ImportWarning::at(

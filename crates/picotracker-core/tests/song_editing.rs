@@ -1,8 +1,11 @@
-//! Arranging a Song from Chains and Phrases, checked on the Project and the character grid.
+//! Building a Song from Chains and Phrases, checked on the Project and the character grid.
+
+mod support;
 
 use picotracker_core::app::{Action, App, Direction, KeyContext};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::project::{ChainId, PhraseId};
+use support::{apply, status_line};
 
 const UP: Action = Action::Move(Direction::Up);
 const DOWN: Action = Action::Move(Direction::Down);
@@ -29,12 +32,6 @@ fn app_after(actions: &[Action]) -> App {
     let mut app = App::new();
     apply(&mut app, actions);
     app
-}
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
 }
 
 /// Types a two-digit hexadecimal value.
@@ -67,10 +64,6 @@ fn chain_text(app: &App, line: usize) -> String {
 
 fn phrase_text(app: &App, line: usize) -> String {
     pane_text(app, line, 63..82)
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 /// An app with Chain 03 on the first Song row and the Chain pane focused.
@@ -127,12 +120,12 @@ fn hex_digits_type_directly_in_the_song_and_chain_panes() {
     let keymap = Keymap::pc_tracker();
     let press = KeyPress::new(Key::Char('a'), Modifiers::NONE);
 
-    assert_eq!(App::new().key_context(), KeyContext::ArrangeValue);
+    assert_eq!(App::new().key_context(), KeyContext::ReferenceValue);
     assert_eq!(
-        keymap.action_in(press, KeyContext::ArrangeValue),
+        keymap.action_in(press, KeyContext::ReferenceValue),
         Some(Action::HexDigit(0xA))
     );
-    assert_eq!(chain_app().key_context(), KeyContext::ArrangeValue);
+    assert_eq!(chain_app().key_context(), KeyContext::ReferenceValue);
 }
 
 #[test]
@@ -375,7 +368,7 @@ fn set_song_loop_row_moves_the_loop_and_a_second_press_turns_it_off() {
 }
 
 #[test]
-fn the_arrangement_keys_are_bound_in_the_pc_tracker_preset() {
+fn the_song_editing_keys_are_bound_in_the_pc_tracker_preset() {
     let keymap = Keymap::pc_tracker();
 
     assert_eq!(

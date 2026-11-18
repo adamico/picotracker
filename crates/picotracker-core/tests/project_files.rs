@@ -1,6 +1,8 @@
 //! Creating, opening and saving Projects through the headless App core. File contents go in and
 //! out through the App core's interface, so these tests touch no disk.
 
+mod support;
+
 use picotracker_core::app::{
     Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, KeyContext,
 };
@@ -10,14 +12,11 @@ use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
 use picotracker_core::project_file;
 use picotracker_core::screen::palette::Colour;
 use std::path::{Path, PathBuf};
+use support::status_line;
 
 const STATUS_ROW: usize = 44;
 const DOWN: Action = Action::Move(Direction::Down);
 const UNSAVED_QUESTION: &str = "UNSAVED CHANGES WILL BE LOST  ENTER DISCARD  ESC CANCEL";
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
-}
 
 fn right_slot(app: &App, line: usize) -> String {
     let text: String = app

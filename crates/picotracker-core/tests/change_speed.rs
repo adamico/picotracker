@@ -1,20 +1,17 @@
 //! Change Speed: typing a new Speed for the Phrase on show scales many Phrases by the same ratio.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction, KeyContext};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::player::AudioRequest;
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
+use support::{apply, status_line};
 
 const DOWN: Action = Action::Move(Direction::Down);
 const RIGHT: Action = Action::Move(Direction::Right);
 const TAB: Action = Action::FocusNext;
 const SELECT: Action = Action::StartSelection;
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
 
 /// Opens Change Speed, types two hexadecimal digits and presses Enter.
 fn change_speed(app: &mut App, high: u8, low: u8) {
@@ -27,10 +24,6 @@ fn change_speed(app: &mut App, high: u8, low: u8) {
             Action::Confirm,
         ],
     );
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 fn speed(app: &App, phrase: u8) -> u8 {
@@ -321,7 +314,7 @@ fn no_phrase_on_show_means_no_speed_to_start_from() {
     app.apply(Action::ChangeSpeed);
 
     assert!(status_line(&app).contains("NO PHRASE HERE"));
-    assert_eq!(app.key_context(), KeyContext::ArrangeValue);
+    assert_eq!(app.key_context(), KeyContext::ReferenceValue);
 }
 
 #[test]

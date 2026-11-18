@@ -297,7 +297,7 @@ fn step_edits_do_nothing_outside_the_phrase_pane() {
 #[test]
 fn the_key_context_follows_the_phrase_cursor() {
     let mut app = App::new();
-    assert_eq!(app.key_context(), KeyContext::ArrangeValue);
+    assert_eq!(app.key_context(), KeyContext::ReferenceValue);
 
     app.apply(Action::FocusNext);
     app.apply(Action::FocusNext);

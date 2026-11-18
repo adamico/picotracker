@@ -30,6 +30,11 @@ pub const CART_SLOTS: u8 = 64;
 /// The highest DETUNE, REVERB or DAMPEN.
 pub const MAX_FILTER_LEVEL: i32 = 2;
 
+/// The names of the 12 semitones, as a Step's pitch shows them.
+pub const NOTE_NAMES: [&str; 12] = [
+    "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
+];
+
 /// The Chains and the Phrases a Project can name with two hexadecimal digits.
 const ID_COUNT: usize = 256;
 const MIN_TRANSPOSE: i32 = i8::MIN as i32;
@@ -42,6 +47,10 @@ const MAX_PITCH: i32 = 63;
 const MAX_BUILT_IN_INSTRUMENT: i32 = 7;
 const MAX_VOLUME: i32 = 7;
 const MAX_EFFECT: i32 = 7;
+const EFFECT_ARPEGGIO_FAST: u8 = 6;
+const EFFECT_ARPEGGIO_SLOW: u8 = 7;
+/// The Steps an arpeggio plays: the group of this many that it falls in.
+pub const ARPEGGIO_GROUP: usize = 4;
 const MIN_SPEED: i32 = 1;
 const MAX_SPEED: i32 = 255;
 /// BPM is about this number divided by the Speed, assuming 4 Steps per beat.
@@ -100,6 +109,11 @@ impl Step {
     /// Whether the Step makes no sound.
     pub const fn is_silent(self) -> bool {
         self.volume == 0
+    }
+
+    /// Whether the Step sounds as an arpeggio, which plays the pitches of its group of 4 Steps.
+    pub const fn plays_arpeggio(self) -> bool {
+        !self.is_silent() && matches!(self.effect, EFFECT_ARPEGGIO_FAST | EFFECT_ARPEGGIO_SLOW)
     }
 
     /// Sets the pitch, stopping at 0 and 63.
@@ -268,6 +282,16 @@ impl Phrase {
         !step.is_silent() && !(0..=MAX_PITCH).contains(&pitch)
     }
 
+    /// Which Steps an arpeggio inside LEN takes its pitches from. These can lie past LEN.
+    pub fn steps_read_by_arpeggios(&self) -> [bool; MAX_STEPS] {
+        let mut read = [false; MAX_STEPS];
+        for index in (0..self.length).filter(|&index| self.steps[index].plays_arpeggio()) {
+            let group = index - index % ARPEGGIO_GROUP;
+            read[group..group + ARPEGGIO_GROUP].fill(true);
+        }
+        read
+    }
+
     /// Whether any Step inside LEN sounds outside PICO-8's pitch range after this transpose.
     pub fn is_out_of_range(&self, transpose: i8) -> bool {
         (0..self.length).any(|index| self.step_is_out_of_range(index, transpose))
@@ -434,6 +458,15 @@ pub struct TargetCart {
     pub claimed_bytes_hash: Option<String>,
 }
 
+/// A place in the Song that a message is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SongPlace {
+    pub song_row: usize,
+    pub track: usize,
+    pub chain_row: usize,
+    pub step: usize,
+}
+
 /// The tracker's saved work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {
@@ -504,17 +537,22 @@ impl Project {
     }
 
     /// The k-th entry of a Track's Chain on a Song row.
-    pub fn chain_row_entry(&self, row: usize, track: usize, k: usize) -> Option<ChainEntry> {
-        self.chain(self.song_cell(row, track)?).entry(k)
+    pub fn chain_row_entry(
+        &self,
+        row: usize,
+        track: usize,
+        chain_row: usize,
+    ) -> Option<ChainEntry> {
+        self.chain(self.song_cell(row, track)?).entry(chain_row)
     }
 
     /// How long a Chain row lasts: its longest Phrase not marked Fill, or its longest entry when
     /// every entry is marked Fill. A Chain row with no entries lasts no time.
-    pub fn chain_row_ticks(&self, row: usize, k: usize) -> u32 {
+    pub fn chain_row_ticks(&self, row: usize, chain_row: usize) -> u32 {
         let mut longest = 0;
         let mut longest_fill = 0;
         for track in 0..TRACKS {
-            if let Some(entry) = self.chain_row_entry(row, track, k) {
+            if let Some(entry) = self.chain_row_entry(row, track, chain_row) {
                 let ticks = self.phrase(entry.phrase()).ticks();
                 let slot = if entry.fill() {
                     &mut longest_fill
@@ -529,7 +567,7 @@ impl Project {
 
     /// Whether a Song row has nothing to play, which ends the Song.
     pub fn song_row_is_empty(&self, row: usize) -> bool {
-        (0..CHAIN_ENTRIES).all(|k| self.chain_row_ticks(row, k) == 0)
+        (0..CHAIN_ENTRIES).all(|chain_row| self.chain_row_ticks(row, chain_row) == 0)
     }
 
     /// The row the Song jumps to when it ends, if it loops at all.
@@ -554,6 +592,12 @@ impl Project {
     /// The Track on each of PICO-8's channels, numbered 1 to 8.
     pub const fn export_tracks(&self) -> [Option<u8>; EXPORT_CHANNELS] {
         self.export_tracks
+    }
+
+    /// The Track on each of PICO-8's channels, counted from 0 like the Song's columns.
+    pub fn export_track_indices(&self) -> [Option<usize>; EXPORT_CHANNELS] {
+        self.export_tracks
+            .map(|track| track.map(|track| usize::from(track) - 1))
     }
 
     /// Puts a Track, numbered 1 to 8, on a channel from 0 to 3, or takes it off.

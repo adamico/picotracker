@@ -15,16 +15,16 @@ use std::io::Cursor;
 pub const SLOTS: usize = 64;
 /// The notes of one SFX.
 pub const SFX_NOTES: usize = 32;
-const SFX_BYTES: usize = 68;
+pub(crate) const SFX_BYTES: usize = 68;
 const PATTERN_BYTES: usize = 4;
 
 const PATTERNS_AT: usize = 0x3100;
 const SFX_AT: usize = 0x3200;
 const MUSIC_END: usize = SFX_AT + SLOTS * SFX_BYTES;
 
-const FILTERS_BYTE: usize = 64;
-const SPEED_BYTE: usize = 65;
-const LOOP_START_BYTE: usize = 66;
+pub(crate) const FILTERS_BYTE: usize = 64;
+pub(crate) const SPEED_BYTE: usize = 65;
+pub(crate) const LOOP_START_BYTE: usize = 66;
 const LOOP_END_BYTE: usize = 67;
 
 const CHANNELS: usize = 4;
@@ -73,6 +73,17 @@ impl fmt::Display for CartError {
 }
 
 impl std::error::Error for CartError {}
+
+/// A note as Cart memory packs it into one word.
+pub(crate) const fn note_word(
+    pitch: u16,
+    instrument: u16,
+    volume: u16,
+    effect: u16,
+    custom: u16,
+) -> u16 {
+    pitch | instrument << 6 | volume << 9 | effect << 12 | custom << 15
+}
 
 /// One note of an SFX.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -400,7 +411,7 @@ fn parse_sfx_line(line: &[u8]) -> Option<[u8; SFX_BYTES]> {
         let custom = u16::from(note[2] >> 3);
         let volume = u16::from(note[3] & 7);
         let effect = u16::from(note[4] & 7);
-        let word = pitch | instrument << 6 | volume << 9 | effect << 12 | custom << 15;
+        let word = note_word(pitch, instrument, volume, effect, custom);
         sfx[index * 2..index * 2 + 2].copy_from_slice(&word.to_le_bytes());
     }
     Some(sfx)

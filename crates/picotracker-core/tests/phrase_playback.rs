@@ -1,8 +1,11 @@
 //! Hearing a Phrase: actions in, audio requests out, and offline-rendered samples from the Player.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::player::{AudioRequest, Player, Resampler};
 use picotracker_core::synth::{SAMPLE_RATE, SAMPLES_PER_TICK};
+use support::{apply, status_line};
 
 const UP: Action = Action::Move(Direction::Up);
 const DOWN: Action = Action::Move(Direction::Down);
@@ -47,22 +50,12 @@ fn phrase_app() -> App {
     app
 }
 
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
-
 /// Plays whatever the app has asked for and renders samples.
 fn render(app: &mut App, player: &mut Player, samples: usize) -> Vec<f32> {
     for request in app.take_audio_requests() {
         player.handle(request);
     }
     player.render(samples)
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 fn frequency_at(samples: &[f32], rate: u32) -> f32 {
