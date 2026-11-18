@@ -128,6 +128,32 @@ fn an_edited_step_is_heard_when_the_playhead_reaches_it() {
 }
 
 #[test]
+fn an_undo_during_playback_is_heard_when_the_playhead_reaches_it() {
+    let mut app = playing_in_phrase_pane(four_steps_then_a3());
+    let mut player = Player::new();
+    apply(&mut app, &[DOWN, DOWN, OCTAVE_UP]);
+    let mut samples = render(&mut app, &mut player, 1);
+
+    apply(&mut app, &[Action::Undo]);
+    samples.extend(render(&mut app, &mut player, 3));
+
+    assert_steps(&samples, &[440.0, 440.0, 440.0, 440.0]);
+}
+
+#[test]
+fn a_redo_during_playback_is_heard_when_the_playhead_reaches_it() {
+    let mut app = playing_in_phrase_pane(four_steps_then_a3());
+    let mut player = Player::new();
+    apply(&mut app, &[DOWN, DOWN, OCTAVE_UP, Action::Undo]);
+    let mut samples = render(&mut app, &mut player, 1);
+
+    apply(&mut app, &[Action::Redo]);
+    samples.extend(render(&mut app, &mut player, 3));
+
+    assert_steps(&samples, &[440.0, 440.0, 880.0, 440.0]);
+}
+
+#[test]
 fn an_edit_to_a_step_already_passed_waits_for_the_next_time_round() {
     let mut project = Project::new();
     let tone = write(&mut project, 1, &[A2, A2]);
