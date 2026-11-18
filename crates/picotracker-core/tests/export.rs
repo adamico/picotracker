@@ -201,6 +201,70 @@ fn every_failure_is_reported_at_once() {
 }
 
 #[test]
+fn missing_export_tracks_do_not_hide_a_claim_that_is_too_small() {
+    let mut project = one_row_project();
+    place(&mut project, 1, 0, 0, 0);
+    project.set_export_track(0, None);
+
+    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+
+    assert_eq!(
+        failures,
+        [
+            ExportFailure::NoExportTracks,
+            ExportFailure::TooFewPatterns {
+                needed: 2,
+                claimed: 1
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_song_loop_row_past_a_gap_is_compiled_as_the_player_plays_it() {
+    let mut project = one_row_project();
+    write_phrase(&mut project, 1, 8, 9);
+    place(&mut project, 2, 0, 1, 1);
+    project.set_song_loop_row(Some(2));
+
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 1)));
+
+    // Row 0 plays, the gap at row 1 jumps to row 2, and row 2 then loops for ever.
+    assert_eq!(cart.pattern_bytes(0), [8, 0x42, 0x43, 0x44]);
+    assert_eq!(cart.pattern_bytes(1), [9 | 0x80, 0x42 | 0x80, 0x43, 0x44]);
+}
+
+#[test]
+fn a_song_loop_row_on_an_empty_row_stops_the_song() {
+    let mut project = one_row_project();
+    project.set_song_loop_row(Some(5));
+
+    let cart = exported_cart(&project, &claim(&[8], (0, 0)));
+
+    assert_eq!(cart.pattern_bytes(0), [8, 0x42, 0x43 | 0x80, 0x44]);
+}
+
+#[test]
+fn a_claim_naming_a_slot_twice_exports_into_that_slot_once() {
+    let cart = exported_cart(&one_row_project(), &claim(&[8, 8], (0, 0)));
+
+    assert_eq!(cart.pattern(0).channel(0), Some(8));
+}
+
+#[test]
+fn a_claim_naming_slots_a_cart_does_not_have_fails_the_export() {
+    for bad in [
+        claim(&[64], (0, 0)),
+        claim(&[8], (0, 64)),
+        claim(&[8], (5, 2)),
+    ] {
+        let failures = export(&one_row_project(), &bad, &blank_cart()).unwrap_err();
+
+        assert!(failures.contains(&ExportFailure::BadClaim), "{failures:?}");
+    }
+}
+
+#[test]
 fn too_few_claimed_slots_say_how_many_are_needed() {
     let mut project = one_row_project();
     write_phrase(&mut project, 1, 8, 9);

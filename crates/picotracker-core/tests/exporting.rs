@@ -350,6 +350,22 @@ fn an_empty_claim_fails_with_the_no_claim_message() {
 }
 
 #[test]
+fn a_project_file_claiming_a_slot_twice_exports_without_crashing() {
+    let original = simple_cart().p8();
+    let app = imported(original.clone());
+    let mut project = app.project().clone();
+    let mut target = project.target_cart().unwrap().clone();
+    target.claim.sfx = vec![0, 0, 1];
+    project.set_target_cart(Some(target));
+    let reopened = project_file::parse(&project_file::write(&project)).unwrap();
+    let mut app = App::with_project(reopened);
+
+    let written = export_ok(&mut app, original);
+
+    assert_eq!(Cart::read(&written).unwrap().pattern(0).channel(0), Some(0));
+}
+
+#[test]
 fn export_without_a_target_cart_asks_for_nothing() {
     let mut app = App::new();
 
