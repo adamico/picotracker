@@ -1,16 +1,15 @@
 //! The status line and the Log, driven through the headless App core.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction, Location, LogItem, Report, Severity};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::screen::palette::Colour;
 use std::time::Duration;
+use support::status_line;
 
 const STATUS_ROW: usize = 44;
 const DOWN: Action = Action::Move(Direction::Down);
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
-}
 
 fn status_background(app: &App) -> Colour {
     app.grid().cell(0, STATUS_ROW).style.bg

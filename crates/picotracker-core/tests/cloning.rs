@@ -1,23 +1,16 @@
 //! Clone, Deep clone and new unused Chains and Phrases.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, SONG_ROWS, Step, TRACKS};
+use support::{apply, status_line};
 
 const DOWN: Action = Action::Move(Direction::Down);
 const RIGHT: Action = Action::Move(Direction::Right);
 const TAB: Action = Action::FocusNext;
 const SELECT: Action = Action::StartSelection;
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
-}
 
 fn song_cell(app: &App, row: usize, track: usize) -> Option<u8> {
     app.project().song_cell(row, track).map(ChainId::number)

@@ -2,6 +2,7 @@
 //! spec describes, and only stand in until Carts re-saved through real PICO-8 exist.
 #![allow(dead_code)]
 
+use picotracker_core::app::{Action, App};
 use picotracker_core::cart::Cart;
 use picotracker_core::player::{AudioRequest, Player};
 use picotracker_core::project::Project;
@@ -17,6 +18,18 @@ pub const SFX_AT: usize = 0x3200;
 const CART_BYTES: usize = 0x8020;
 const PNG_WIDTH: u32 = 160;
 const PNG_HEIGHT: u32 = 205;
+
+/// Applies these actions in turn.
+pub fn apply(app: &mut App, actions: &[Action]) {
+    for action in actions {
+        app.apply(*action);
+    }
+}
+
+/// The bottom row of the character grid.
+pub fn status_line(app: &App) -> String {
+    app.grid().text_dump().lines().last().unwrap().to_owned()
+}
 
 /// One note written the way a `__sfx__` line holds it.
 #[derive(Clone, Copy, Debug)]
