@@ -109,6 +109,10 @@ _Avoid_: Music (ambiguous), frame
 Compiling a Project into a Cart's SFX and Patterns. May lose information the Cart cannot hold.
 _Avoid_: Save (saving writes the Project)
 
+**Export Track**:
+A Track assigned to one of PICO-8's 4 channels for Export. A Project has up to 4, and a Track can be on only one channel.
+_Avoid_: Output track, exported channel
+
 **Target Cart**:
 The one Cart a Project Exports into, if any. A Project can have no Target Cart, for example after a MIDI Import.
 _Avoid_: Linked cart, output cart
