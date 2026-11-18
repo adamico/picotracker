@@ -7,8 +7,8 @@
 
 use crate::cart::{Cart, CartError};
 use crate::project::{
-    CHAIN_ENTRIES, ChainEntry, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, Phrase, Project,
-    SONG_ROWS,
+    CHAIN_ENTRIES, ChainEntry, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase,
+    Project, SONG_ROWS,
 };
 use std::collections::BTreeSet;
 use std::fmt;
@@ -235,16 +235,14 @@ fn compile_song(
                 continue;
             };
             let phrase = project.phrase(entry.phrase());
-            for step in 0..phrase.length() {
-                if phrase.step_is_out_of_range(step, entry.transpose()) {
-                    failures.push(ExportFailure::NoteOutOfRange {
-                        phrase: entry.phrase().number(),
-                        step,
-                        track,
-                        song_row,
-                        chain_row,
-                    });
-                }
+            for step in out_of_range_steps(phrase, entry.transpose()) {
+                failures.push(ExportFailure::NoteOutOfRange {
+                    phrase: entry.phrase().number(),
+                    step,
+                    track,
+                    song_row,
+                    chain_row,
+                });
             }
             pattern[channel] = Some(song.sfx_index(bake_sfx(phrase, entry.transpose())));
         }
@@ -286,17 +284,36 @@ fn plays_custom_instrument(phrase: &Phrase) -> bool {
         .any(|step| !step.is_silent() && step.instrument() >= FIRST_CUSTOM_INSTRUMENT)
 }
 
+/// The Steps whose pitch is heard outside PICO-8's range after a transpose: audible Steps inside
+/// LEN, and any Step an arpeggio reads.
+fn out_of_range_steps(phrase: &Phrase, transpose: i8) -> impl Iterator<Item = usize> {
+    let read = phrase.steps_read_by_arpeggios();
+    (0..MAX_STEPS).filter(move |&index| {
+        let pitch = i32::from(phrase.step(index).pitch()) + i32::from(transpose);
+        let audible = index < phrase.length() && phrase.step_is_out_of_range(index, transpose);
+        audible || (read[index] && !(0..=MAX_PITCH).contains(&pitch))
+    })
+}
+
 /// The 68 bytes of the SFX that plays a Phrase at a transpose. Steps past LEN are never heard, so
-/// they are left blank, which lets more SFX share a slot.
+/// they are left blank, which lets more SFX share a slot. The exception is a pitch that an arpeggio
+/// reads, which is kept on a silent note.
 fn bake_sfx(phrase: &Phrase, transpose: i8) -> [u8; SFX_BYTES] {
     let mut sfx = [0; SFX_BYTES];
-    for index in 0..phrase.length() {
+    let read = phrase.steps_read_by_arpeggios();
+    for index in 0..MAX_STEPS {
         let step = phrase.step(index);
         let pitch = (i32::from(step.pitch()) + i32::from(transpose)).clamp(0, MAX_PITCH) as u16;
-        let word = pitch
-            | u16::from(step.instrument() & 7) << 6
-            | u16::from(step.volume()) << 9
-            | u16::from(step.effect()) << 12;
+        let word = if index < phrase.length() {
+            pitch
+                | u16::from(step.instrument() & 7) << 6
+                | u16::from(step.volume()) << 9
+                | u16::from(step.effect()) << 12
+        } else if read[index] {
+            pitch
+        } else {
+            0
+        };
         sfx[index * 2..index * 2 + 2].copy_from_slice(&word.to_le_bytes());
     }
     sfx[FILTERS_BYTE] = filters_byte(phrase);

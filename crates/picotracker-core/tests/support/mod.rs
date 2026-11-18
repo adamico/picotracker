@@ -2,7 +2,12 @@
 //! spec describes, and only stand in until Carts re-saved through real PICO-8 exist.
 #![allow(dead_code)]
 
+use picotracker_core::cart::Cart;
+use picotracker_core::player::{AudioRequest, Player};
+use picotracker_core::project::Project;
+use picotracker_core::synth::{Note, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
 use std::fmt::Write;
+use std::sync::Arc;
 
 pub const HEADER: &str = "pico-8 cartridge // http://www.pico-8.com\nversion 43\n";
 
@@ -192,6 +197,73 @@ impl TestCart {
     pub fn png(&self) -> Vec<u8> {
         png_of(&self.memory(), PNG_WIDTH, PNG_HEIGHT)
     }
+}
+
+/// What the synth plays for one SFX of a Cart.
+pub fn sound_of(cart: &Cart, slot: u8) -> Sound {
+    let sfx = cart.sfx(slot);
+    let mut notes = [Note::default(); 32];
+    for (index, note) in notes.iter_mut().enumerate() {
+        let stored = sfx.note(index);
+        *note = Note {
+            pitch: i16::from(stored.pitch),
+            instrument: stored.instrument,
+            custom: stored.custom,
+            volume: stored.volume,
+            effect: stored.effect,
+        };
+    }
+    let byte = sfx.filters();
+    Sound {
+        notes,
+        speed: sfx.speed(),
+        filters: packed_filters(
+            byte & 2 != 0,
+            byte & 4 != 0,
+            (byte / 8) % 3,
+            (byte / 24) % 3,
+            (byte / 72) % 3,
+        ),
+        loop_start: 0,
+        loop_end: 32,
+    }
+}
+
+/// Plays these stored notes of an SFX in turn, one Step each, the way a channel moves through them.
+pub fn render_notes(sound: Sound, notes: &[usize]) -> Vec<f32> {
+    let mut voice = Voice::new();
+    let step_samples = usize::from(sound.speed.max(1)) * SAMPLES_PER_TICK as usize;
+    let mut samples = Vec::with_capacity(notes.len() * step_samples);
+    for (step, note) in notes.iter().enumerate() {
+        if step == 0 {
+            voice.play(sound, *note);
+        } else {
+            voice.continue_at(sound, *note);
+        }
+        samples.extend((0..step_samples).map(|_| voice.next_sample()));
+    }
+    samples
+}
+
+/// The Song of a Project through the Player, from its first row.
+pub fn render_song(project: Project, samples: usize) -> Vec<f32> {
+    let mut player = Player::new();
+    player.handle(AudioRequest::PlaySong {
+        project: Arc::new(project),
+        from_row: 0,
+    });
+    player.render(samples)
+}
+
+/// Fails on the first sample that differs, so that a failure says where the sound changed.
+pub fn assert_same_samples(rendered: &[f32], expected: &[f32]) {
+    assert_eq!(rendered.len(), expected.len());
+    assert!(expected.iter().any(|sample| sample.abs() > 0.01));
+    let first_difference = expected
+        .iter()
+        .zip(rendered)
+        .position(|(expected, rendered)| expected != rendered);
+    assert_eq!(first_difference, None);
 }
 
 /// Packs bytes into the low 2 bits of each pixel's channels, over a mid-grey picture.
