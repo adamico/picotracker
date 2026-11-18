@@ -7,8 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+png = "0.18"
 ron = "0.12.3"
 serde = { version = "1.0.229", features = ["derive"] }
-
-[dev-dependencies]
-png = "0.18"

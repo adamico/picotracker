@@ -186,7 +186,7 @@ impl App {
         }
         if let Some(list) = &self.file_list {
             return match list.purpose() {
-                Purpose::Open => KeyContext::Navigation,
+                Purpose::Open | Purpose::Import => KeyContext::Navigation,
                 Purpose::SaveAs => KeyContext::FileName,
             };
         }
@@ -400,6 +400,7 @@ impl App {
             Action::OpenProject => self.open_project(),
             Action::Save => self.save(),
             Action::SaveAs => self.save_as(),
+            Action::Import => self.import(),
             Action::ToggleLog => self.toggle_log(),
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
@@ -757,7 +758,7 @@ impl App {
             return StatusLine::Notice(notice);
         }
         match self.file_list.as_ref().map(FileList::purpose) {
-            Some(Purpose::Open) => StatusLine::Hints(OPEN_LIST_KEYS),
+            Some(Purpose::Open | Purpose::Import) => StatusLine::Hints(OPEN_LIST_KEYS),
             Some(Purpose::SaveAs) => StatusLine::Hints(SAVE_LIST_KEYS),
             None => StatusLine::Idle {
                 project,
