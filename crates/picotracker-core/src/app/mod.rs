@@ -199,10 +199,10 @@ impl App {
             };
         }
         match self.focus {
-            Focus::Song => KeyContext::ArrangeValue,
-            Focus::Chain if self.chain.takes_digits() => KeyContext::ArrangeValue,
+            Focus::Song => KeyContext::ReferenceValue,
+            Focus::Chain if self.chain.takes_digits() => KeyContext::ReferenceValue,
             Focus::Phrase => self.phrase.key_context(),
-            Focus::RightSlot if !self.log_open => KeyContext::ArrangeValue,
+            Focus::RightSlot if !self.log_open => KeyContext::ReferenceValue,
             _ => KeyContext::Navigation,
         }
     }

@@ -80,7 +80,7 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
     });
     let digits = [
         KeyContext::PhraseValue,
-        KeyContext::ArrangeValue,
+        KeyContext::ReferenceValue,
         KeyContext::SpeedEntry,
     ]
     .into_iter()

@@ -250,7 +250,7 @@ fn a_song_ending_in_stop_does_not_loop_and_stops_the_claim() {
     assert_eq!(project.song_loop_row(), None);
     assert_eq!(project.target_cart().unwrap().claim.patterns, Some((0, 1)));
     assert!(project.song_row_is_empty(2));
-    assert_eq!(warnings, ["CART HOLDS MORE MUSIC: IMPORTED SONG 1 ONLY"]);
+    assert_eq!(warnings, ["CART HOLDS MORE SONGS: IMPORTED SONG 1 ONLY"]);
 }
 
 #[test]

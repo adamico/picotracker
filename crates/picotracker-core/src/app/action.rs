@@ -110,7 +110,7 @@ pub enum KeyContext {
     /// Any other value in the Phrase pane: hexadecimal digits are typed directly.
     PhraseValue,
     /// A Chain or Phrase reference, or a transpose: hexadecimal digits are typed directly.
-    ArrangeValue,
+    ReferenceValue,
     /// A file name: characters are typed as they are.
     FileName,
     /// The MIDI Import dialog, which has keys of its own.

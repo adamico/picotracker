@@ -1,4 +1,4 @@
-//! Arranging a Song from Chains and Phrases, checked on the Project and the character grid.
+//! Building a Song from Chains and Phrases, checked on the Project and the character grid.
 
 use picotracker_core::app::{Action, App, Direction, KeyContext};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
@@ -127,12 +127,12 @@ fn hex_digits_type_directly_in_the_song_and_chain_panes() {
     let keymap = Keymap::pc_tracker();
     let press = KeyPress::new(Key::Char('a'), Modifiers::NONE);
 
-    assert_eq!(App::new().key_context(), KeyContext::ArrangeValue);
+    assert_eq!(App::new().key_context(), KeyContext::ReferenceValue);
     assert_eq!(
-        keymap.action_in(press, KeyContext::ArrangeValue),
+        keymap.action_in(press, KeyContext::ReferenceValue),
         Some(Action::HexDigit(0xA))
     );
-    assert_eq!(chain_app().key_context(), KeyContext::ArrangeValue);
+    assert_eq!(chain_app().key_context(), KeyContext::ReferenceValue);
 }
 
 #[test]
@@ -375,7 +375,7 @@ fn set_song_loop_row_moves_the_loop_and_a_second_press_turns_it_off() {
 }
 
 #[test]
-fn the_arrangement_keys_are_bound_in_the_pc_tracker_preset() {
+fn the_song_editing_keys_are_bound_in_the_pc_tracker_preset() {
     let keymap = Keymap::pc_tracker();
 
     assert_eq!(
