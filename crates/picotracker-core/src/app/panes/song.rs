@@ -6,7 +6,7 @@ use super::{
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
-use crate::app::selection::{Block, CellPosition};
+use crate::app::selection::{CellPosition, CellRange};
 use crate::player::TrackMix;
 use crate::project::{ChainId, Project, SONG_ROWS, TRACKS};
 use crate::screen::grid::{Grid, Style};
@@ -128,10 +128,10 @@ impl SongPane {
         }
     }
 
-    /// Steps every Chain in a block. Empty cells stay empty.
-    pub fn nudge_block(&self, project: &mut Project, block: Block, up: bool, coarse: bool) {
-        for row in block.rows() {
-            for track in block.columns() {
+    /// Steps every Chain in a cells. Empty cells stay empty.
+    pub fn nudge_cells(&self, project: &mut Project, cells: CellRange, up: bool, coarse: bool) {
+        for row in cells.rows() {
+            for track in cells.columns() {
                 if let Some(chain) = project.song_cell(row, track) {
                     let number = nudged_id(Some(chain.number()), up, coarse);
                     project.set_song_cell(row, track, Some(ChainId::new(number)));
@@ -140,21 +140,21 @@ impl SongPane {
         }
     }
 
-    /// Takes the Chains off a block of cells. The Chains themselves are kept.
-    pub fn clear_block(&self, project: &mut Project, block: Block) {
-        for row in block.rows() {
-            for track in block.columns() {
+    /// Takes the Chains off a cells of cells. The Chains themselves are kept.
+    pub fn clear_cells(&self, project: &mut Project, cells: CellRange) {
+        for row in cells.rows() {
+            for track in cells.columns() {
                 project.set_song_cell(row, track, None);
             }
         }
     }
 
-    /// The Chains in a block of cells, row by row.
-    pub fn copy(&self, project: &Project, block: Block) -> Vec<Vec<Option<ChainId>>> {
-        block
+    /// The Chains in a cells of cells, row by row.
+    pub fn copy(&self, project: &Project, cells: CellRange) -> Vec<Vec<Option<ChainId>>> {
+        cells
             .rows()
             .map(|row| {
-                block
+                cells
                     .columns()
                     .map(|track| project.song_cell(row, track))
                     .collect()
@@ -186,14 +186,14 @@ impl SongPane {
     }
 
     /// Marks the selected cells, leaving the cursor as it is.
-    pub fn draw_selection(&self, grid: &mut Grid, area: Area, block: Block) {
+    pub fn draw_selection(&self, grid: &mut Grid, area: Area, cells: CellRange) {
         let visible = area.rows - HEADER_ROWS;
         let top = self.top_row(visible);
-        for song_row in block
+        for song_row in cells
             .rows()
             .filter(|row| (top..top + visible).contains(row))
         {
-            for track in block.columns() {
+            for track in cells.columns() {
                 if (song_row, track) != (self.row, self.track) {
                     let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
                     grid.restyle(column, HEADER_ROWS + song_row - top, 2, SELECTED);

@@ -11,6 +11,7 @@ use picotracker_core::player::AudioRequest;
 use picotracker_core::project::{Claim, Project, TargetCart};
 use picotracker_core::project_file;
 use std::path::{Path, PathBuf};
+use support::status_line;
 use support::{HEADER, TestCart, TestPattern, TestSfx};
 
 const DOWN: Action = Action::Move(Direction::Down);
@@ -23,10 +24,6 @@ fn line(app: &App, index: usize) -> String {
         .nth(index)
         .unwrap()
         .to_owned()
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 fn right_slot(app: &App, index: usize) -> String {
@@ -350,6 +347,22 @@ fn an_empty_claim_fails_with_the_no_claim_message() {
 }
 
 #[test]
+fn a_project_file_claiming_a_slot_twice_exports_without_crashing() {
+    let original = simple_cart().p8();
+    let app = imported(original.clone());
+    let mut project = app.project().clone();
+    let mut target = project.target_cart().unwrap().clone();
+    target.claim.sfx = vec![0, 0, 1];
+    project.set_target_cart(Some(target));
+    let reopened = project_file::parse(&project_file::write(&project)).unwrap();
+    let mut app = App::with_project(reopened);
+
+    let written = export_ok(&mut app, original);
+
+    assert_eq!(Cart::read(&written).unwrap().pattern(0).channel(0), Some(0));
+}
+
+#[test]
 fn export_without_a_target_cart_asks_for_nothing() {
     let mut app = App::new();
 
@@ -389,6 +402,105 @@ fn a_failed_write_keeps_the_old_hash() {
 
     assert!(status_line(&app).contains("CANNOT EXPORT TO GAME.P8: DISK FULL"));
     assert_eq!(stored_hash(&app), hash);
+}
+
+/// Answers the folder listing the app has just asked for.
+fn answer_listing(app: &mut App, directory: &Path, entries: Vec<DirectoryEntry>) {
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::List {
+            directory: directory.to_path_buf()
+        }]
+    );
+    app.receive_file(FileResponse::Listed {
+        directory: directory.to_path_buf(),
+        entries,
+    });
+}
+
+/// An app holding the Project Imported from `./carts/game.p8`.
+fn imported_from_a_subfolder(contents: Vec<u8>) -> App {
+    let mut app = App::new();
+    app.apply(Action::Import);
+    let carts = DirectoryEntry {
+        name: "carts".to_owned(),
+        is_directory: true,
+    };
+    answer_listing(&mut app, Path::new("."), vec![carts]);
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    let cart = DirectoryEntry {
+        name: CART_NAME.to_owned(),
+        is_directory: false,
+    };
+    answer_listing(&mut app, &Path::new(".").join("carts"), vec![cart]);
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    app.take_file_requests();
+    app.receive_file(FileResponse::BytesRead {
+        path: Path::new(".").join("carts").join(CART_NAME),
+        contents,
+    });
+    app
+}
+
+/// Saves the Project as `s.ptrk` one folder up from `./carts`, returning the text written.
+fn save_as_one_folder_up(app: &mut App) -> String {
+    app.apply(Action::SaveAs);
+    answer_listing(app, &Path::new(".").join("carts"), Vec::new());
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    answer_listing(app, Path::new("."), Vec::new());
+    app.apply(Action::TypeChar('s'));
+    app.apply(Action::Confirm);
+    let requests = app.take_file_requests();
+    let [FileRequest::Write { path, contents }] = &requests[..] else {
+        panic!("expected one write, got {requests:?}");
+    };
+    let (path, contents) = (path.clone(), contents.clone());
+    app.receive_file(FileResponse::Written { path });
+    contents
+}
+
+#[test]
+fn saving_into_another_folder_keeps_the_target_cart_pointing_at_the_same_cart() {
+    let mut app = imported_from_a_subfolder(simple_cart().p8());
+
+    let saved = save_as_one_folder_up(&mut app);
+
+    let target = project_file::parse(&saved).unwrap();
+    assert_eq!(target.target_cart().unwrap().path, "carts/game.p8");
+    app.apply(Action::Export);
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::ReadBytes {
+            path: Path::new(".").join("carts").join(CART_NAME)
+        }]
+    );
+}
+
+#[test]
+fn saving_into_another_folder_leaves_nothing_unsaved() {
+    let mut app = imported_from_a_subfolder(simple_cart().p8());
+
+    save_as_one_folder_up(&mut app);
+
+    assert!(!app.has_unsaved_changes());
+}
+
+#[test]
+fn saving_again_in_the_same_folder_keeps_the_path_as_it_was() {
+    let mut app = imported_from_a_subfolder(simple_cart().p8());
+    save_as_one_folder_up(&mut app);
+
+    app.apply(Action::Save);
+
+    let requests = app.take_file_requests();
+    let [FileRequest::Write { contents, .. }] = &requests[..] else {
+        panic!("expected one write, got {requests:?}");
+    };
+    let project = project_file::parse(contents).unwrap();
+    assert_eq!(project.target_cart().unwrap().path, "carts/game.p8");
 }
 
 #[test]

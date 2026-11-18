@@ -6,7 +6,7 @@ use super::{
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
-use crate::app::selection::{Block, CellPosition};
+use crate::app::selection::{CellPosition, CellRange};
 use crate::project::{CHAIN_ENTRIES, Chain, ChainEntry, ChainId, PhraseId, Project, TRACKS};
 use crate::screen::grid::{Grid, Style};
 use std::ops::RangeInclusive;
@@ -149,30 +149,30 @@ impl ChainPane {
         }
     }
 
-    /// Raises or lowers every cell in a block. Empty entries stay empty.
-    pub fn nudge_block(&self, chain: &mut Chain, block: Block, up: bool, coarse: bool) {
-        for entry in block.rows() {
+    /// Raises or lowers every cell in a cells. Empty entries stay empty.
+    pub fn nudge_cells(&self, chain: &mut Chain, cells: CellRange, up: bool, coarse: bool) {
+        for entry in cells.rows() {
             let slot = chain.entry_mut(entry);
             if slot.is_some() {
-                for column in block.columns() {
+                for column in cells.columns() {
                     nudge_cell(slot, COLUMNS[column].0, up, coarse);
                 }
             }
         }
     }
 
-    /// Clears every cell in a block.
-    pub fn clear_block(&self, chain: &mut Chain, block: Block) {
-        for entry in block.rows() {
-            for column in block.columns() {
+    /// Clears every cell in a cells.
+    pub fn clear_cells(&self, chain: &mut Chain, cells: CellRange) {
+        for entry in cells.rows() {
+            for column in cells.columns() {
                 clear_cell(chain.entry_mut(entry), COLUMNS[column].0);
             }
         }
     }
 
-    /// The entries a block of cells is on.
-    pub fn copy(&self, chain: &Chain, block: Block) -> Vec<Option<ChainEntry>> {
-        block.rows().map(|entry| chain.entry(entry)).collect()
+    /// The entries a cells of cells is on.
+    pub fn copy(&self, chain: &Chain, cells: CellRange) -> Vec<Option<ChainEntry>> {
+        cells.rows().map(|entry| chain.entry(entry)).collect()
     }
 
     /// Overwrites the copied columns of the entries from the cursor down, and says how many rows
@@ -191,9 +191,9 @@ impl ChainPane {
     }
 
     /// Marks the selected cells, leaving the cursor as it is.
-    pub fn draw_selection(&self, grid: &mut Grid, area: Area, block: Block) {
-        for entry in block.rows() {
-            for column in block.columns() {
+    pub fn draw_selection(&self, grid: &mut Grid, area: Area, cells: CellRange) {
+        for entry in cells.rows() {
+            for column in cells.columns() {
                 if (entry, column) != (self.entry, self.column) {
                     let (_, offset, empty) = COLUMNS[column];
                     let row = HEADER_ROWS + entry;

@@ -1,5 +1,6 @@
 //! What the app tells the user: results for the status line and items for the Log.
 
+use crate::project::SongPlace;
 use std::time::Duration;
 
 /// How long info stays on the status line.
@@ -17,22 +18,13 @@ pub enum Severity {
     Failure,
 }
 
-/// A place in the Song that a Log item is about.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Location {
-    pub song_row: usize,
-    pub track: usize,
-    pub chain_row: usize,
-    pub step: usize,
-}
-
 /// One line of work in the Log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogItem {
     pub(super) severity: Severity,
     pub(super) text: String,
     pub(super) hint: Option<String>,
-    pub(super) location: Option<Location>,
+    pub(super) location: Option<SongPlace>,
 }
 
 impl LogItem {
@@ -54,7 +46,7 @@ impl LogItem {
 
     /// Adds the place that Enter jumps to.
     #[must_use]
-    pub fn at(mut self, location: Location) -> Self {
+    pub fn at(mut self, location: SongPlace) -> Self {
         self.location = Some(location);
         self
     }

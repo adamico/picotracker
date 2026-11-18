@@ -5,19 +5,15 @@ use super::{
     draw_title, id_text, stepped,
 };
 use crate::app::layout::Area;
-use crate::app::selection::{Block, CellPosition};
+use crate::app::selection::{CellPosition, CellRange};
 use crate::app::{Direction, KeyContext};
-use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase, PhraseId, Step};
+use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, NOTE_NAMES, Phrase, PhraseId, Step};
 use crate::screen::grid::Grid;
 use std::ops::RangeInclusive;
 
 /// Rows above the first Step: the title, three header rows and the column headings.
 const HEADER_ROWS: usize = 5;
 const FIRST_HEADER_ROW: usize = 1;
-
-const NOTE_NAMES: [&str; 12] = [
-    "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
-];
 
 const MAX_OCTAVE: u8 = 4;
 const SEMITONES_PER_OCTAVE: i32 = 12;
@@ -328,25 +324,25 @@ impl PhrasePane {
         })
     }
 
-    /// Raises or lowers every cell in a block. Silent Steps show as empty, so they stay as they
+    /// Raises or lowers every cell in a cells. Silent Steps show as empty, so they stay as they
     /// are.
-    pub fn nudge_block(&self, phrase: &mut Phrase, block: Block, up: bool, coarse: bool) {
-        for index in block.rows() {
+    pub fn nudge_cells(&self, phrase: &mut Phrase, cells: CellRange, up: bool, coarse: bool) {
+        for index in cells.rows() {
             let step = phrase.step_mut(index);
             if !step.is_silent() {
-                for column in block.columns() {
+                for column in cells.columns() {
                     nudge_step_cell(step, STEP_CELLS[column].0, up, coarse);
                 }
             }
         }
     }
 
-    /// Empties every cell in a block. A Step has no empty pitch or Instrument, so clearing either
+    /// Empties every cell in a cells. A Step has no empty pitch or Instrument, so clearing either
     /// silences the Step and keeps its values.
-    pub fn clear_block(&self, phrase: &mut Phrase, block: Block) {
-        for index in block.rows() {
+    pub fn clear_cells(&self, phrase: &mut Phrase, cells: CellRange) {
+        for index in cells.rows() {
             let step = phrase.step_mut(index);
-            for column in block.columns() {
+            for column in cells.columns() {
                 match STEP_CELLS[column].0 {
                     StepCell::Effect => step.set_effect(0),
                     _ => step.set_volume(0),
@@ -355,9 +351,9 @@ impl PhrasePane {
         }
     }
 
-    /// The Steps a block of cells is on.
-    pub fn copy(&self, phrase: &Phrase, block: Block) -> Vec<Step> {
-        block.rows().map(|index| phrase.step(index)).collect()
+    /// The Steps a cells of cells is on.
+    pub fn copy(&self, phrase: &Phrase, cells: CellRange) -> Vec<Step> {
+        cells.rows().map(|index| phrase.step(index)).collect()
     }
 
     /// Overwrites the copied columns of the Steps from the cursor down, and says how many rows
@@ -377,9 +373,9 @@ impl PhrasePane {
     }
 
     /// Marks the selected cells, leaving the cursor as it is.
-    pub fn draw_selection(&self, grid: &mut Grid, area: Area, block: Block) {
-        for index in block.rows() {
-            for column in block.columns() {
+    pub fn draw_selection(&self, grid: &mut Grid, area: Area, cells: CellRange) {
+        for index in cells.rows() {
+            for column in cells.columns() {
                 if (index, column) != (self.step, self.column) {
                     let (_, offset, empty) = STEP_CELLS[column];
                     let row = HEADER_ROWS + index;

@@ -1,9 +1,12 @@
 //! Hearing a note while stopped: actions in, offline-rendered samples from the Player.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::player::{AudioRequest, Player};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::synth::{SAMPLE_RATE, SAMPLES_PER_TICK};
+use support::apply;
 
 const RIGHT: Action = Action::Move(Direction::Right);
 const DOWN: Action = Action::Move(Direction::Down);
@@ -40,12 +43,6 @@ fn phrase_app(transpose: i32) -> App {
     let mut app = App::with_project(project);
     apply(&mut app, &[TAB, TAB]);
     app
-}
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
 }
 
 fn render(app: &mut App, player: &mut Player, samples: usize) -> Vec<f32> {

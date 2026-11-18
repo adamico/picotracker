@@ -11,12 +11,12 @@ pub struct CellPosition {
 
 /// A rectangle of cells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Block {
+pub struct CellRange {
     first: CellPosition,
     last: CellPosition,
 }
 
-impl Block {
+impl CellRange {
     /// The rectangle with these two cells at opposite corners.
     pub fn between(one: CellPosition, other: CellPosition) -> Self {
         Self {

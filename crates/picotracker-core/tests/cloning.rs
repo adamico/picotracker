@@ -1,23 +1,16 @@
 //! Clone, Deep clone and new unused Chains and Phrases.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, SONG_ROWS, Step, TRACKS};
+use support::{apply, status_line};
 
 const DOWN: Action = Action::Move(Direction::Down);
 const RIGHT: Action = Action::Move(Direction::Right);
 const TAB: Action = Action::FocusNext;
 const SELECT: Action = Action::StartSelection;
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
-}
 
 fn song_cell(app: &App, row: usize, track: usize) -> Option<u8> {
     app.project().song_cell(row, track).map(ChainId::number)
@@ -38,7 +31,7 @@ fn put_entry(project: &mut Project, chain: u8, index: usize, phrase: u8) {
 
 /// Chain 00 on the first Song row. Its entries play Phrases 00, 01 and 00 again, and Phrase 00
 /// holds a note, a Speed, a LEN and a filter of its own.
-fn arranged() -> Project {
+fn project_with_a_song() -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));
     put_entry(&mut project, 0, 0, 0);
@@ -55,7 +48,7 @@ fn arranged() -> Project {
 
 #[test]
 fn cloning_a_chain_points_the_song_cell_at_a_new_copy_that_shares_its_phrases() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     app.apply(Action::Clone);
 
@@ -68,7 +61,7 @@ fn cloning_a_chain_points_the_song_cell_at_a_new_copy_that_shares_its_phrases() 
 
 #[test]
 fn cloning_a_phrase_copies_all_of_it_and_keeps_the_entrys_transpose_and_fill() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     let mut filled = ChainEntry::new(PhraseId::new(0));
     filled.set_transpose(5);
     filled.set_fill(true);
@@ -87,7 +80,7 @@ fn cloning_a_phrase_copies_all_of_it_and_keeps_the_entrys_transpose_and_fill() {
 
 #[test]
 fn a_clone_never_lands_on_a_loose_phrase_or_a_chain_nothing_places() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     // Phrase 02 is loose: no Chain plays it, but it holds a note.
     *project.phrase_mut(PhraseId::new(2)).step_mut(0) = Step::new(12, 0, 3, 0).unwrap();
     // Chain 01 is not on the Song, and it is the only thing that plays Phrase 03.
@@ -103,7 +96,7 @@ fn a_clone_never_lands_on_a_loose_phrase_or_a_chain_nothing_places() {
 
 #[test]
 fn deep_clone_gives_the_new_chain_one_copy_of_each_distinct_phrase() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     app.apply(Action::DeepClone);
 
@@ -118,7 +111,7 @@ fn deep_clone_gives_the_new_chain_one_copy_of_each_distinct_phrase() {
 
 #[test]
 fn deep_clone_keeps_each_entrys_transpose_and_fill() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     let mut filled = ChainEntry::new(PhraseId::new(1));
     filled.set_transpose(-3);
     filled.set_fill(true);
@@ -133,7 +126,7 @@ fn deep_clone_keeps_each_entrys_transpose_and_fill() {
 
 #[test]
 fn deep_clone_in_the_chain_pane_copies_the_phrase_under_the_cursor() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     apply(&mut app, &[TAB, Action::DeepClone]);
 
@@ -143,7 +136,7 @@ fn deep_clone_in_the_chain_pane_copies_the_phrase_under_the_cursor() {
 
 #[test]
 fn cloning_a_song_selection_makes_one_copy_per_distinct_chain() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     for (row, track, chain) in [(1, 0, 0), (0, 1, 5), (1, 1, 5)] {
         project.set_song_cell(row, track, Some(ChainId::new(chain)));
     }
@@ -161,7 +154,7 @@ fn cloning_a_song_selection_makes_one_copy_per_distinct_chain() {
 
 #[test]
 fn deep_cloning_a_song_selection_keeps_phrases_shared_between_the_new_chains() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     project.set_song_cell(0, 1, Some(ChainId::new(5)));
     put_entry(&mut project, 5, 0, 1);
     let mut app = App::with_project(project);
@@ -180,7 +173,7 @@ fn deep_cloning_a_song_selection_keeps_phrases_shared_between_the_new_chains() {
 
 #[test]
 fn cloning_a_chain_selection_makes_one_copy_per_distinct_phrase() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     apply(&mut app, &[TAB, SELECT, DOWN, DOWN, Action::Clone]);
 
@@ -191,7 +184,7 @@ fn cloning_a_chain_selection_makes_one_copy_per_distinct_phrase() {
 
 #[test]
 fn a_chain_selection_only_clones_the_entries_inside_it() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     apply(&mut app, &[TAB, SELECT, DOWN, Action::Clone]);
 
@@ -200,7 +193,7 @@ fn a_chain_selection_only_clones_the_entries_inside_it() {
 
 #[test]
 fn cloning_an_empty_cell_says_there_is_nothing_to_clone() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     apply(&mut app, &[DOWN, Action::Clone]);
     assert!(status_line(&app).contains("NO CHAIN HERE"));
@@ -214,7 +207,7 @@ fn cloning_an_empty_cell_says_there_is_nothing_to_clone() {
 
 #[test]
 fn the_phrase_pane_has_no_cell_to_point_at_a_clone() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
     let before = app.project().clone();
 
     apply(&mut app, &[TAB, TAB, Action::Clone]);
@@ -225,7 +218,7 @@ fn the_phrase_pane_has_no_cell_to_point_at_a_clone() {
 
 /// A Project in which every Chain holds an entry, so none is free.
 fn no_free_chains() -> Project {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     for chain in 1..=255 {
         put_entry(&mut project, chain, 0, 1);
     }
@@ -259,7 +252,7 @@ fn a_selection_too_big_for_the_free_slots_clones_nothing() {
 
 #[test]
 fn a_deep_clone_with_no_free_phrase_fails_and_changes_nothing() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     for phrase in 2..=255 {
         project.phrase_mut(PhraseId::new(phrase)).set_speed(1);
     }
@@ -274,7 +267,7 @@ fn a_deep_clone_with_no_free_phrase_fails_and_changes_nothing() {
 
 #[test]
 fn new_unused_puts_an_empty_chain_on_the_song_cell() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
 
     app.apply(Action::NewUnused);
 
@@ -284,7 +277,7 @@ fn new_unused_puts_an_empty_chain_on_the_song_cell() {
 
 #[test]
 fn new_unused_puts_a_new_phrase_at_the_projects_default_speed_on_the_chain_entry() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     project.set_default_speed(7);
     let mut app = App::with_project(project);
 
@@ -296,7 +289,7 @@ fn new_unused_puts_a_new_phrase_at_the_projects_default_speed_on_the_chain_entry
 
 #[test]
 fn new_unused_over_a_filled_entry_keeps_its_transpose_and_fill() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     let mut filled = ChainEntry::new(PhraseId::new(1));
     filled.set_transpose(2);
     filled.set_fill(true);
@@ -313,7 +306,7 @@ fn new_unused_over_a_filled_entry_keeps_its_transpose_and_fill() {
 #[test]
 fn new_unused_works_from_its_key() {
     let keymap = Keymap::pc_tracker();
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
     let press = KeyPress::new(Key::Char('n'), Modifiers::CTRL_SHIFT);
 
     let action = keymap.action_in(press, app.key_context()).unwrap();
@@ -325,7 +318,7 @@ fn new_unused_works_from_its_key() {
 #[test]
 fn each_clone_or_new_item_is_one_undo_step() {
     for action in [Action::Clone, Action::DeepClone, Action::NewUnused] {
-        let mut app = App::with_project(arranged());
+        let mut app = App::with_project(project_with_a_song());
         let before = app.project().clone();
 
         app.apply(action);
@@ -341,7 +334,7 @@ fn each_clone_or_new_item_is_one_undo_step() {
 
 #[test]
 fn a_clone_of_a_whole_selection_is_one_undo_step() {
-    let mut project = arranged();
+    let mut project = project_with_a_song();
     project.set_song_cell(0, 1, Some(ChainId::new(5)));
     let mut app = App::with_project(project);
     let before = app.project().clone();
@@ -353,7 +346,7 @@ fn a_clone_of_a_whole_selection_is_one_undo_step() {
 
 #[test]
 fn the_song_is_as_wide_and_as_long_as_the_cursor_can_reach() {
-    let mut app = App::with_project(arranged());
+    let mut app = App::with_project(project_with_a_song());
     apply(&mut app, &[RIGHT; TRACKS - 1]);
     apply(&mut app, &[DOWN; SONG_ROWS - 1]);
     app.apply(Action::NewUnused);

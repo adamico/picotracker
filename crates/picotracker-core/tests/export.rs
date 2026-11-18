@@ -7,7 +7,7 @@ mod support;
 use picotracker_core::cart::Cart;
 use picotracker_core::export::{ExportFailure, export};
 use picotracker_core::project::{Chain, ChainEntry, ChainId, Claim, PhraseId, Project, Step};
-use support::HEADER;
+use support::{HEADER, assert_same_samples, render_notes, render_song, sound_of};
 
 const EMPTY_PATTERN: [u8; 4] = [0x41, 0x42, 0x43, 0x44];
 
@@ -201,6 +201,70 @@ fn every_failure_is_reported_at_once() {
 }
 
 #[test]
+fn missing_export_tracks_do_not_hide_a_claim_that_is_too_small() {
+    let mut project = one_row_project();
+    place(&mut project, 1, 0, 0, 0);
+    project.set_export_track(0, None);
+
+    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+
+    assert_eq!(
+        failures,
+        [
+            ExportFailure::NoExportTracks,
+            ExportFailure::TooFewPatterns {
+                needed: 2,
+                claimed: 1
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_song_loop_row_past_a_gap_is_compiled_as_the_player_plays_it() {
+    let mut project = one_row_project();
+    write_phrase(&mut project, 1, 8, 9);
+    place(&mut project, 2, 0, 1, 1);
+    project.set_song_loop_row(Some(2));
+
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 1)));
+
+    // Row 0 plays, the gap at row 1 jumps to row 2, and row 2 then loops for ever.
+    assert_eq!(cart.pattern_bytes(0), [8, 0x42, 0x43, 0x44]);
+    assert_eq!(cart.pattern_bytes(1), [9 | 0x80, 0x42 | 0x80, 0x43, 0x44]);
+}
+
+#[test]
+fn a_song_loop_row_on_an_empty_row_stops_the_song() {
+    let mut project = one_row_project();
+    project.set_song_loop_row(Some(5));
+
+    let cart = exported_cart(&project, &claim(&[8], (0, 0)));
+
+    assert_eq!(cart.pattern_bytes(0), [8, 0x42, 0x43 | 0x80, 0x44]);
+}
+
+#[test]
+fn a_claim_naming_a_slot_twice_exports_into_that_slot_once() {
+    let cart = exported_cart(&one_row_project(), &claim(&[8, 8], (0, 0)));
+
+    assert_eq!(cart.pattern(0).channel(0), Some(8));
+}
+
+#[test]
+fn a_claim_naming_slots_a_cart_does_not_have_fails_the_export() {
+    for bad in [
+        claim(&[64], (0, 0)),
+        claim(&[8], (0, 64)),
+        claim(&[8], (5, 2)),
+    ] {
+        let failures = export(&one_row_project(), &bad, &blank_cart()).unwrap_err();
+
+        assert!(failures.contains(&ExportFailure::BadClaim), "{failures:?}");
+    }
+}
+
+#[test]
 fn too_few_claimed_slots_say_how_many_are_needed() {
     let mut project = one_row_project();
     write_phrase(&mut project, 1, 8, 9);
@@ -334,6 +398,67 @@ fn a_chain_row_timed_by_an_unexported_track_waits_for_the_full_compile_rules() {
     assert_eq!(
         failures,
         [ExportFailure::NotSimple {
+            song_row: 0,
+            chain_row: 0,
+        }]
+    );
+}
+
+/// One Song row playing a 6-Step Phrase whose last two Steps are a fast arpeggio. Its group runs
+/// on to Steps 6 and 7, which lie past LEN.
+fn arpeggio_past_len() -> Project {
+    let mut project = one_row_project();
+    let phrase = project.phrase_mut(PhraseId::new(0));
+    phrase.set_length(6);
+    phrase.set_speed(8);
+    for index in 0..4 {
+        *phrase.step_mut(index) = Step::new(24, 0, 5, 0).unwrap();
+    }
+    *phrase.step_mut(4) = Step::new(30, 0, 5, 6).unwrap();
+    *phrase.step_mut(5) = Step::new(34, 0, 5, 6).unwrap();
+    *phrase.step_mut(6) = Step::new(40, 0, 0, 0).unwrap();
+    *phrase.step_mut(7) = Step::new(44, 0, 0, 0).unwrap();
+    project
+}
+
+#[test]
+fn an_arpeggio_reading_steps_past_len_sounds_the_same_after_export() {
+    let project = arpeggio_past_len();
+
+    let cart = exported_cart(&project, &claim(&[8], (0, 0)));
+
+    let rendered = render_notes(sound_of(&cart, 8), &[0, 1, 2, 3, 4, 5]);
+    assert_same_samples(&rendered, &render_song(project, 6 * 8 * 183));
+}
+
+#[test]
+fn the_steps_an_arpeggio_reads_past_len_stay_silent_in_the_cart() {
+    let cart = exported_cart(&arpeggio_past_len(), &claim(&[8], (0, 0)));
+
+    // A channel that does not set the Pattern's length plays on past LEN, so they must not sound.
+    assert_eq!(cart.sfx(8).note(6).volume, 0);
+    assert_eq!(cart.sfx(8).note(7).volume, 0);
+}
+
+#[test]
+fn a_pitch_an_arpeggio_reads_past_the_top_of_the_range_is_named() {
+    let mut project = arpeggio_past_len();
+    *project.phrase_mut(PhraseId::new(0)).step_mut(7) = Step::new(60, 0, 0, 0).unwrap();
+    project
+        .chain_mut(ChainId::new(0))
+        .entry_mut(0)
+        .as_mut()
+        .unwrap()
+        .set_transpose(10);
+
+    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+
+    assert_eq!(
+        failures,
+        [ExportFailure::NoteOutOfRange {
+            phrase: 0,
+            step: 7,
+            track: 0,
             song_row: 0,
             chain_row: 0,
         }]

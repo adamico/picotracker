@@ -1,9 +1,12 @@
 //! The Playhead marker and Follow: reports from the Player in, the character grid out.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::player::Player;
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::synth::SAMPLES_PER_TICK;
+use support::status_line;
 
 const DOWN: Action = Action::Move(Direction::Down);
 const TAB: Action = Action::FocusNext;
@@ -80,10 +83,6 @@ fn line(app: &App, row: usize) -> String {
 fn pane_text(app: &App, column: usize, row: usize) -> String {
     let text: String = line(app, row).chars().skip(column).take(2).collect();
     text.trim_end().to_owned()
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 #[test]

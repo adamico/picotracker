@@ -4,7 +4,8 @@ use super::read::{Metre, Note, Score, Unused};
 use super::table::drum_row;
 use super::{Analysis, Choices, Voice};
 use crate::project::{
-    Chain, ChainEntry, ChainId, MAX_STEPS, Phrase, PhraseId, Project, SONG_ROWS, Step, TRACKS,
+    Chain, ChainEntry, ChainId, MAX_STEPS, Phrase, PhraseId, Project, SONG_ROWS, SongPlace, Step,
+    TRACKS,
 };
 
 /// MIDI note 69 is A 440, which is pitch 33 in PICO-8.
@@ -22,25 +23,16 @@ const CHAIN_ROWS: usize = 4;
 /// The Phrases and the Chains a Project can name.
 const IDS: usize = 256;
 
-/// A place in the Song that a warning is about.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WarningSpot {
-    pub song_row: usize,
-    pub track: usize,
-    pub chain_row: usize,
-    pub step: usize,
-}
-
 /// Something the Project could not keep from the file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Warning {
     pub text: String,
-    pub spot: Option<WarningSpot>,
+    pub place: Option<SongPlace>,
 }
 
 impl Warning {
     fn new(text: String) -> Self {
-        Self { text, spot: None }
+        Self { text, place: None }
     }
 }
 
@@ -555,11 +547,11 @@ fn song_row_cells(
 }
 
 /// The place in the Song of a Step on a Track.
-fn spot_of(slots: &[Slot], track: usize, step: usize) -> Option<WarningSpot> {
+fn spot_of(slots: &[Slot], track: usize, step: usize) -> Option<SongPlace> {
     let index = slots
         .iter()
         .position(|slot| (slot.start..slot.start + slot.length).contains(&step))?;
-    Some(WarningSpot {
+    Some(SongPlace {
         song_row: index / CHAIN_ROWS,
         track,
         chain_row: index % CHAIN_ROWS,
@@ -679,7 +671,7 @@ fn collision_warning(
             counted(collisions, "NOTE"),
             place.as_deref().unwrap_or("")
         ),
-        spot: place.as_ref().and(first),
+        place: place.as_ref().and(first),
     }
 }
 

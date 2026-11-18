@@ -1,9 +1,9 @@
 //! Clone, Deep clone, new unused Chains and Phrases, and Insert and Delete row.
 
-use super::block_edits::NO_STEP_HERE;
+use super::cell_edits::NO_STEP_HERE;
 use super::files::Question;
 use super::messages::Report;
-use super::selection::Block;
+use super::selection::CellRange;
 use super::{App, CHAIN_ENTRIES, Chain, Focus, NO_CHAIN_HERE, NO_PHRASE_HERE, Phrase, Project};
 use crate::project::{ChainEntry, ChainId, PhraseId, UnusedItems};
 use std::collections::HashMap;
@@ -32,19 +32,19 @@ impl App {
     /// Copies the Chains or Phrases under the cursor or the selection, and points the cells at the
     /// copies. Items shared inside the selection stay shared with each other.
     pub(super) fn clone_items(&mut self, deep: bool) {
-        let Some(block) = self.target_block() else {
+        let Some(cells) = self.target_cells() else {
             return;
         };
         match self.focus {
-            Focus::Song => self.clone_chains(block, deep),
-            Focus::Chain => self.clone_phrases(block),
+            Focus::Song => self.clone_chains(cells, deep),
+            Focus::Chain => self.clone_phrases(cells),
             Focus::Phrase => self.status = Some(NEEDS_A_REFERENCE),
             Focus::RightSlot => {}
         }
     }
 
-    fn clone_chains(&mut self, block: Block, deep: bool) {
-        let chains = self.chains_in(block);
+    fn clone_chains(&mut self, cells: CellRange, deep: bool) {
+        let chains = self.chains_in(cells);
         if chains.is_empty() {
             self.status = Some(NO_CHAIN_HERE);
             return;
@@ -73,8 +73,8 @@ impl App {
             *self.project.chain_mut(copy) = copied;
             chain_copies.insert(chain, copy);
         }
-        for row in block.rows() {
-            for track in block.columns() {
+        for row in cells.rows() {
+            for track in cells.columns() {
                 if let Some(copy) = self
                     .project
                     .song_cell(row, track)
@@ -87,13 +87,13 @@ impl App {
         self.selection = None;
     }
 
-    fn clone_phrases(&mut self, block: Block) {
+    fn clone_phrases(&mut self, cells: CellRange) {
         let Some(chain) = self.chain_under_cursor() else {
             self.status = Some(NO_CHAIN_HERE);
             return;
         };
         let mut phrases = Vec::new();
-        for row in block.rows() {
+        for row in cells.rows() {
             if let Some(entry) = self.project.chain(chain).entry(row)
                 && !phrases.contains(&entry.phrase())
             {
@@ -108,7 +108,7 @@ impl App {
             return;
         };
         let copies = self.copy_phrases(&phrases, &new_phrases);
-        for row in block.rows() {
+        for row in cells.rows() {
             if let Some(entry) = self.project.chain_mut(chain).entry_mut(row) {
                 entry.set_phrase(copies[&entry.phrase()]);
             }
@@ -116,11 +116,11 @@ impl App {
         self.selection = None;
     }
 
-    /// The distinct Chains in a block of Song cells, in the order they first appear.
-    pub(super) fn chains_in(&self, block: Block) -> Vec<ChainId> {
+    /// The distinct Chains in a cells of Song cells, in the order they first appear.
+    pub(super) fn chains_in(&self, cells: CellRange) -> Vec<ChainId> {
         let mut chains = Vec::new();
-        for row in block.rows() {
-            for track in block.columns() {
+        for row in cells.rows() {
+            for track in cells.columns() {
                 if let Some(chain) = self.project.song_cell(row, track)
                     && !chains.contains(&chain)
                 {
