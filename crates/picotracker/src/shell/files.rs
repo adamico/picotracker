@@ -17,6 +17,10 @@ pub fn carry_out(request: FileRequest) -> FileResponse {
             Ok(contents) => FileResponse::Read { path, contents },
             Err(error) => failed(path, &error),
         },
+        FileRequest::ReadBytes { path } => match fs::read(&path) {
+            Ok(contents) => FileResponse::BytesRead { path, contents },
+            Err(error) => failed(path, &error),
+        },
         FileRequest::Write { path, contents } => match replace(&path, &contents) {
             Ok(()) => FileResponse::Written { path },
             Err(error) => failed(path, &error),

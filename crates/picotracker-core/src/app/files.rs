@@ -1,9 +1,11 @@
 //! New, Open, Save and Save As. The App core never touches the disk: it asks for files with
 //! `FileRequest`s and is given the results as `FileResponse`s.
 
-use super::messages::Report;
+use super::messages::{LogItem, Report, Severity};
 use super::panes::file_list::{Choice, FileList, Purpose};
 use super::{Action, App, Focus};
+use crate::cart::Cart;
+use crate::cart_import;
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
 use crate::project_file;
@@ -19,6 +21,8 @@ pub enum FileRequest {
     List { directory: PathBuf },
     /// Read a whole text file.
     Read { path: PathBuf },
+    /// Read a whole file that may not be text.
+    ReadBytes { path: PathBuf },
     /// Replace a file with these contents.
     Write { path: PathBuf, contents: String },
 }
@@ -41,6 +45,10 @@ pub enum FileResponse {
         path: PathBuf,
         contents: String,
     },
+    BytesRead {
+        path: PathBuf,
+        contents: Vec<u8>,
+    },
     Written {
         path: PathBuf,
     },
@@ -56,6 +64,7 @@ pub enum FileResponse {
 pub(super) enum Accepted {
     NewProject,
     BrowseToOpen,
+    BrowseToImport,
     SaveOver(PathBuf),
 }
 
@@ -71,8 +80,21 @@ pub(super) struct Question {
 pub(super) enum Waiting {
     Listing(PathBuf),
     Reading(PathBuf),
+    Importing(PathBuf),
     /// The Project as it was when the save was asked for.
     Writing(PathBuf, Box<Project>),
+}
+
+/// What a file can be Imported as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ImportKind {
+    Cart,
+}
+
+/// Decides how a file is Imported, from its name. Files of no kind are not listed for Import.
+pub(super) fn import_kind(file_name: &str) -> Option<ImportKind> {
+    let name = file_name.to_lowercase();
+    (name.ends_with(".p8") || name.ends_with(".p8.png")).then_some(ImportKind::Cart)
 }
 
 /// The file name of a path in capitals, as messages show it.
@@ -88,6 +110,20 @@ fn folder_of(path: &Path) -> PathBuf {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
         _ => PathBuf::from("."),
     }
+}
+
+/// The result of an Import: its warnings, if any, go to the Log.
+fn import_report(source: &str, warnings: Vec<String>) -> Report {
+    if warnings.is_empty() {
+        return Report::info(format!("IMPORTED {source}"));
+    }
+    let count = warnings.len();
+    let plural = if count == 1 { "" } else { "S" };
+    let items = warnings
+        .into_iter()
+        .map(|warning| LogItem::new(Severity::Warning, warning))
+        .collect();
+    Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(items)
 }
 
 impl App {
@@ -113,6 +149,7 @@ impl App {
                 }
             }
             FileResponse::Read { path, contents } => self.finish_reading(path, &contents),
+            FileResponse::BytesRead { path, contents } => self.finish_importing(path, &contents),
             FileResponse::Written { path } => self.finish_writing(&path),
             FileResponse::Failed { path, reason } => self.file_failed(&path, &reason),
         }
@@ -138,6 +175,46 @@ impl App {
         }
     }
 
+    fn finish_importing(&mut self, path: PathBuf, contents: &[u8]) {
+        if !matches!(&self.waiting, Some(Waiting::Importing(read)) if *read == path) {
+            return;
+        }
+        self.waiting = None;
+        self.file_list = None;
+        let file_name = path
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        match import_kind(&file_name) {
+            Some(ImportKind::Cart) => self.import_cart(path, &file_name, contents),
+            None => {}
+        }
+    }
+
+    /// Opens a Cart's first song as a new Project, which has no file until it is saved.
+    fn import_cart(&mut self, path: PathBuf, file_name: &str, contents: &[u8]) {
+        let name = shown_name(&path);
+        let cart = match Cart::read(contents) {
+            Ok(cart) => cart,
+            Err(error) => {
+                self.report(Report::failure(format!("CANNOT IMPORT {name}: {error}")));
+                return;
+            }
+        };
+        let imported = cart_import::import(&cart, file_name);
+        let has_song = imported
+            .project
+            .target_cart()
+            .is_some_and(|target| target.claim.patterns.is_some());
+        let source = if has_song {
+            format!("SONG 1 OF {name}")
+        } else {
+            name
+        };
+        self.directory = folder_of(&path);
+        self.replace_project(imported.project, None);
+        self.report(import_report(&source, imported.warnings));
+    }
+
     fn finish_writing(&mut self, path: &Path) {
         match self.waiting.take() {
             Some(Waiting::Writing(written, project)) if written == path => {
@@ -160,6 +237,10 @@ impl App {
             Some(Waiting::Reading(read)) if read == path => {
                 self.file_list = None;
                 format!("CANNOT OPEN {name}: {reason}")
+            }
+            Some(Waiting::Importing(read)) if read == path => {
+                self.file_list = None;
+                format!("CANNOT IMPORT {name}: {reason}")
             }
             Some(Waiting::Writing(written, _)) if written == path => {
                 format!("CANNOT SAVE {name}: {reason}")
@@ -218,6 +299,14 @@ impl App {
         }
     }
 
+    pub(super) fn import(&mut self) {
+        if self.has_unsaved_changes() {
+            self.ask_about_unsaved_changes(Accepted::BrowseToImport);
+        } else {
+            self.browse(Purpose::Import);
+        }
+    }
+
     fn ask_about_unsaved_changes(&mut self, accepted: Accepted) {
         self.question = Some(Question {
             text: UNSAVED_QUESTION.to_owned(),
@@ -272,6 +361,7 @@ impl App {
                     match question.accepted {
                         Accepted::NewProject => self.replace_project(Project::new(), None),
                         Accepted::BrowseToOpen => self.browse(Purpose::Open),
+                        Accepted::BrowseToImport => self.browse(Purpose::Import),
                         Accepted::SaveOver(path) => self.write_project(path),
                     }
                 }
@@ -306,6 +396,11 @@ impl App {
                 self.file_requests
                     .push(FileRequest::Read { path: path.clone() });
                 self.waiting = Some(Waiting::Reading(path));
+            }
+            Choice::Import(path) => {
+                self.file_requests
+                    .push(FileRequest::ReadBytes { path: path.clone() });
+                self.waiting = Some(Waiting::Importing(path));
             }
             Choice::Save { path, exists: true } => {
                 self.question = Some(Question {
