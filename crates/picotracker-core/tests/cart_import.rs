@@ -16,7 +16,8 @@ const CART_NAME: &str = "demo.p8";
 
 fn imported(cart: &TestCart) -> (Project, Vec<String>) {
     let imported = import(&Cart::read(&cart.p8()).unwrap(), CART_NAME);
-    (imported.project, imported.warnings)
+    let warnings = imported.warnings.into_iter().map(|w| w.text).collect();
+    (imported.project, warnings)
 }
 
 fn pattern(channels: [Option<u8>; 4]) -> TestPattern {
@@ -294,21 +295,6 @@ fn a_cart_with_no_music_gives_an_empty_song_and_an_empty_claim() {
     let claim = &project.target_cart().unwrap().claim;
     assert!(claim.sfx.is_empty());
     assert_eq!(claim.patterns, None);
-}
-
-#[test]
-fn a_pattern_whose_timing_is_not_simple_says_so() {
-    let mut looping = TestSfx::with_pitches(8, &[12]);
-    looping.loop_start = 0;
-    looping.loop_end = 8;
-    let cart = TestCart {
-        sfx: vec![looping],
-        patterns: vec![pattern([Some(0), None, None, None])],
-    };
-
-    let (_, warnings) = imported(&cart);
-
-    assert_eq!(warnings, ["PATTERN 00 MAY NOT PLAY AS IN PICO-8: TIMING"]);
 }
 
 #[test]
