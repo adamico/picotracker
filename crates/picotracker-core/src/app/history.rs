@@ -11,11 +11,11 @@ use crate::project::{Project, ProjectChange};
 use std::collections::VecDeque;
 
 /// The most steps the history keeps.
-const MAX_STEPS: usize = 1000;
+const MAX_UNDO_STEPS: usize = 1000;
 
 /// Where the cursor was when a change was made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Spot {
+pub(super) struct CursorPlace {
     pub(super) focus: Focus,
     pub(super) song: SongSpot,
     pub(super) chain: ChainSpot,
@@ -34,7 +34,7 @@ pub(super) enum Merge {
 #[derive(Debug)]
 struct Step {
     change: ProjectChange,
-    spot: Spot,
+    spot: CursorPlace,
 }
 
 /// A run of repeated actions that is still merging.
@@ -43,9 +43,9 @@ struct Run {
     merge: Merge,
     /// The Project as it was before the run began.
     before: Project,
-    spot: Spot,
+    spot: CursorPlace,
     /// Where the cursor was left by the latest action of the run. The run ends if it moves.
-    left_at: Spot,
+    left_at: CursorPlace,
     /// Whether the run has left a step on the history.
     has_step: bool,
 }
@@ -57,7 +57,7 @@ pub(super) struct History {
     redo: Vec<Step>,
     run: Option<Run>,
     /// The Project and the cursor from before the action being applied.
-    pending: Option<(Project, Spot)>,
+    pending: Option<(Project, CursorPlace)>,
 }
 
 impl History {
@@ -67,13 +67,13 @@ impl History {
     }
 
     /// Notes the Project and the cursor as an action starts.
-    pub(super) fn begin(&mut self, project: &Project, spot: Spot) {
+    pub(super) fn begin(&mut self, project: &Project, spot: CursorPlace) {
         self.pending = Some((project.clone(), spot));
     }
 
     /// Records what the action did, if anything. A repeat of the action that came just before it
     /// joins that action's step, as long as the cursor has stayed where that action left it.
-    pub(super) fn finish(&mut self, project: &Project, left_at: Spot, merge: Option<Merge>) {
+    pub(super) fn finish(&mut self, project: &Project, left_at: CursorPlace, merge: Option<Merge>) {
         let Some((before, spot)) = self.pending.take() else {
             return;
         };
@@ -87,7 +87,7 @@ impl History {
         }
     }
 
-    fn continue_run(&mut self, mut run: Run, project: &Project, left_at: Spot) {
+    fn continue_run(&mut self, mut run: Run, project: &Project, left_at: CursorPlace) {
         run.left_at = left_at;
         if run.has_step {
             self.undo.pop_back();
@@ -103,7 +103,7 @@ impl History {
     fn start_run(
         &mut self,
         before: Project,
-        (spot, left_at): (Spot, Spot),
+        (spot, left_at): (CursorPlace, CursorPlace),
         project: &Project,
         merge: Option<Merge>,
     ) {
@@ -121,16 +121,16 @@ impl History {
         });
     }
 
-    fn push(&mut self, change: ProjectChange, spot: Spot) {
+    fn push(&mut self, change: ProjectChange, spot: CursorPlace) {
         self.redo.clear();
         self.undo.push_back(Step { change, spot });
-        if self.undo.len() > MAX_STEPS {
+        if self.undo.len() > MAX_UNDO_STEPS {
             self.undo.pop_front();
         }
     }
 
     /// Takes back the latest step, and says where it was made.
-    pub(super) fn undo(&mut self, project: &mut Project) -> Option<Spot> {
+    pub(super) fn undo(&mut self, project: &mut Project) -> Option<CursorPlace> {
         self.pending = None;
         self.run = None;
         let step = self.undo.pop_back()?;
@@ -141,7 +141,7 @@ impl History {
     }
 
     /// Makes the latest undone step again, and says where it was made.
-    pub(super) fn redo(&mut self, project: &mut Project) -> Option<Spot> {
+    pub(super) fn redo(&mut self, project: &mut Project) -> Option<CursorPlace> {
         self.pending = None;
         self.run = None;
         let step = self.redo.pop()?;

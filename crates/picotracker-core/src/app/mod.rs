@@ -1,7 +1,7 @@
 //! The App core: named actions in; the character grid out.
 
 mod action;
-mod block_edits;
+mod cell_edits;
 mod change_speed;
 mod exporting;
 mod files;
@@ -22,11 +22,11 @@ use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, Track
 use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
-use block_edits::Clipboard;
+use cell_edits::Clipboard;
 use change_speed::SpeedEntry;
 use files::{Question, Waiting};
 use focus::Focus;
-use history::{History, Merge, Spot};
+use history::{CursorPlace, History, Merge};
 use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
@@ -346,8 +346,8 @@ impl App {
     }
 
     /// Where the cursor is in every pane.
-    fn spot(&self) -> Spot {
-        Spot {
+    fn spot(&self) -> CursorPlace {
+        CursorPlace {
             focus: self.focus,
             song: self.song.spot(),
             chain: self.chain.spot(),
@@ -357,7 +357,7 @@ impl App {
     }
 
     /// Puts the cursor back where a change was made.
-    fn return_to(&mut self, spot: Spot) {
+    fn return_to(&mut self, spot: CursorPlace) {
         self.selection = None;
         self.stop_following();
         self.set_focus(spot.focus);

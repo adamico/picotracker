@@ -1,7 +1,7 @@
-//! Selection, block Nudge and Clear, and the clipboard.
+//! Selection, cells Nudge and Clear, and the clipboard.
 
 use super::messages::Report;
-use super::selection::{Block, CellPosition};
+use super::selection::{CellPosition, CellRange};
 use super::{App, Chain, ChainPane, Focus, NO_CHAIN_HERE, NO_PHRASE_HERE};
 use crate::project::{ChainEntry, ChainId, Step};
 use crate::screen::grid::Grid;
@@ -60,14 +60,14 @@ impl App {
     }
 
     /// The cells selected in the focused pane.
-    pub(super) fn selected_block(&self) -> Option<Block> {
-        Some(Block::between(self.selection?, self.cursor_cell()?))
+    pub(super) fn selected_cells(&self) -> Option<CellRange> {
+        Some(CellRange::between(self.selection?, self.cursor_cell()?))
     }
 
     /// The cells an action works on: the selection, or else the cell under the cursor.
-    pub(super) fn target_block(&self) -> Option<Block> {
-        self.selected_block()
-            .or_else(|| self.cursor_cell().map(Block::at))
+    pub(super) fn target_cells(&self) -> Option<CellRange> {
+        self.selected_cells()
+            .or_else(|| self.cursor_cell().map(CellRange::at))
     }
 
     /// Starts a selection at the cursor. The arrow keys then extend it.
@@ -92,16 +92,16 @@ impl App {
 
     /// Raises or lowers every selected cell.
     pub(super) fn nudge_selection(&mut self, up: bool, coarse: bool) {
-        let Some(block) = self.selected_block() else {
+        let Some(cells) = self.selected_cells() else {
             return;
         };
         match self.focus {
-            Focus::Song => self.song.nudge_block(&mut self.project, block, up, coarse),
+            Focus::Song => self.song.nudge_cells(&mut self.project, cells, up, coarse),
             Focus::Chain => {
-                self.edit_selected_chain(|pane, chain| pane.nudge_block(chain, block, up, coarse));
+                self.edit_selected_chain(|pane, chain| pane.nudge_cells(chain, cells, up, coarse));
             }
             Focus::Phrase => {
-                self.edit_phrase(|pane, phrase| pane.nudge_block(phrase, block, up, coarse));
+                self.edit_phrase(|pane, phrase| pane.nudge_cells(phrase, cells, up, coarse));
             }
             Focus::RightSlot => {}
         }
@@ -109,16 +109,16 @@ impl App {
 
     /// Empties the selected cells, or else the cell under the cursor.
     pub(super) fn clear_cells(&mut self) {
-        match (self.focus, self.selected_block()) {
-            (Focus::Song, Some(block)) => self.song.clear_block(&mut self.project, block),
+        match (self.focus, self.selected_cells()) {
+            (Focus::Song, Some(cells)) => self.song.clear_cells(&mut self.project, cells),
             (Focus::Song, None) => self.song.clear(&mut self.project),
-            (Focus::Chain, Some(block)) => {
-                self.edit_selected_chain(|pane, chain| pane.clear_block(chain, block));
+            (Focus::Chain, Some(cells)) => {
+                self.edit_selected_chain(|pane, chain| pane.clear_cells(chain, cells));
             }
             (Focus::Chain, None) => self.edit_chain(|pane, chain| pane.clear(chain)),
             (Focus::Phrase, _) => {
-                if let Some(block) = self.target_block() {
-                    self.edit_phrase(|pane, phrase| pane.clear_block(phrase, block));
+                if let Some(cells) = self.target_cells() {
+                    self.edit_phrase(|pane, phrase| pane.clear_cells(phrase, cells));
                 }
             }
             (Focus::RightSlot, _) if !self.log_open => self.overview.clear(&mut self.project),
@@ -128,18 +128,18 @@ impl App {
 
     /// A copy of the cells an action works on, or a remark about why there is none.
     fn copied_cells(&mut self) -> Option<Clipboard> {
-        let block = self.target_block();
+        let cells = self.target_cells();
         match self.focus {
-            Focus::Song => Some(Clipboard::Song(self.song.copy(&self.project, block?))),
+            Focus::Song => Some(Clipboard::Song(self.song.copy(&self.project, cells?))),
             Focus::Chain => {
                 let Some(id) = self.chain_under_cursor() else {
                     self.status = Some(NO_CHAIN_HERE);
                     return None;
                 };
-                let block = block?;
+                let cells = cells?;
                 Some(Clipboard::Chain {
-                    columns: block.columns(),
-                    rows: self.chain.copy(self.project.chain(id), block),
+                    columns: cells.columns(),
+                    rows: self.chain.copy(self.project.chain(id), cells),
                 })
             }
             Focus::Phrase => {
@@ -147,13 +147,13 @@ impl App {
                     self.status = Some(NO_PHRASE_HERE);
                     return None;
                 };
-                let Some(block) = block else {
+                let Some(cells) = cells else {
                     self.status = Some(NO_STEP_HERE);
                     return None;
                 };
                 Some(Clipboard::Phrase {
-                    columns: block.columns(),
-                    rows: self.phrase.copy(self.project.phrase(id), block),
+                    columns: cells.columns(),
+                    rows: self.phrase.copy(self.project.phrase(id), cells),
                 })
             }
             Focus::RightSlot => None,
@@ -245,15 +245,15 @@ impl App {
 
     /// Marks the selected cells on the grid.
     pub(super) fn draw_selection(&self, grid: &mut Grid) {
-        let Some(block) = self.selected_block() else {
+        let Some(cells) = self.selected_cells() else {
             return;
         };
         match self.focus {
-            Focus::Song => self.song.draw_selection(grid, super::layout::SONG, block),
-            Focus::Chain => self.chain.draw_selection(grid, super::layout::CHAIN, block),
+            Focus::Song => self.song.draw_selection(grid, super::layout::SONG, cells),
+            Focus::Chain => self.chain.draw_selection(grid, super::layout::CHAIN, cells),
             Focus::Phrase => self
                 .phrase
-                .draw_selection(grid, super::layout::PHRASE, block),
+                .draw_selection(grid, super::layout::PHRASE, cells),
             Focus::RightSlot => {}
         }
     }
