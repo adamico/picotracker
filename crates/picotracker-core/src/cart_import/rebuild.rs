@@ -179,7 +179,7 @@ fn rebuild_channel(sfx: Sfx<'_>, from: u32, to: u32, may_fill: bool) -> RebuiltC
     let notes = (first..first + steps).map(|step| playback.note_at(step));
     RebuiltChannel {
         entry: (steps > 0).then(|| entry_of(sfx, notes, false)),
-        lost_step: fits && to % speed != 0 && playback.note_at(past).is_some(),
+        lost_step: fits && !to.is_multiple_of(speed) && playback.note_at(past).is_some(),
         unroll_needed: None,
     }
 }
@@ -210,11 +210,32 @@ pub(super) fn rebuild_pattern(cart: &Cart, pattern: Pattern) -> RebuiltPattern {
             only_bit_7: false,
         };
     };
-    let row = [0, 1, 2, 3].map(|channel| {
-        sfx[channel].map(|sfx| rebuild_channel(sfx, 0, ticks, channel != timing_channel))
-    });
+    // Only a LEN above 32 lasts longer than the 32 Steps a Phrase of that channel can hold.
+    let row_ticks = sfx[timing_channel].map_or(1, speed_of) * SFX_NOTES as u32;
+    let rows = ticks.div_ceil(row_ticks);
+    let chain_rows = (0..rows)
+        .map(|row| {
+            let from = row * row_ticks;
+            let to = ticks.min(from + row_ticks);
+            [0, 1, 2, 3].map(|channel| {
+                let sets_length = channel == timing_channel;
+                sfx[channel].map(|sfx| {
+                    let may_fill = rows == 1 && !sets_length;
+                    let mut rebuilt = rebuild_channel(sfx, from, to, may_fill);
+                    let finished = rebuilt
+                        .entry
+                        .as_ref()
+                        .is_some_and(|entry| entry.phrase.is_silent());
+                    if row > 0 && !sets_length && finished {
+                        rebuilt.entry = None;
+                    }
+                    rebuilt
+                })
+            })
+        })
+        .collect();
     RebuiltPattern {
-        chain_rows: vec![row],
+        chain_rows,
         only_bit_7: sfx.iter().flatten().all(|sfx| has_bit_7(*sfx)),
     }
 }
