@@ -56,4 +56,26 @@ pub enum Action {
     Solo(u8),
     ClearMutesAndSolos,
     ToggleFollow,
+    /// Enters a note: semitones above C of the keyboard's lower octave.
+    PianoKey(u8),
+    /// Types one hexadecimal digit into the cell under the cursor.
+    HexDigit(u8),
+    OctaveUp,
+    OctaveDown,
+    /// Raises or lowers the cell under the cursor, by a small or a large amount.
+    Nudge {
+        up: bool,
+        coarse: bool,
+    },
+}
+
+/// What the cursor is on, which decides what the keys that type characters do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum KeyContext {
+    /// Nothing that takes typed characters.
+    Navigation,
+    /// A Step's pitch: letter and digit keys are a piano.
+    PhrasePitch,
+    /// Any other value in the Phrase pane: hexadecimal digits are typed directly.
+    PhraseValue,
 }
