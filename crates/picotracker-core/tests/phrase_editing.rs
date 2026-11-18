@@ -15,8 +15,15 @@ const C: Action = Action::PianoKey(0);
 /// An app with the Phrase pane focused, after some actions.
 fn phrase_app(actions: &[Action]) -> App {
     let mut app = App::new();
-    app.apply(Action::FocusNext);
-    app.apply(Action::FocusNext);
+    // Chain 00 on the first Song row, holding Phrase 00.
+    for action in [
+        Action::HexDigit(0),
+        Action::FocusNext,
+        Action::HexDigit(0),
+        Action::FocusNext,
+    ] {
+        app.apply(action);
+    }
     for action in actions {
         app.apply(*action);
     }
@@ -24,7 +31,7 @@ fn phrase_app(actions: &[Action]) -> App {
 }
 
 fn phrase(app: &App) -> &Phrase {
-    app.project().phrase(app.edited_phrase())
+    app.project().phrase(app.phrase_under_cursor().unwrap())
 }
 
 fn step(app: &App, index: usize) -> Step {
@@ -282,9 +289,7 @@ fn piano_keys_do_nothing_outside_the_pitch_column() {
 
 #[test]
 fn step_edits_do_nothing_outside_the_phrase_pane() {
-    let mut app = App::new();
-    app.apply(C);
-    app.apply(Action::HexDigit(3));
+    let app = phrase_app(&[Action::FocusNext, C, Action::HexDigit(3)]);
 
     assert_eq!(step(&app, 0), Step::default());
 }
@@ -292,7 +297,7 @@ fn step_edits_do_nothing_outside_the_phrase_pane() {
 #[test]
 fn the_key_context_follows_the_phrase_cursor() {
     let mut app = App::new();
-    assert_eq!(app.key_context(), KeyContext::Navigation);
+    assert_eq!(app.key_context(), KeyContext::ArrangeValue);
 
     app.apply(Action::FocusNext);
     app.apply(Action::FocusNext);

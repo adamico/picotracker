@@ -135,6 +135,9 @@ impl ApplicationHandler for Shell {
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if let Some(audio) = self.audio.as_ref() {
+                    self.app.playback_finished(audio.finished_play());
+                }
                 let context = self.app.key_context();
                 let action = keys::key_press(&event, self.modifiers)
                     .and_then(|press| self.keymap.action_in(press, context));

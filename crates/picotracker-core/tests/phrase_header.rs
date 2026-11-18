@@ -23,8 +23,15 @@ const FIRST_STEP_LINE: usize = 5;
 
 fn phrase_app(actions: &[Action]) -> App {
     let mut app = App::new();
-    app.apply(Action::FocusNext);
-    app.apply(Action::FocusNext);
+    // Chain 00 on the first Song row, holding Phrase 00.
+    for action in [
+        Action::HexDigit(0),
+        Action::FocusNext,
+        Action::HexDigit(0),
+        Action::FocusNext,
+    ] {
+        app.apply(action);
+    }
     for action in actions {
         app.apply(*action);
     }
@@ -32,7 +39,7 @@ fn phrase_app(actions: &[Action]) -> App {
 }
 
 fn phrase(app: &App) -> &Phrase {
-    app.project().phrase(app.edited_phrase())
+    app.project().phrase(app.phrase_under_cursor().unwrap())
 }
 
 fn phrase_line(app: &App, line: usize) -> String {
