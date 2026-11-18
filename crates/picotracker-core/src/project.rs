@@ -2,8 +2,10 @@
 //! Claim, plus validated edits.
 
 mod change;
+mod usage;
 
 pub(crate) use change::ProjectChange;
+pub use usage::UnusedItems;
 
 use std::collections::BTreeMap;
 
