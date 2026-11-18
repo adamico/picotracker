@@ -1,0 +1,12 @@
+[package]
+name = "picotracker"
+description = "A keyboard-driven tracker for composing PICO-8 music."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+picotracker-core = { path = "../picotracker-core" }
+pixels = "0.17"
+winit = "0.30"
