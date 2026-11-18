@@ -1,11 +1,13 @@
 //! New, Open, Save and Save As. The App core never touches the disk: it asks for files with
 //! `FileRequest`s and is given the results as `FileResponse`s.
 
-use super::messages::{LogItem, Report, Severity};
+use super::messages::{Location, LogItem, Report, Severity};
 use super::panes::file_list::{Choice, FileList, Purpose};
+use super::panes::midi_dialog::{MidiDialog, Outcome};
 use super::{Action, App, Focus};
 use crate::cart::Cart;
 use crate::cart_import;
+use crate::midi_import::{self, Warning};
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
 use crate::project_file;
@@ -100,12 +102,19 @@ pub(super) enum Waiting {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ImportKind {
     Cart,
+    Midi,
 }
 
 /// Decides how a file is Imported, from its name. Files of no kind are not listed for Import.
 pub(super) fn import_kind(file_name: &str) -> Option<ImportKind> {
     let name = file_name.to_lowercase();
-    (name.ends_with(".p8") || name.ends_with(".p8.png")).then_some(ImportKind::Cart)
+    if name.ends_with(".p8") || name.ends_with(".p8.png") {
+        Some(ImportKind::Cart)
+    } else if name.ends_with(".mid") || name.ends_with(".midi") {
+        Some(ImportKind::Midi)
+    } else {
+        None
+    }
 }
 
 /// The file name of a path in capitals, as messages show it.
@@ -124,17 +133,27 @@ fn folder_of(path: &Path) -> PathBuf {
 }
 
 /// The result of an Import: its warnings, if any, go to the Log.
-fn import_report(source: &str, warnings: Vec<String>) -> Report {
+fn import_report(source: &str, warnings: Vec<LogItem>) -> Report {
     if warnings.is_empty() {
         return Report::info(format!("IMPORTED {source}"));
     }
     let count = warnings.len();
     let plural = if count == 1 { "" } else { "S" };
-    let items = warnings
-        .into_iter()
-        .map(|warning| LogItem::new(Severity::Warning, warning))
-        .collect();
-    Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(items)
+    Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(warnings)
+}
+
+/// A MIDI Import warning as a Log item, which jumps to the place it is about.
+fn midi_log_item(warning: Warning) -> LogItem {
+    let item = LogItem::new(Severity::Warning, warning.text);
+    match warning.spot {
+        Some(spot) => item.at(Location {
+            song_row: spot.song_row,
+            track: spot.track,
+            chain_row: spot.chain_row,
+            step: spot.step,
+        }),
+        None => item,
+    }
 }
 
 impl App {
@@ -197,7 +216,41 @@ impl App {
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
         match import_kind(&file_name) {
             Some(ImportKind::Cart) => self.import_cart(path, &file_name, contents),
+            Some(ImportKind::Midi) => self.start_midi_import(path, contents),
             None => {}
+        }
+    }
+
+    /// Opens the MIDI Import dialog on a file's bytes, or says why the file cannot be Imported.
+    pub fn start_midi_import(&mut self, path: impl AsRef<Path>, contents: &[u8]) {
+        let path = path.as_ref();
+        let name = shown_name(path);
+        match midi_import::analyse(contents) {
+            Ok(analysis) => {
+                let dialog = MidiDialog::new(name, folder_of(path), analysis);
+                self.midi_dialog = Some(Box::new(dialog));
+            }
+            Err(error) => self.report(Report::failure(format!("CANNOT IMPORT {name}: {error}"))),
+        }
+    }
+
+    /// The MIDI Import dialog takes the keys while it is open.
+    pub(super) fn use_midi_dialog(&mut self, action: Action) {
+        let Some(dialog) = self.midi_dialog.as_mut() else {
+            return;
+        };
+        match dialog.apply(action) {
+            Outcome::Stay => {}
+            Outcome::Cancel => self.midi_dialog = None,
+            Outcome::Import => {
+                if let Some(dialog) = self.midi_dialog.take() {
+                    let (name, folder, imported) = dialog.finish();
+                    self.directory = folder;
+                    self.replace_project(imported.project, None);
+                    let items = imported.warnings.into_iter().map(midi_log_item).collect();
+                    self.report(import_report(&name, items));
+                }
+            }
         }
     }
 
@@ -223,7 +276,12 @@ impl App {
         };
         self.directory = folder_of(&path);
         self.replace_project(imported.project, None);
-        self.report(import_report(&source, imported.warnings));
+        let items = imported
+            .warnings
+            .into_iter()
+            .map(|warning| LogItem::new(Severity::Warning, warning))
+            .collect();
+        self.report(import_report(&source, items));
     }
 
     fn finish_writing(&mut self, path: &Path) {

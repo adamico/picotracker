@@ -30,6 +30,7 @@ use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
 use panes::log::LogPane;
+use panes::midi_dialog::MidiDialog;
 use panes::overview::OverviewPane;
 use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
@@ -95,6 +96,8 @@ pub struct App {
     /// The pane that focus goes back to when the Log closes.
     log_return: Focus,
     file_list: Option<FileList>,
+    /// The MIDI Import dialog, which replaces the panes while it is open.
+    midi_dialog: Option<Box<MidiDialog>>,
     waiting: Option<Waiting>,
     file_requests: Vec<FileRequest>,
     audio_requests: Vec<AudioRequest>,
@@ -144,6 +147,7 @@ impl App {
             log_open: false,
             log_return: Focus::default(),
             file_list: None,
+            midi_dialog: None,
             waiting: None,
             file_requests: Vec::new(),
             audio_requests: Vec::new(),
@@ -183,6 +187,9 @@ impl App {
         }
         if self.question.is_some() {
             return KeyContext::Navigation;
+        }
+        if self.midi_dialog.is_some() {
+            return KeyContext::MidiImport;
         }
         if let Some(list) = &self.file_list {
             return match list.purpose() {
@@ -376,6 +383,10 @@ impl App {
             self.song.finish_typing();
             self.chain.finish_typing();
             self.phrase.finish_typing();
+        }
+        if self.midi_dialog.is_some() {
+            self.use_midi_dialog(action);
+            return;
         }
         if self.speed_entry.is_some() {
             self.use_speed_entry(action);
@@ -679,6 +690,11 @@ impl App {
     /// Draws the current state onto a fresh character grid.
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
+        if let Some(dialog) = &self.midi_dialog {
+            dialog.draw(&mut grid);
+            status_line::draw(&mut grid, &StatusLine::Hints(dialog.hints()));
+            return grid;
+        }
         let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
         // The file list takes the keys while it is open, so no pane shows a cursor.
         let focus = self.file_list.is_none().then_some(self.focus);
