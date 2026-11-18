@@ -3,15 +3,18 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
-use picotracker_core::player::{AudioRequest, Player, Resampler};
+use picotracker_core::player::{AudioRequest, PlaybackReport, Player, Resampler};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const REQUEST_QUEUE: usize = 64;
+const REPORT_QUEUE: usize = 8;
+/// How often the synth thread tells the UI where playback has got to.
+const REPORT_INTERVAL: Duration = Duration::from_millis(33);
 /// Frames queued for the device: a stop is heard within this many seconds.
 const QUEUED_SECONDS: f32 = 0.02;
 const MIN_QUEUED_FRAMES: usize = 256;
@@ -20,8 +23,8 @@ const SYNTH_THREAD_NAP: Duration = Duration::from_millis(1);
 /// A running audio stream. Dropping it stops the sound and the synth thread.
 pub struct AudioOutput {
     requests: Producer<AudioRequest>,
+    reports: Consumer<PlaybackReport>,
     running: Arc<AtomicBool>,
-    finished_play: Arc<AtomicU64>,
     synth_thread: Option<JoinHandle<()>>,
     _stream: Stream,
 }
@@ -39,6 +42,7 @@ impl AudioOutput {
         let queued = ((config.sample_rate as f32 * QUEUED_SECONDS) as usize).max(MIN_QUEUED_FRAMES);
         let (frames, device_frames) = RingBuffer::new(queued);
         let (requests, player_requests) = RingBuffer::new(REQUEST_QUEUE);
+        let (player_reports, reports) = RingBuffer::new(REPORT_QUEUE);
 
         let stream = match format {
             SampleFormat::F32 => open_stream::<f32>(&device, &config, device_frames),
@@ -50,34 +54,36 @@ impl AudioOutput {
         stream.play()?;
 
         let running = Arc::new(AtomicBool::new(true));
-        let finished_play = Arc::new(AtomicU64::new(0));
         let synth_thread = thread::Builder::new().name("synth".into()).spawn({
             let running = Arc::clone(&running);
-            let finished_play = Arc::clone(&finished_play);
             let device_rate = config.sample_rate;
             move || {
                 run_synth(
                     &running,
-                    &finished_play,
                     device_rate,
                     player_requests,
+                    player_reports,
                     frames,
-                );
+                )
             }
         })?;
 
         Ok(Self {
             requests,
+            reports,
             running,
-            finished_play,
             synth_thread: Some(synth_thread),
             _stream: stream,
         })
     }
 
-    /// The number of the latest play that ended by itself.
-    pub fn finished_play(&self) -> u64 {
-        self.finished_play.load(Ordering::Relaxed)
+    /// The newest report from the synth thread since the last call, if there is one.
+    pub fn latest_report(&mut self) -> Option<PlaybackReport> {
+        let mut latest = None;
+        while let Ok(report) = self.reports.pop() {
+            latest = Some(report);
+        }
+        latest
     }
 
     /// Passes a request to the synth thread.
@@ -100,13 +106,14 @@ impl Drop for AudioOutput {
 /// Keeps the device's queue full until the output closes.
 fn run_synth(
     running: &AtomicBool,
-    finished_play: &AtomicU64,
     device_rate: u32,
     mut requests: Consumer<AudioRequest>,
+    mut reports: Producer<PlaybackReport>,
     mut frames: Producer<f32>,
 ) {
     let mut player = Player::new();
     let mut resampler = Resampler::new(device_rate);
+    let mut last_report = Instant::now();
     while running.load(Ordering::Relaxed) {
         while let Ok(request) = requests.pop() {
             player.handle(request);
@@ -117,7 +124,11 @@ fn run_synth(
                 break;
             }
         }
-        finished_play.store(player.finished_play(), Ordering::Relaxed);
+        if last_report.elapsed() >= REPORT_INTERVAL {
+            // A full queue only means the UI is busy: the next report says the same and more.
+            let _ = reports.push(player.report());
+            last_report = Instant::now();
+        }
         thread::sleep(SYNTH_THREAD_NAP);
     }
 }

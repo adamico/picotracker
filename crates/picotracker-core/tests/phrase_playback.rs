@@ -99,6 +99,8 @@ fn assert_near(actual: f32, expected: f32) {
 fn two_note_app() -> App {
     let mut app = phrase_app();
     apply(&mut app, &[A_440, DOWN, A_880, UP]);
+    // Entering the notes previewed them; these tests are about what plays afterwards.
+    app.take_audio_requests();
     app
 }
 
