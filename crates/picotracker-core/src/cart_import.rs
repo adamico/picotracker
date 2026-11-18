@@ -324,6 +324,22 @@ impl<'a> SongBuilder<'a> {
                 let warning = lost_step_warning(slot, k == last_row, place, phrase);
                 self.warnings.push(warning);
             }
+            let sounds = channel
+                .entry
+                .as_ref()
+                .is_some_and(|e| !e.phrase.is_silent());
+            if channel.early_ticks > 0 && sounds {
+                let ticks = channel.early_ticks;
+                let plural = if ticks == 1 { "" } else { "S" };
+                self.warnings.push(ImportWarning::at(
+                    place,
+                    format!(
+                        "PATTERN {slot:02X} SPLITS INSIDE A STEP: T{} PLAYS ITS LATER STEPS \
+                         {ticks} TICK{plural} EARLY.",
+                        track + 1
+                    ),
+                ));
+            }
             if let Some(needed) = channel.unroll_needed {
                 self.warnings.push(ImportWarning::at(
                     place,

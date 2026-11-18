@@ -336,6 +336,34 @@ fn a_step_straddling_a_split_is_dropped_with_a_warning() {
 }
 
 #[test]
+fn steps_that_a_split_moves_early_are_reported() {
+    // The split falls on Tick 96. The next Step at Speed 5 starts on Tick 100, but a Phrase can only
+    // start at the start of its Chain row.
+    let cart = one_pattern(vec![with_len(counting(3), 40), counting(5)]);
+
+    let (_, warnings) = imported(&cart);
+
+    assert!(
+        warnings.iter().any(
+            |w| w == "PATTERN 00 SPLITS INSIDE A STEP: T2 PLAYS ITS LATER STEPS 4 TICKS EARLY."
+        ),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn a_split_on_a_step_boundary_moves_nothing() {
+    let cart = one_pattern(vec![with_len(counting(4), 40), counting(8)]);
+
+    let (_, warnings) = imported(&cart);
+
+    assert!(
+        !warnings.iter().any(|w| w.contains("EARLY")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
 fn a_song_that_still_fits_its_claim_gets_no_claim_warning() {
     let cart = one_pattern(vec![counting(8), counting(4)]);
 
