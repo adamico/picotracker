@@ -8,6 +8,7 @@ mod history;
 mod layout;
 mod messages;
 mod panes;
+mod restructure;
 mod selection;
 mod status_line;
 
@@ -373,6 +374,7 @@ impl App {
         }
         if self.question.is_some() {
             self.answer_question(action);
+            self.settle_after_edit();
             return;
         }
         if self.file_list.is_some() {
@@ -392,6 +394,12 @@ impl App {
             Action::Copy => self.copy(),
             Action::Cut => self.cut(),
             Action::Paste => self.paste(),
+            Action::Clone => self.clone_items(false),
+            Action::DeepClone => self.clone_items(true),
+            Action::NewUnused => self.new_unused(),
+            Action::InsertRow => self.insert_row(),
+            Action::DeleteRow => self.delete_row(),
+            Action::PurgeUnused => self.ask_to_purge(),
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::Move(direction) => self.move_cursor(direction),
@@ -424,6 +432,11 @@ impl App {
         if let Some((index, before)) = before_edit {
             self.preview_edit(action, index, before);
         }
+        self.settle_after_edit();
+    }
+
+    /// Keeps the cursor on the Phrase now showing, and lets the Player hear what changed.
+    fn settle_after_edit(&mut self) {
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
         self.send_edits_to_the_player();

@@ -7,7 +7,7 @@ use crate::project::{ChainEntry, ChainId, Step};
 use crate::screen::grid::Grid;
 use std::ops::RangeInclusive;
 
-const NO_STEP_HERE: &str = "NO STEP HERE";
+pub(super) const NO_STEP_HERE: &str = "NO STEP HERE";
 const NOTHING_TO_PASTE: &str = "NOTHING TO PASTE";
 
 /// What was last copied, which remembers the kind of pane it came from.
@@ -65,7 +65,7 @@ impl App {
     }
 
     /// The cells an action works on: the selection, or else the cell under the cursor.
-    fn target_block(&self) -> Option<Block> {
+    pub(super) fn target_block(&self) -> Option<Block> {
         self.selected_block()
             .or_else(|| self.cursor_cell().map(Block::at))
     }
