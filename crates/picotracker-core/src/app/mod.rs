@@ -1,34 +1,53 @@
 //! The App core: named actions in; the character grid out.
 
 mod action;
+mod files;
 mod focus;
 mod layout;
+mod messages;
 mod panes;
 mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
+pub use files::{DirectoryEntry, FileRequest, FileResponse};
+pub use messages::{Location, LogItem, Report, Severity};
 
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
+use files::{Question, Waiting};
 use focus::Focus;
+use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
+use panes::file_list::{FileList, Purpose};
+use panes::log::LogPane;
 use panes::overview::OverviewPane;
 use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
+use status_line::StatusLine;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
 const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
 const FOLLOW_ON: &str = "FOLLOW ON";
 const FOLLOW_OFF: &str = "FOLLOW OFF";
+const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
+const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 
 /// The whole application, with no window or audio device attached.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct App {
     project: Project,
+    /// The Project as it was last saved or opened.
+    saved_project: Project,
+    /// The file the Project was last saved to or opened from.
+    project_path: Option<PathBuf>,
+    /// The folder the file list starts in.
+    directory: PathBuf,
     focus: Focus,
     song: SongPane,
     chain: ChainPane,
@@ -48,8 +67,26 @@ pub struct App {
     scope: [i8; SCOPE_COLUMNS],
     /// Whether a note is sounding until its key is released.
     previewing: bool,
+    /// A brief remark about the last action, gone on the next one.
     status: Option<&'static str>,
+    /// The latest result on the status line.
+    notice: Option<Notice>,
+    question: Option<Question>,
+    log: LogPane,
+    /// Whether the right-hand slot shows the Log instead of the Overview.
+    log_open: bool,
+    /// The pane that focus goes back to when the Log closes.
+    log_return: Focus,
+    file_list: Option<FileList>,
+    waiting: Option<Waiting>,
+    file_requests: Vec<FileRequest>,
     audio_requests: Vec<AudioRequest>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self::with_project(Project::default())
+    }
 }
 
 impl App {
@@ -61,8 +98,34 @@ impl App {
     /// A new app editing this Project, with the Song pane focused.
     pub fn with_project(project: Project) -> Self {
         Self {
+            saved_project: project.clone(),
+            heard: Arc::new(project.clone()),
+            track_mix: TrackMix::default(),
+            playhead: None,
+            follow: false,
+            scope: [0; SCOPE_COLUMNS],
+            previewing: false,
             project,
-            ..Self::default()
+            project_path: None,
+            directory: PathBuf::from("."),
+            focus: Focus::default(),
+            song: SongPane::default(),
+            chain: ChainPane::default(),
+            phrase: PhrasePane::default(),
+            overview: OverviewPane::default(),
+            played_pane: Focus::default(),
+            playing: false,
+            plays: 0,
+            status: None,
+            notice: None,
+            question: None,
+            log: LogPane::default(),
+            log_open: false,
+            log_return: Focus::default(),
+            file_list: None,
+            waiting: None,
+            file_requests: Vec::new(),
+            audio_requests: Vec::new(),
         }
     }
 
@@ -94,6 +157,15 @@ impl App {
 
     /// What the keys that type characters do at the cursor.
     pub fn key_context(&self) -> KeyContext {
+        if self.question.is_some() {
+            return KeyContext::Navigation;
+        }
+        if let Some(list) = &self.file_list {
+            return match list.purpose() {
+                Purpose::Open => KeyContext::Navigation,
+                Purpose::SaveAs => KeyContext::FileName,
+            };
+        }
         match self.focus {
             Focus::Song => KeyContext::ArrangeValue,
             Focus::Chain if self.chain.takes_digits() => KeyContext::ArrangeValue,
@@ -191,6 +263,43 @@ impl App {
         self.status = Some(if self.follow { FOLLOW_ON } else { FOLLOW_OFF });
     }
 
+    /// Turns Follow off because the user has moved the cursor by hand, and says so.
+    fn stop_following(&mut self) {
+        if self.follow {
+            self.follow = false;
+            self.status = Some(FOLLOW_OFF);
+        }
+    }
+
+    /// Tells the user the outcome of something they asked for. A result with items opens the Log
+    /// without taking focus.
+    pub fn report(&mut self, report: Report) {
+        self.notice = Some(Notice::new(report.severity, report.status_text()));
+        if !report.items.is_empty() && !self.log_open {
+            self.log_open = true;
+            self.log_return = self.focus;
+        }
+        self.log.add(report.into_log_items());
+    }
+
+    /// Lets time pass, and says whether the status line now looks different.
+    pub fn advance_time(&mut self, elapsed: Duration) -> bool {
+        let Some(notice) = self.notice.as_mut() else {
+            return false;
+        };
+        let look = notice.look();
+        if notice.grow_older(elapsed) {
+            self.notice = None;
+            return true;
+        }
+        notice.look() != look
+    }
+
+    /// How long until the status line next changes by itself, if it ever will.
+    pub fn time_until_status_change(&self) -> Option<Duration> {
+        self.notice.as_ref()?.time_until_change()
+    }
+
     /// Applies one named action.
     pub fn apply(&mut self, action: Action) {
         self.status = None;
@@ -199,8 +308,23 @@ impl App {
             self.chain.finish_typing();
             self.phrase.finish_typing();
         }
+        if self.question.is_some() {
+            self.answer_question(action);
+            return;
+        }
+        if self.file_list.is_some() {
+            self.use_file_list(action);
+            return;
+        }
         let before_edit = self.step_before_edit(action);
         match action {
+            Action::NewProject => self.new_project(),
+            Action::OpenProject => self.open_project(),
+            Action::Save => self.save(),
+            Action::SaveAs => self.save_as(),
+            Action::ToggleLog => self.toggle_log(),
+            Action::Confirm => self.confirm(),
+            Action::Cancel => self.cancel(),
             Action::Move(direction) => self.move_cursor(direction),
             Action::FocusNext => self.set_focus(self.focus.next()),
             Action::FocusPrevious => self.set_focus(self.focus.previous()),
@@ -255,6 +379,50 @@ impl App {
     fn project_for_player(&mut self) -> Arc<Project> {
         self.heard = Arc::new(self.project.clone());
         Arc::clone(&self.heard)
+    }
+
+    fn log_has_focus(&self) -> bool {
+        self.log_open && self.focus == Focus::RightSlot
+    }
+
+    fn toggle_log(&mut self) {
+        if self.log_open {
+            self.close_log();
+        } else {
+            self.log_open = true;
+            self.log_return = self.focus;
+            self.set_focus(Focus::RightSlot);
+        }
+    }
+
+    fn close_log(&mut self) {
+        self.log_open = false;
+        if self.focus == Focus::RightSlot {
+            self.set_focus(self.log_return);
+        }
+    }
+
+    /// Enter in the Log jumps to the picked item's location.
+    fn confirm(&mut self) {
+        if !self.log_has_focus() {
+            return;
+        }
+        if let Some(location) = self.log.picked_location() {
+            self.stop_following();
+            self.song.jump_to(location.song_row, location.track);
+            self.chain.jump_to(location.chain_row);
+            self.phrase.jump_to(location.step);
+            self.set_focus(Focus::Phrase);
+        }
+    }
+
+    /// Esc dismisses a lasting result first, and then closes the Log.
+    fn cancel(&mut self) {
+        if self.notice.as_ref().is_some_and(Notice::is_persistent) {
+            self.notice = None;
+        } else if self.log_has_focus() {
+            self.close_log();
+        }
     }
 
     fn type_digit(&mut self, digit: u8) {
@@ -392,9 +560,8 @@ impl App {
     }
 
     fn move_cursor(&mut self, direction: Direction) {
-        if self.follow {
-            self.follow = false;
-            self.status = Some(FOLLOW_OFF);
+        if self.focus != Focus::RightSlot {
+            self.stop_following();
         }
         match self.focus {
             Focus::Song => self.song.move_cursor(direction),
@@ -403,6 +570,7 @@ impl App {
                 let phrase = self.shown_phrase();
                 self.phrase.move_cursor(direction, &phrase);
             }
+            Focus::RightSlot if self.log_open => self.log.move_cursor(direction),
             Focus::RightSlot => self.overview.move_cursor(direction),
         }
     }
@@ -411,10 +579,12 @@ impl App {
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
         let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
+        // The file list takes the keys while it is open, so no pane shows a cursor.
+        let focus = self.file_list.is_none().then_some(self.focus);
         self.song.draw(
             &mut grid,
             layout::SONG,
-            self.focus == Focus::Song,
+            focus == Some(Focus::Song),
             &self.project,
             &self.track_mix,
             chain_row.map(|(row, _)| row),
@@ -422,7 +592,7 @@ impl App {
         self.chain.draw(
             &mut grid,
             layout::CHAIN,
-            self.focus == Focus::Chain,
+            focus == Some(Focus::Chain),
             &self.project,
             ChainView {
                 song_row: self.song.row(),
@@ -436,7 +606,7 @@ impl App {
         self.phrase.draw(
             &mut grid,
             layout::PHRASE,
-            self.focus == Focus::Phrase,
+            focus == Some(Focus::Phrase),
             PhraseView {
                 id: phrase,
                 phrase: &self.shown_phrase(),
@@ -447,14 +617,48 @@ impl App {
                     .and_then(|(playhead, phrase)| playhead.step_in(phrase, self.song.track())),
             },
         );
-        self.overview.draw(
-            &mut grid,
-            layout::RIGHT_SLOT,
-            self.focus == Focus::RightSlot,
-            &self.scope,
-        );
+        let right_slot_focused = focus == Some(Focus::RightSlot);
+        if let Some(list) = &self.file_list {
+            list.draw(&mut grid, layout::RIGHT_SLOT);
+        } else if self.log_open {
+            self.log
+                .draw(&mut grid, layout::RIGHT_SLOT, right_slot_focused);
+        } else {
+            self.overview.draw(
+                &mut grid,
+                layout::RIGHT_SLOT,
+                right_slot_focused,
+                &self.scope,
+            );
+        }
         layout::draw_separators(&mut grid);
-        status_line::draw(&mut grid, self.status);
+        let project = self.project_name();
+        status_line::draw(&mut grid, &self.status_line(&project));
         grid
+    }
+
+    /// What the status line shows: what most needs the user's attention comes first.
+    fn status_line<'a>(&'a self, project: &'a str) -> StatusLine<'a> {
+        if let Some(question) = &self.question {
+            return StatusLine::Question(&question.text);
+        }
+        let notice = self.notice.as_ref();
+        if let Some(notice) = notice.filter(|notice| notice.is_persistent()) {
+            return StatusLine::Notice(notice);
+        }
+        if let Some(remark) = self.status {
+            return StatusLine::Remark(remark);
+        }
+        if let Some(notice) = notice {
+            return StatusLine::Notice(notice);
+        }
+        match self.file_list.as_ref().map(FileList::purpose) {
+            Some(Purpose::Open) => StatusLine::Hints(OPEN_LIST_KEYS),
+            Some(Purpose::SaveAs) => StatusLine::Hints(SAVE_LIST_KEYS),
+            None => StatusLine::Idle {
+                project,
+                unsaved: self.has_unsaved_changes(),
+            },
+        }
     }
 }

@@ -40,6 +40,7 @@ fn named_key(key: NamedKey) -> Option<Key> {
         NamedKey::Space => Key::Space,
         NamedKey::Enter => Key::Enter,
         NamedKey::Escape => Key::Escape,
+        NamedKey::Backspace => Key::Backspace,
         NamedKey::Insert => Key::Insert,
         NamedKey::Delete => Key::Delete,
         NamedKey::F1 => Key::F(1),
