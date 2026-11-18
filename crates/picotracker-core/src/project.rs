@@ -594,6 +594,12 @@ impl Project {
         self.export_tracks
     }
 
+    /// The Track on each of PICO-8's channels, counted from 0 like the Song's columns.
+    pub fn export_track_indices(&self) -> [Option<usize>; EXPORT_CHANNELS] {
+        self.export_tracks
+            .map(|track| track.map(|track| usize::from(track) - 1))
+    }
+
     /// Puts a Track, numbered 1 to 8, on a channel from 0 to 3, or takes it off.
     ///
     /// # Panics
