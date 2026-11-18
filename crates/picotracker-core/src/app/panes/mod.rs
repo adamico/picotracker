@@ -18,6 +18,30 @@ const CURSOR: Style = Style {
     bg: Colour::Blue,
 };
 const CURSOR_BRACKET: Style = Style::fg(Colour::Yellow);
+const FILL: Style = Style::fg(Colour::Pink);
+const COARSE_ID: i32 = 16;
+const MAX_ID: i32 = 255;
+
+/// The value of a two-digit cell after one more digit: the digit before it becomes the high digit.
+fn typed_value(typed_digit: &mut Option<u8>, digit: u8) -> u8 {
+    let value = typed_digit.map_or(0, |high| high << 4) | digit;
+    *typed_digit = Some(digit);
+    value
+}
+
+/// A Chain or Phrase number after a nudge, starting from 00 on an empty cell.
+fn nudged_id(number: Option<u8>, up: bool, coarse: bool) -> u8 {
+    let amount = if coarse { COARSE_ID } else { 1 };
+    let delta = if up { amount } else { -amount };
+    number.map_or(0, |number| {
+        (i32::from(number) + delta).clamp(0, MAX_ID) as u8
+    })
+}
+
+/// The text of a Chain or Phrase number, or of an empty cell.
+fn id_text(number: Option<u8>) -> String {
+    number.map_or_else(|| "--".to_owned(), |number| format!("{number:02X}"))
+}
 
 /// Moves a cursor position by a delta, stopping at the first and last position.
 fn stepped(position: usize, delta: isize, positions: usize) -> usize {
