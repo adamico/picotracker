@@ -37,6 +37,14 @@ fn licenses_flag_prints_the_independence_statement_and_every_notice_without_open
 }
 
 #[test]
+fn readme_carries_the_independence_statement() {
+    assert!(include_str!("../../../README.md").contains(
+        "picotracker is an independent project. It is not affiliated with or endorsed by \
+         Lexaloffle or Dirtywave, and it includes no PICO-8 code."
+    ));
+}
+
+#[test]
 fn third_party_licenses_carries_the_ported_synth_notices_and_the_crate_notices() {
     let notices = include_str!("../../../THIRD_PARTY_LICENSES");
 
