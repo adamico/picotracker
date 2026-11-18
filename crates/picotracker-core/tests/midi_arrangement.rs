@@ -1,10 +1,10 @@
 //! The MIDI compiler's voices, tables, Song structure, pitch offsets and warnings.
 
-mod support;
+mod midi_support;
 
 use picotracker_core::midi_import::{self, Analysis, Choices, Imported};
 use picotracker_core::project::{Phrase, Project, Step};
-use support::{STEP, Song};
+use midi_support::{STEP, Song};
 
 const MIDDLE_C: u8 = 60;
 const MIDDLE_C_PITCH: u8 = 24;

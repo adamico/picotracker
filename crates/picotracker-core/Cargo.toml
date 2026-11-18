@@ -8,8 +8,6 @@ repository.workspace = true
 
 [dependencies]
 midly = { version = "0.5", default-features = false, features = ["alloc", "std"] }
+png = "0.18"
 ron = "0.12.3"
 serde = { version = "1.0.229", features = ["derive"] }
-
-[dev-dependencies]
-png = "0.18"
