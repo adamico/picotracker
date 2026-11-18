@@ -220,6 +220,27 @@ impl Phrase {
         &mut self.filters
     }
 
+    /// How long the Phrase plays once through, in Ticks.
+    pub fn ticks(&self) -> u32 {
+        self.length as u32 * u32::from(self.speed)
+    }
+
+    /// Whether a Step sounds outside PICO-8's pitch range 0 to 63 after this transpose.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is 32 or more.
+    pub fn step_is_out_of_range(&self, index: usize, transpose: i8) -> bool {
+        let step = self.steps[index];
+        let pitch = i32::from(step.pitch) + i32::from(transpose);
+        !step.is_silent() && !(0..=MAX_PITCH).contains(&pitch)
+    }
+
+    /// Whether any Step inside LEN sounds outside PICO-8's pitch range after this transpose.
+    pub fn is_out_of_range(&self, transpose: i8) -> bool {
+        (0..self.length).any(|index| self.step_is_out_of_range(index, transpose))
+    }
+
     /// Whether every Step inside LEN is silent.
     pub fn is_silent(&self) -> bool {
         self.steps[..self.length]
@@ -388,6 +409,35 @@ impl Project {
     /// Panics if the row is 256 or more, or the Track is 8 or more.
     pub fn set_song_cell(&mut self, row: usize, track: usize, chain: Option<ChainId>) {
         self.song[row][track] = chain;
+    }
+
+    /// The k-th entry of a Track's Chain on a Song row.
+    pub fn chain_row_entry(&self, row: usize, track: usize, k: usize) -> Option<ChainEntry> {
+        self.chain(self.song_cell(row, track)?).entry(k)
+    }
+
+    /// How long a Chain row lasts: its longest Phrase not marked Fill, or its longest entry when
+    /// every entry is marked Fill. A Chain row with no entries lasts no time.
+    pub fn chain_row_ticks(&self, row: usize, k: usize) -> u32 {
+        let mut longest = 0;
+        let mut longest_fill = 0;
+        for track in 0..TRACKS {
+            if let Some(entry) = self.chain_row_entry(row, track, k) {
+                let ticks = self.phrase(entry.phrase()).ticks();
+                let slot = if entry.fill() {
+                    &mut longest_fill
+                } else {
+                    &mut longest
+                };
+                *slot = ticks.max(*slot);
+            }
+        }
+        if longest > 0 { longest } else { longest_fill }
+    }
+
+    /// Whether a Song row has nothing to play, which ends the Song.
+    pub fn song_row_is_empty(&self, row: usize) -> bool {
+        (0..CHAIN_ENTRIES).all(|k| self.chain_row_ticks(row, k) == 0)
     }
 
     /// The row the Song jumps to when it ends, if it loops at all.

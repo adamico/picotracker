@@ -1,6 +1,8 @@
 //! The Phrase pane: the header and Steps of the Phrase being edited.
 
-use super::{EMPTY, HEADING, VALUE, draw_styled_value, draw_title, id_text, stepped};
+use super::{
+    EMPTY, HEADING, VALUE, draw_out_of_range_flag, draw_styled_value, draw_title, id_text, stepped,
+};
 use crate::app::layout::Area;
 use crate::app::{Direction, KeyContext};
 use crate::project::{MAX_STEPS, Phrase, PhraseId, Step};
@@ -267,6 +269,7 @@ impl PhrasePane {
         focused: bool,
         id: Option<PhraseId>,
         phrase: &Phrase,
+        transpose: i8,
     ) {
         let number = id_text(id.map(PhraseId::number));
         let title = format!("PHRASE {number}   OCT {}", self.octave);
@@ -287,6 +290,9 @@ impl PhrasePane {
                     VALUE
                 };
                 draw_styled_value(grid, area.column + offset, row, text, is_cursor, style);
+            }
+            if phrase.step_is_out_of_range(index, transpose) {
+                draw_out_of_range_flag(grid, area.column, row);
             }
         }
     }
