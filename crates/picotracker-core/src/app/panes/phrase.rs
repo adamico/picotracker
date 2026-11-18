@@ -1,46 +1,329 @@
-//! The Phrase pane: the header and Steps of the Phrase under the Chain cursor.
+//! The Phrase pane: the header and Steps of the Phrase being edited.
 
-use super::{EMPTY, HEADING, draw_title, draw_value, stepped};
-use crate::app::Direction;
+use super::{EMPTY, HEADING, VALUE, draw_styled_value, draw_title, stepped};
 use crate::app::layout::Area;
+use crate::app::{Direction, KeyContext};
+use crate::project::{MAX_STEPS, Phrase, Step};
 use crate::screen::grid::Grid;
 
-/// The Steps shown when no Phrase is under the Chain cursor: a new Phrase's default length.
-const STEPS: usize = 16;
 /// Rows above the first Step: the title, three header rows and the column headings.
 const HEADER_ROWS: usize = 5;
+const FIRST_HEADER_ROW: usize = 1;
 
-/// The columns of a Step: where each starts and what an empty Step shows.
-const COLUMNS: [(usize, &str); 4] = [(3, "---"), (7, "--"), (10, "-"), (12, "-")];
+const NOTE_NAMES: [&str; 12] = [
+    "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
+];
 
-/// The Phrase pane's cursor.
-#[derive(Debug, Default)]
+const MAX_OCTAVE: u8 = 4;
+const SEMITONES_PER_OCTAVE: i32 = 12;
+const COARSE_SPEED: i32 = 16;
+const COARSE_LENGTH: i32 = 4;
+
+/// The cells of a Step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StepCell {
+    Pitch,
+    Instrument,
+    Volume,
+    Effect,
+}
+
+/// The cells of a Step: which each is, where it starts and what a silent Step shows.
+const STEP_CELLS: [(StepCell, usize, &str); 4] = [
+    (StepCell::Pitch, 3, "..."),
+    (StepCell::Instrument, 7, ".."),
+    (StepCell::Volume, 10, "."),
+    (StepCell::Effect, 12, "."),
+];
+
+/// The editable values of the Phrase header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeaderCell {
+    Speed,
+    Length,
+    Noiz,
+    Buzz,
+    Detune,
+    Reverb,
+    Dampen,
+}
+
+/// The header's rows of editable values, each with the column its value starts in.
+const HEADER_CELLS: [&[(HeaderCell, usize)]; 3] = [
+    &[(HeaderCell::Speed, 4)],
+    &[
+        (HeaderCell::Length, 4),
+        (HeaderCell::Noiz, 10),
+        (HeaderCell::Buzz, 15),
+    ],
+    &[
+        (HeaderCell::Detune, 3),
+        (HeaderCell::Reverb, 8),
+        (HeaderCell::Dampen, 13),
+    ],
+];
+
+/// The Phrase pane's cursor, and the values that new notes take.
+#[derive(Debug)]
 pub struct PhrasePane {
     step: usize,
     column: usize,
+    /// The header row under the cursor, when the cursor is in the header.
+    header_row: Option<usize>,
+    octave: u8,
+    instrument: u8,
+    volume: u8,
+    /// The digit typed just before this one into the same two-digit cell.
+    typed_digit: Option<u8>,
+}
+
+impl Default for PhrasePane {
+    fn default() -> Self {
+        Self {
+            step: 0,
+            column: 0,
+            header_row: None,
+            octave: 2,
+            instrument: 2,
+            volume: 5,
+            typed_digit: None,
+        }
+    }
 }
 
 impl PhrasePane {
-    pub fn move_cursor(&mut self, direction: Direction) {
-        let (columns, rows) = direction.delta();
-        self.column = stepped(self.column, columns, COLUMNS.len());
-        self.step = stepped(self.step, rows, STEPS);
+    /// The Step under the cursor.
+    pub fn step(&self) -> usize {
+        self.step
     }
 
-    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool) {
-        draw_title(grid, area.column, 0, "PHRASE --", focused);
-        grid.put(area.column, 1, "SPD -- BPM ---", EMPTY);
-        grid.put(area.column, 2, "LEN -- NZ- BZ-", EMPTY);
-        grid.put(area.column, 3, "DT- RV- DP-", EMPTY);
-        grid.put(area.column, 4, "   NOT IN V F", HEADING);
+    /// What the keys that type characters do here.
+    pub fn key_context(&self) -> KeyContext {
+        if self.step_cell() == Some(StepCell::Pitch) {
+            KeyContext::PhrasePitch
+        } else {
+            KeyContext::PhraseValue
+        }
+    }
 
-        for step in 0..STEPS {
-            let row = HEADER_ROWS + step;
-            grid.put(area.column, row, &format!("{step:02X}"), HEADING);
-            for (index, (offset, empty)) in COLUMNS.iter().enumerate() {
-                let is_cursor = focused && step == self.step && index == self.column;
-                draw_value(grid, area.column + offset, row, empty, is_cursor);
+    pub fn move_cursor(&mut self, direction: Direction, phrase: &Phrase) {
+        let (columns, rows) = direction.delta();
+        match self.header_row {
+            Some(row) => self.move_in_header(row, columns, rows),
+            None if rows < 0 && self.step == 0 => self.enter_header(),
+            None => {
+                self.column = stepped(self.column, columns, STEP_CELLS.len());
+                self.step = stepped(self.step, rows, phrase.length());
             }
         }
     }
+
+    fn move_in_header(&mut self, row: usize, columns: isize, rows: isize) {
+        if rows > 0 && row + 1 == HEADER_CELLS.len() {
+            self.header_row = None;
+            return;
+        }
+        let row = stepped(row, rows, HEADER_CELLS.len());
+        self.header_row = Some(row);
+        self.column = stepped(self.column, columns, HEADER_CELLS[row].len());
+    }
+
+    fn enter_header(&mut self) {
+        let row = HEADER_CELLS.len() - 1;
+        self.header_row = Some(row);
+        self.column = self.column.min(HEADER_CELLS[row].len() - 1);
+    }
+
+    fn step_cell(&self) -> Option<StepCell> {
+        match self.header_row {
+            Some(_) => None,
+            None => Some(STEP_CELLS[self.column].0),
+        }
+    }
+
+    fn header_cell(&self) -> Option<HeaderCell> {
+        let row = self.header_row?;
+        Some(HEADER_CELLS[row][self.column].0)
+    }
+
+    /// Enters a note with the current Instrument and volume, then moves down one Step.
+    pub fn enter_note(&mut self, phrase: &mut Phrase, piano_key: u8) {
+        if self.step_cell() != Some(StepCell::Pitch) {
+            return;
+        }
+        let pitch = i32::from(self.octave) * SEMITONES_PER_OCTAVE + i32::from(piano_key);
+        let step = phrase.step_mut(self.step);
+        step.set_pitch(pitch);
+        step.set_instrument(i32::from(self.instrument));
+        step.set_volume(i32::from(self.volume));
+        self.step = stepped(self.step, 1, phrase.length());
+    }
+
+    /// Changes the octave that piano keys play in, stopping at 0 and 4.
+    pub fn change_octave(&mut self, delta: i8) {
+        self.octave = self.octave.saturating_add_signed(delta).min(MAX_OCTAVE);
+    }
+
+    /// Ends the two-digit value being typed, so that the next digit starts a new one.
+    pub fn finish_typing(&mut self) {
+        self.typed_digit = None;
+    }
+
+    /// Types a hexadecimal digit into the cell under the cursor. Two digits in a row make one
+    /// value in the cells that hold two.
+    pub fn type_digit(&mut self, phrase: &mut Phrase, digit: u8) {
+        let typed = self.typed_digit.map_or(0, |high| high << 4) | digit;
+        let two_digits = matches!(self.step_cell(), Some(StepCell::Instrument))
+            || matches!(
+                self.header_cell(),
+                Some(HeaderCell::Speed | HeaderCell::Length)
+            );
+        self.typed_digit = two_digits.then_some(digit);
+        let value = i32::from(if two_digits { typed } else { digit });
+        self.set_cell(phrase, value);
+    }
+
+    /// Raises or lowers the cell under the cursor.
+    pub fn nudge(&mut self, phrase: &mut Phrase, up: bool, coarse: bool) {
+        let amount = if coarse { self.coarse_amount() } else { 1 };
+        let delta = if up { amount } else { -amount };
+        let value = self.cell_value(phrase) + delta;
+        self.set_cell(phrase, value);
+    }
+
+    fn coarse_amount(&self) -> i32 {
+        match (self.step_cell(), self.header_cell()) {
+            (Some(StepCell::Pitch), _) => SEMITONES_PER_OCTAVE,
+            (_, Some(HeaderCell::Speed)) => COARSE_SPEED,
+            (_, Some(HeaderCell::Length)) => COARSE_LENGTH,
+            _ => 1,
+        }
+    }
+
+    fn cell_value(&self, phrase: &Phrase) -> i32 {
+        let step = phrase.step(self.step);
+        let filters = phrase.filters();
+        match (self.step_cell(), self.header_cell()) {
+            (Some(StepCell::Pitch), _) => i32::from(step.pitch()),
+            (Some(StepCell::Instrument), _) => i32::from(step.instrument()),
+            (Some(StepCell::Volume), _) => i32::from(step.volume()),
+            (Some(StepCell::Effect), _) => i32::from(step.effect()),
+            (_, Some(HeaderCell::Speed)) => i32::from(phrase.speed()),
+            (_, Some(HeaderCell::Length)) => phrase.length() as i32,
+            (_, Some(HeaderCell::Noiz)) => i32::from(filters.noiz()),
+            (_, Some(HeaderCell::Buzz)) => i32::from(filters.buzz()),
+            (_, Some(HeaderCell::Detune)) => i32::from(filters.detune()),
+            (_, Some(HeaderCell::Reverb)) => i32::from(filters.reverb()),
+            (_, Some(HeaderCell::Dampen)) => i32::from(filters.dampen()),
+            (None, None) => 0,
+        }
+    }
+
+    fn set_cell(&mut self, phrase: &mut Phrase, value: i32) {
+        if let Some(cell) = self.step_cell() {
+            self.set_step_cell(phrase, cell, value);
+        }
+        match self.header_cell() {
+            Some(HeaderCell::Speed) => phrase.set_speed(value),
+            Some(HeaderCell::Length) => {
+                phrase.set_length(value);
+                self.step = self.step.min(phrase.length() - 1);
+            }
+            Some(HeaderCell::Noiz) => phrase.filters_mut().set_noiz(value > 0),
+            Some(HeaderCell::Buzz) => phrase.filters_mut().set_buzz(value > 0),
+            Some(HeaderCell::Detune) => phrase.filters_mut().set_detune(value),
+            Some(HeaderCell::Reverb) => phrase.filters_mut().set_reverb(value),
+            Some(HeaderCell::Dampen) => phrase.filters_mut().set_dampen(value),
+            None => {}
+        }
+    }
+
+    fn set_step_cell(&mut self, phrase: &mut Phrase, cell: StepCell, value: i32) {
+        let step = phrase.step_mut(self.step);
+        match cell {
+            StepCell::Pitch => step.set_pitch(value),
+            StepCell::Instrument => {
+                step.set_instrument(value);
+                self.instrument = step.instrument();
+            }
+            StepCell::Volume => {
+                step.set_volume(value);
+                self.volume = step.volume();
+            }
+            StepCell::Effect => step.set_effect(value),
+        }
+    }
+
+    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, phrase: &Phrase) {
+        let title = format!("PHRASE 00   OCT {}", self.octave);
+        draw_title(grid, area.column, 0, &title, focused);
+        self.draw_header(grid, area, focused, phrase);
+        grid.put(area.column, HEADER_ROWS - 1, "   NOT IN V F", HEADING);
+
+        for index in 0..phrase.length().min(MAX_STEPS) {
+            let row = HEADER_ROWS + index;
+            grid.put(area.column, row, &format!("{index:02X}"), HEADING);
+            let on_this_step = focused && self.header_row.is_none() && index == self.step;
+            let texts = step_texts(phrase.step(index));
+            for (cell, ((_, offset, _), text)) in STEP_CELLS.iter().zip(&texts).enumerate() {
+                let is_cursor = on_this_step && cell == self.column;
+                let style = if phrase.step(index).is_silent() {
+                    EMPTY
+                } else {
+                    VALUE
+                };
+                draw_styled_value(grid, area.column + offset, row, text, is_cursor, style);
+            }
+        }
+    }
+
+    fn draw_header(&self, grid: &mut Grid, area: Area, focused: bool, phrase: &Phrase) {
+        let filters = phrase.filters();
+        let labels = [
+            format!("SPD    BPM {}", phrase.bpm()),
+            "LEN    NZ   BZ".to_owned(),
+            "DT   RV   DP".to_owned(),
+        ];
+        for (row, label) in labels.iter().enumerate() {
+            grid.put(area.column, FIRST_HEADER_ROW + row, label, HEADING);
+        }
+
+        for (row, cells) in HEADER_CELLS.iter().enumerate() {
+            for (column, (cell, offset)) in cells.iter().enumerate() {
+                let text = match cell {
+                    HeaderCell::Speed => format!("{:02X}", phrase.speed()),
+                    HeaderCell::Length => format!("{:02X}", phrase.length()),
+                    HeaderCell::Noiz => u8::from(filters.noiz()).to_string(),
+                    HeaderCell::Buzz => u8::from(filters.buzz()).to_string(),
+                    HeaderCell::Detune => filters.detune().to_string(),
+                    HeaderCell::Reverb => filters.reverb().to_string(),
+                    HeaderCell::Dampen => filters.dampen().to_string(),
+                };
+                let is_cursor = focused && self.header_row == Some(row) && self.column == column;
+                let screen_row = FIRST_HEADER_ROW + row;
+                draw_styled_value(
+                    grid,
+                    area.column + offset,
+                    screen_row,
+                    &text,
+                    is_cursor,
+                    VALUE,
+                );
+            }
+        }
+    }
+}
+
+/// The text of each cell of a Step. A silent Step shows as empty.
+fn step_texts(step: Step) -> [String; 4] {
+    if step.is_silent() {
+        return STEP_CELLS.map(|(_, _, empty)| empty.to_owned());
+    }
+    let pitch = usize::from(step.pitch());
+    [
+        format!("{}{}", NOTE_NAMES[pitch % 12], pitch / 12),
+        format!("{:02X}", step.instrument()),
+        step.volume().to_string(),
+        step.effect().to_string(),
+    ]
 }

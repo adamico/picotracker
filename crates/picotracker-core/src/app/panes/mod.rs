@@ -12,6 +12,7 @@ const TITLE: Style = Style::fg(Colour::Blue);
 const FOCUSED_TITLE: Style = Style::fg(Colour::Yellow);
 const HEADING: Style = Style::fg(Colour::Lavender);
 const EMPTY: Style = Style::fg(Colour::DarkGrey);
+const VALUE: Style = Style::fg(Colour::White);
 const CURSOR: Style = Style {
     fg: Colour::Black,
     bg: Colour::Blue,
@@ -33,11 +34,23 @@ fn draw_title(grid: &mut Grid, column: usize, row: usize, title: &str, focused: 
 
 /// Draws one editable value. The cursor is drawn in brackets, so it shows in a text dump too.
 fn draw_value(grid: &mut Grid, column: usize, row: usize, text: &str, is_cursor: bool) {
+    draw_styled_value(grid, column, row, text, is_cursor, EMPTY);
+}
+
+/// Draws one editable value in a style of its own when the cursor is not on it.
+fn draw_styled_value(
+    grid: &mut Grid,
+    column: usize,
+    row: usize,
+    text: &str,
+    is_cursor: bool,
+    style: Style,
+) {
     if is_cursor {
         grid.put(column - 1, row, "[", CURSOR_BRACKET);
         grid.put(column, row, text, CURSOR);
         grid.put(column + text.chars().count(), row, "]", CURSOR_BRACKET);
     } else {
-        grid.put(column, row, text, EMPTY);
+        grid.put(column, row, text, style);
     }
 }
