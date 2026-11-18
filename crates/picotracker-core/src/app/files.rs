@@ -189,6 +189,9 @@ impl App {
         }
         self.saved_project = project.clone();
         self.project = project;
+        self.history.clear();
+        self.selection = None;
+        self.clipboard = None;
         self.project_path = path;
         self.song = Default::default();
         self.chain = Default::default();
