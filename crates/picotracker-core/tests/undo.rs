@@ -1,8 +1,10 @@
 //! One linear undo history for the whole Project, driven through named actions.
 
-use picotracker_core::app::{Action, App, DirectoryEntry, Direction, FileRequest, FileResponse};
+use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
+use picotracker_core::player::Player;
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::project_file;
+use picotracker_core::synth::SAMPLES_PER_TICK;
 use std::path::PathBuf;
 
 const DOWN: Action = Action::Move(Direction::Down);
@@ -185,6 +187,40 @@ fn another_action_ends_a_merge() {
     app.apply(Action::Undo);
 
     assert_eq!(song_cell(&app, 0, 0), Some(1));
+}
+
+#[test]
+fn a_cursor_moved_by_follow_ends_a_merge() {
+    let mut project = arranged();
+    let phrase = project.phrase_mut(PhraseId::new(0));
+    phrase.set_speed(8);
+    for index in 0..4 {
+        phrase.step_mut(index).set_volume(5);
+    }
+    let mut app = App::with_project(project);
+    let mut player = Player::new();
+    apply(
+        &mut app,
+        &[
+            Action::FocusNext,
+            Action::FocusNext,
+            Action::ToggleFollow,
+            Action::PlaySongFromCursor,
+            NUDGE_UP,
+        ],
+    );
+    for request in app.take_audio_requests() {
+        player.handle(request);
+    }
+    player.render(12 * SAMPLES_PER_TICK as usize);
+    app.show_playback(&player.report());
+    app.apply(NUDGE_UP);
+
+    app.apply(Action::Undo);
+
+    let phrase = app.project().phrase(PhraseId::new(0));
+    assert_eq!(phrase.step(0).pitch(), 25);
+    assert_eq!(phrase.step(1).pitch(), 24);
 }
 
 #[test]
