@@ -5,13 +5,29 @@ use super::{
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
+use crate::player::TrackMix;
 use crate::project::{ChainId, Project, SONG_ROWS, TRACKS};
-use crate::screen::grid::Grid;
+use crate::screen::grid::{Grid, Style};
+use crate::screen::palette::Colour;
+
+const SOLOED: Style = Style::fg(Colour::Yellow);
 
 /// Rows above the first Song row: the title and the Track headers.
 const HEADER_ROWS: usize = 2;
 const FIRST_TRACK_COLUMN: usize = 4;
 const TRACK_WIDTH: usize = 3;
+
+/// The letter and style of a Track's header. A Track both muted and soloed is heard, so it shows
+/// as soloed.
+fn track_header(track_mix: &TrackMix, track: usize) -> (char, Style) {
+    if track_mix.is_soloed(track) {
+        ('S', SOLOED)
+    } else if track_mix.is_muted(track) {
+        ('M', EMPTY)
+    } else {
+        ('T', HEADING)
+    }
+}
 
 /// The Song pane's cursor.
 #[derive(Debug, Default)]
@@ -71,7 +87,14 @@ impl SongPane {
         project.set_song_loop_row(row);
     }
 
-    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, project: &Project) {
+    pub fn draw(
+        &self,
+        grid: &mut Grid,
+        area: Area,
+        focused: bool,
+        project: &Project,
+        track_mix: &TrackMix,
+    ) {
         let loop_row = project
             .song_loop_row()
             .map_or_else(|| "--".to_owned(), |row| format!("{row:02X}"));
@@ -79,7 +102,8 @@ impl SongPane {
         draw_title(grid, area.column, 0, &title, focused);
         for track in 0..TRACKS {
             let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
-            grid.put(column, 1, &format!("T{}", track + 1), HEADING);
+            let (letter, style) = track_header(track_mix, track);
+            grid.put(column, 1, &format!("{letter}{}", track + 1), style);
         }
 
         let visible = area.rows - HEADER_ROWS;

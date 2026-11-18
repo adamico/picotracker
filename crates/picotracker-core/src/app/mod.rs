@@ -8,7 +8,7 @@ mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
 
-use crate::player::AudioRequest;
+use crate::player::{AudioRequest, TrackMix};
 use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
 use crate::screen::grid::Grid;
@@ -39,6 +39,7 @@ pub struct App {
     plays: u64,
     /// The Project as the Player last heard it.
     heard: Arc<Project>,
+    track_mix: TrackMix,
     status: Option<&'static str>,
     audio_requests: Vec<AudioRequest>,
 }
@@ -120,6 +121,15 @@ impl App {
             Action::FocusPrevious => self.set_focus(self.focus.previous()),
             Action::PlayFocusedPane => self.play_or_stop(),
             Action::PlaySongFromCursor => self.play_song(),
+            Action::Mute(track) => self.change_track_mix(|mix| {
+                mix.toggle_mute(usize::from(track) - 1);
+            }),
+            Action::Solo(track) => self.change_track_mix(|mix| {
+                mix.toggle_solo(usize::from(track) - 1);
+            }),
+            Action::ClearMutesAndSolos => {
+                self.change_track_mix(|mix| *mix = TrackMix::default());
+            }
             Action::OctaveUp => self.phrase.change_octave(1),
             Action::OctaveDown => self.phrase.change_octave(-1),
             Action::SetSongLoopRow => self.song.toggle_loop_row(&mut self.project),
@@ -135,6 +145,12 @@ impl App {
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
         self.send_edits_to_the_player();
+    }
+
+    fn change_track_mix(&mut self, change: impl FnOnce(&mut TrackMix)) {
+        change(&mut self.track_mix);
+        self.audio_requests
+            .push(AudioRequest::SetTrackMix(self.track_mix));
     }
 
     /// Passes the Project to the Player when an action has changed what is playing.
@@ -304,6 +320,7 @@ impl App {
             layout::SONG,
             self.focus == Focus::Song,
             &self.project,
+            &self.track_mix,
         );
         self.chain.draw(
             &mut grid,
