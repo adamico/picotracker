@@ -62,6 +62,13 @@ pub enum Action {
     HexDigit(u8),
     OctaveUp,
     OctaveDown,
+    /// Removes the reference or value under the cursor.
+    Clear,
+    /// Marks the Chain entry under the cursor as Fill, or takes the mark away.
+    ToggleFill,
+    /// Makes the Song row under the cursor the Song loop row, or turns the loop off if it already
+    /// is.
+    SetSongLoopRow,
     /// Raises or lowers the cell under the cursor, by a small or a large amount.
     Nudge {
         up: bool,
@@ -78,4 +85,6 @@ pub enum KeyContext {
     PhrasePitch,
     /// Any other value in the Phrase pane: hexadecimal digits are typed directly.
     PhraseValue,
+    /// A Chain or Phrase reference, or a transpose: hexadecimal digits are typed directly.
+    ArrangeValue,
 }

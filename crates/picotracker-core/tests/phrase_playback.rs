@@ -24,7 +24,10 @@ fn phrase_app() -> App {
     apply(
         &mut app,
         &[
+            // Chain 00 on the first Song row, holding Phrase 00.
+            Action::HexDigit(0),
             Action::FocusNext,
+            Action::HexDigit(0),
             Action::FocusNext,
             RIGHT,
             Action::HexDigit(0),

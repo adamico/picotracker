@@ -9,15 +9,17 @@ mod status_line;
 pub use action::{Action, Direction, KeyContext};
 
 use crate::player::AudioRequest;
-use crate::project::{FIRST_PHRASE, PhraseId, Project};
+use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
 use crate::screen::grid::Grid;
 use focus::Focus;
-use panes::chain::ChainPane;
+use panes::chain::{ChainPane, ShownChain};
 use panes::overview::OverviewPane;
 use panes::phrase::PhrasePane;
 use panes::song::SongPane;
 
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
+const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
+const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
 
 /// The whole application, with no window or audio device attached.
 #[derive(Debug, Default)]
@@ -46,15 +48,32 @@ impl App {
         &self.project
     }
 
-    /// The Phrase the Phrase pane shows. Until Chains exist this is always the first Phrase; this
-    /// is the one place that decides it.
-    pub fn edited_phrase(&self) -> PhraseId {
-        FIRST_PHRASE
+    /// The Chain under the Song cursor, which the Chain pane shows.
+    pub fn chain_under_cursor(&self) -> Option<ChainId> {
+        self.project.song_cell(self.song.row(), self.song.track())
+    }
+
+    /// The Phrase under the Chain cursor, which the Phrase pane shows.
+    pub fn phrase_under_cursor(&self) -> Option<PhraseId> {
+        self.entry_under_cursor().map(ChainEntry::phrase)
+    }
+
+    fn entry_under_cursor(&self) -> Option<ChainEntry> {
+        let chain = self.chain_under_cursor()?;
+        self.project.chain(chain).entry(self.chain.entry())
+    }
+
+    /// The Phrase the Phrase pane draws: a blank one when no Phrase is under the Chain cursor.
+    fn shown_phrase(&self) -> Phrase {
+        self.phrase_under_cursor()
+            .map_or_else(Phrase::default, |id| *self.project.phrase(id))
     }
 
     /// What the keys that type characters do at the cursor.
     pub fn key_context(&self) -> KeyContext {
         match self.focus {
+            Focus::Song => KeyContext::ArrangeValue,
+            Focus::Chain if self.chain.takes_digits() => KeyContext::ArrangeValue,
             Focus::Phrase => self.phrase.key_context(),
             _ => KeyContext::Navigation,
         }
@@ -69,6 +88,8 @@ impl App {
     pub fn apply(&mut self, action: Action) {
         self.status = None;
         if !matches!(action, Action::HexDigit(_)) {
+            self.song.finish_typing();
+            self.chain.finish_typing();
             self.phrase.finish_typing();
         }
         match action {
@@ -78,19 +99,68 @@ impl App {
             Action::PlayFocusedPane => self.play_or_stop(),
             Action::OctaveUp => self.phrase.change_octave(1),
             Action::OctaveDown => self.phrase.change_octave(-1),
+            Action::SetSongLoopRow => self.song.toggle_loop_row(&mut self.project),
+            Action::ToggleFill if self.focus == Focus::Chain => self.toggle_fill(),
+            Action::Clear => self.clear(),
             Action::PianoKey(key) if self.focus == Focus::Phrase => {
-                let id = self.edited_phrase();
-                self.phrase.enter_note(self.project.phrase_mut(id), key);
+                self.edit_phrase(|pane, phrase| pane.enter_note(phrase, key));
             }
-            Action::HexDigit(digit) if self.focus == Focus::Phrase => {
-                let id = self.edited_phrase();
-                self.phrase.type_digit(self.project.phrase_mut(id), digit);
-            }
-            Action::Nudge { up, coarse } if self.focus == Focus::Phrase => {
-                let id = self.edited_phrase();
-                self.phrase.nudge(self.project.phrase_mut(id), up, coarse);
-            }
+            Action::HexDigit(digit) => self.type_digit(digit),
+            Action::Nudge { up, coarse } => self.nudge(up, coarse),
             _ => {}
+        }
+        let shown = self.shown_phrase();
+        self.phrase.keep_inside(&shown);
+    }
+
+    fn type_digit(&mut self, digit: u8) {
+        match self.focus {
+            Focus::Song => self.song.type_digit(&mut self.project, digit),
+            Focus::Chain => self.edit_chain(|pane, chain| pane.type_digit(chain, digit)),
+            Focus::Phrase => self.edit_phrase(|pane, phrase| pane.type_digit(phrase, digit)),
+            Focus::RightSlot => {}
+        }
+    }
+
+    fn nudge(&mut self, up: bool, coarse: bool) {
+        match self.focus {
+            Focus::Song => self.song.nudge(&mut self.project, up, coarse),
+            Focus::Chain => self.edit_chain(|pane, chain| pane.nudge(chain, up, coarse)),
+            Focus::Phrase => self.edit_phrase(|pane, phrase| pane.nudge(phrase, up, coarse)),
+            Focus::RightSlot => {}
+        }
+    }
+
+    fn clear(&mut self) {
+        match self.focus {
+            Focus::Song => self.song.clear(&mut self.project),
+            Focus::Chain => self.edit_chain(|pane, chain| pane.clear(chain)),
+            Focus::Phrase | Focus::RightSlot => {}
+        }
+    }
+
+    fn toggle_fill(&mut self) {
+        self.edit_chain(|pane, chain| pane.toggle_fill(chain));
+    }
+
+    /// Edits the Chain under the Song cursor, or says why there is nothing to edit.
+    fn edit_chain(&mut self, edit: impl FnOnce(&mut ChainPane, &mut Chain)) {
+        let Some(id) = self.chain_under_cursor() else {
+            self.status = Some(NO_CHAIN_HERE);
+            return;
+        };
+        if self.entry_under_cursor().is_none() && !self.chain.edits_empty_entries() {
+            self.status = Some(NO_PHRASE_HERE);
+            return;
+        }
+        edit(&mut self.chain, self.project.chain_mut(id));
+    }
+
+    /// Edits the Phrase under the Chain cursor, or says that there is none.
+    fn edit_phrase(&mut self, edit: impl FnOnce(&mut PhrasePane, &mut Phrase)) {
+        match self.phrase_under_cursor() {
+            Some(id) => edit(&mut self.phrase, self.project.phrase_mut(id)),
+            None => self.status = Some(NO_PHRASE_HERE),
         }
     }
 
@@ -111,7 +181,7 @@ impl App {
     }
 
     fn play_phrase(&mut self) {
-        let phrase = *self.project.phrase(self.edited_phrase());
+        let phrase = self.shown_phrase();
         if phrase.is_silent() {
             self.status = Some(NOTHING_TO_PLAY);
             return;
@@ -128,8 +198,8 @@ impl App {
             Focus::Song => self.song.move_cursor(direction),
             Focus::Chain => self.chain.move_cursor(direction),
             Focus::Phrase => {
-                let phrase = self.project.phrase(self.edited_phrase());
-                self.phrase.move_cursor(direction, phrase);
+                let phrase = self.shown_phrase();
+                self.phrase.move_cursor(direction, &phrase);
             }
             Focus::RightSlot => self.overview.move_cursor(direction),
         }
@@ -138,20 +208,30 @@ impl App {
     /// Draws the current state onto a fresh character grid.
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
-        self.song
-            .draw(&mut grid, layout::SONG, self.focus == Focus::Song);
+        self.song.draw(
+            &mut grid,
+            layout::SONG,
+            self.focus == Focus::Song,
+            &self.project,
+        );
+        let chain = self.chain_under_cursor();
         self.chain.draw(
             &mut grid,
             layout::CHAIN,
             self.focus == Focus::Chain,
-            self.song.row(),
-            self.song.track(),
+            ShownChain {
+                id: chain,
+                chain: chain.map(|id| self.project.chain(id)),
+                row: self.song.row(),
+                track: self.song.track(),
+            },
         );
         self.phrase.draw(
             &mut grid,
             layout::PHRASE,
             self.focus == Focus::Phrase,
-            self.project.phrase(self.edited_phrase()),
+            self.phrase_under_cursor(),
+            &self.shown_phrase(),
         );
         self.overview.draw(
             &mut grid,
