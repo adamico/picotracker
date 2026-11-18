@@ -20,6 +20,10 @@ const CURSOR: Style = Style {
     bg: Colour::Blue,
 };
 const CURSOR_BRACKET: Style = Style::fg(Colour::Yellow);
+const SELECTED: Style = Style {
+    fg: Colour::Black,
+    bg: Colour::Lavender,
+};
 const FILL: Style = Style::fg(Colour::Pink);
 const OUT_OF_RANGE: Style = Style::fg(Colour::Red);
 const PLAYHEAD: Style = Style::fg(Colour::Green);

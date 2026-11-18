@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 const MAX_STEPS: usize = 1000;
 
 /// Where the cursor was when a change was made.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Spot {
     pub(super) focus: Focus,
     pub(super) song: SongSpot,
@@ -42,6 +42,8 @@ struct Run {
     /// The Project as it was before the run began.
     before: Project,
     spot: Spot,
+    /// Where the cursor was left by the latest action of the run. The run ends if it moves.
+    left_at: Spot,
     /// Whether the run has left a step on the history.
     has_step: bool,
 }
@@ -68,18 +70,23 @@ impl History {
     }
 
     /// Records what the action did, if anything. A repeat of the action that came just before it
-    /// joins that action's step.
-    pub(super) fn finish(&mut self, project: &Project, merge: Option<Merge>) {
+    /// joins that action's step, as long as the cursor has stayed where that action left it.
+    pub(super) fn finish(&mut self, project: &Project, left_at: Spot, merge: Option<Merge>) {
         let Some((before, spot)) = self.pending.take() else {
             return;
         };
-        match self.run.take().filter(|run| Some(run.merge) == merge) {
-            Some(run) => self.continue_run(run, project),
-            None => self.start_run(before, spot, project, merge),
+        let run = self
+            .run
+            .take()
+            .filter(|run| Some(run.merge) == merge && run.left_at == spot);
+        match run {
+            Some(run) => self.continue_run(run, project, left_at),
+            None => self.start_run(before, (spot, left_at), project, merge),
         }
     }
 
-    fn continue_run(&mut self, mut run: Run, project: &Project) {
+    fn continue_run(&mut self, mut run: Run, project: &Project, left_at: Spot) {
+        run.left_at = left_at;
         if run.has_step {
             self.undo.pop_back();
         }
@@ -94,7 +101,7 @@ impl History {
     fn start_run(
         &mut self,
         before: Project,
-        spot: Spot,
+        (spot, left_at): (Spot, Spot),
         project: &Project,
         merge: Option<Merge>,
     ) {
@@ -107,6 +114,7 @@ impl History {
             merge,
             before,
             spot,
+            left_at,
             has_step,
         });
     }

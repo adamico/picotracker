@@ -1,6 +1,8 @@
 //! What one edit did to a Project, kept small enough that a long undo history stays cheap.
 
-use super::{Chain, ChainId, CustomInstrument, EXPORT_CHANNELS, Phrase, Project, TRACKS, TargetCart};
+use super::{
+    Chain, ChainId, CustomInstrument, EXPORT_CHANNELS, Phrase, Project, TRACKS, TargetCart,
+};
 
 /// A value before and after an edit.
 #[derive(Clone, Debug, PartialEq, Eq)]
