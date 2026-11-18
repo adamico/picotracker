@@ -6,6 +6,7 @@ mod support;
 
 use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
 use picotracker_core::cart::Cart;
+use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::player::AudioRequest;
 use picotracker_core::project::{Claim, Project, TargetCart};
 use picotracker_core::project_file;
@@ -132,6 +133,25 @@ fn typing_a_digit_in_overview_sets_the_channels_track() {
     app.apply(Action::HexDigit(6));
 
     assert_eq!(app.project().export_tracks(), [None, Some(6), None, None]);
+}
+
+#[test]
+fn the_keys_of_the_overview_reach_its_actions() {
+    let keymap = Keymap::pc_tracker();
+    let mut app = App::new();
+    focus_overview(&mut app);
+    let context = app.key_context();
+    let action = |key, modifiers| keymap.action_in(KeyPress::new(key, modifiers), context);
+
+    assert_eq!(
+        action(Key::Char('3'), Modifiers::NONE),
+        Some(Action::HexDigit(3))
+    );
+    assert_eq!(action(Key::Delete, Modifiers::NONE), Some(Action::Clear));
+    assert_eq!(
+        action(Key::Char('e'), Modifiers::CTRL),
+        Some(Action::Export)
+    );
 }
 
 #[test]
