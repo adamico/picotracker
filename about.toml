@@ -1,0 +1,26 @@
+# Settings for `cargo about`, which generates THIRD_PARTY_LICENSES from about.hbs.
+# Regenerate with the command below. `--frozen` reads licences from the downloaded
+# crates only, so that the output is repeatable.
+#   cargo fetch --locked
+#   cargo about generate --workspace --frozen --fail about.hbs -o THIRD_PARTY_LICENSES
+
+# Only what ships: the one released platform, without test-only crates.
+targets = ["x86_64-unknown-linux-gnu"]
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+
+# The same allowlist as deny.toml (issue #26).
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "MPL-2.0",
+]
