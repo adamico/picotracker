@@ -230,7 +230,13 @@ fn draw_chain_row_strip(
 
     for k in 0..CHAIN_ENTRIES {
         let row = STRIP_FIRST_ROW + k;
-        draw_row_label(grid, area.column, row, &format!("{k:X}"), playing_entry == Some(k));
+        draw_row_label(
+            grid,
+            area.column,
+            row,
+            &format!("{k:X}"),
+            playing_entry == Some(k),
+        );
         for track in 0..TRACKS {
             let column = area.column + STRIP_FIRST_TRACK_COLUMN + track * STRIP_TRACK_WIDTH;
             draw_strip_entry(

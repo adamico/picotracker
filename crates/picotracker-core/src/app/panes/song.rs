@@ -125,7 +125,13 @@ impl SongPane {
             let row = HEADER_ROWS + offset;
             let song_row = top + offset;
             let label = format!("{song_row:02X}");
-            draw_row_label(grid, area.column, row, &label, playing_row == Some(song_row));
+            draw_row_label(
+                grid,
+                area.column,
+                row,
+                &label,
+                playing_row == Some(song_row),
+            );
             for track in 0..TRACKS {
                 let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
                 let is_cursor = focused && song_row == self.row && track == self.track;
