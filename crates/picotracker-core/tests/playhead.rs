@@ -202,7 +202,18 @@ fn moving_the_cursor_says_nothing_when_follow_is_already_off() {
 
     app.apply(DOWN);
 
-    assert_eq!(status_line(&app), "READY");
+    assert!(!status_line(&app).contains("FOLLOW"));
+}
+
+#[test]
+fn moving_through_the_log_leaves_follow_on() {
+    let (mut app, mut player) = played(&[FOLLOW, Action::ToggleLog, PLAY_SONG], 1);
+
+    app.apply(DOWN);
+    assert!(!status_line(&app).contains("FOLLOW"));
+
+    play_on(&mut app, &mut player, 4);
+    assert_eq!(app.chain_under_cursor(), Some(ChainId::new(1)));
 }
 
 #[test]

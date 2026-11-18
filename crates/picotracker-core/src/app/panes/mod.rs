@@ -1,6 +1,8 @@
 //! The panes on the grid. Each pane owns its cursor and draws itself.
 
 pub mod chain;
+pub mod file_list;
+pub mod log;
 pub mod overview;
 pub mod phrase;
 pub mod song;

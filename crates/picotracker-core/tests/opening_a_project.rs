@@ -1,0 +1,151 @@
+//! What replacing the Project does to playback, Mute and Solo.
+
+use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
+use picotracker_core::player::{AudioRequest, Player, TrackMix};
+use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
+use picotracker_core::project_file;
+use picotracker_core::synth::SAMPLES_PER_TICK;
+use std::path::PathBuf;
+
+const STEP_SAMPLES: usize = 16 * SAMPLES_PER_TICK as usize;
+/// The row of the Song pane holding the Track headers.
+const HEADER_ROW: usize = 1;
+const CONFIRM: Action = Action::Confirm;
+
+fn song() -> Project {
+    let mut project = Project::new();
+    let id = PhraseId::new(1);
+    let step = project.phrase_mut(id).step_mut(0);
+    step.set_pitch(33);
+    step.set_volume(5);
+    *project.chain_mut(ChainId::new(0)).entry_mut(0) = Some(ChainEntry::new(id));
+    project.set_song_cell(0, 0, Some(ChainId::new(0)));
+    project
+}
+
+/// Picks `next.ptrk` in the file list, as the Window shell and the user would.
+fn choose_next_file(app: &mut App) {
+    app.apply(Action::OpenProject);
+    for request in app.take_file_requests() {
+        if let FileRequest::List { directory } = request {
+            app.receive_file(FileResponse::Listed {
+                directory,
+                entries: vec![DirectoryEntry {
+                    name: "next.ptrk".to_owned(),
+                    is_directory: false,
+                }],
+            });
+        }
+    }
+    // The first row of the list is the parent folder.
+    app.apply(Action::Move(Direction::Down));
+    app.apply(CONFIRM);
+}
+
+/// Opens a Project through the file list.
+fn open(app: &mut App, project: &Project) {
+    let path = PathBuf::from("./next.ptrk");
+    choose_next_file(app);
+    assert!(
+        app.take_file_requests()
+            .contains(&FileRequest::Read { path: path.clone() }),
+        "the file list should ask for the chosen file"
+    );
+    app.receive_file(FileResponse::Read {
+        path,
+        contents: project_file::write(project),
+    });
+}
+
+fn headers(app: &App) -> String {
+    app.grid().text_dump().lines().nth(HEADER_ROW).unwrap()[4..27].to_owned()
+}
+
+#[test]
+fn opening_a_project_stops_playback() {
+    let mut app = App::with_project(song());
+    app.apply(Action::PlaySongFromCursor);
+    app.take_audio_requests();
+
+    open(&mut app, &song());
+
+    assert!(app.take_audio_requests().contains(&AudioRequest::Stop));
+}
+
+#[test]
+fn space_plays_again_after_opening_a_project() {
+    let mut app = App::with_project(song());
+    app.apply(Action::PlaySongFromCursor);
+    open(&mut app, &song());
+    app.take_audio_requests();
+
+    app.apply(Action::PlayFocusedPane);
+
+    assert!(matches!(
+        app.take_audio_requests().as_slice(),
+        [AudioRequest::PlaySong { .. }]
+    ));
+}
+
+#[test]
+fn opening_a_project_clears_the_playhead_marker() {
+    let mut app = App::with_project(song());
+    let mut player = Player::new();
+    app.apply(Action::PlaySongFromCursor);
+    for request in app.take_audio_requests() {
+        player.handle(request);
+    }
+    player.render(STEP_SAMPLES);
+    let report = player.report();
+    app.show_playback(&report);
+
+    open(&mut app, &song());
+    app.show_playback(&report);
+
+    assert!(
+        app.grid()
+            .text_dump()
+            .lines()
+            .all(|line| !line.contains('>'))
+    );
+}
+
+#[test]
+fn opening_a_project_resets_mute_and_solo() {
+    let mut app = App::with_project(song());
+    app.apply(Action::Mute(1));
+    app.apply(Action::Solo(2));
+    app.take_audio_requests();
+
+    open(&mut app, &song());
+
+    assert_eq!(headers(&app), "T1 T2 T3 T4 T5 T6 T7 T8");
+    assert!(
+        app.take_audio_requests()
+            .contains(&AudioRequest::SetTrackMix(TrackMix::default())),
+        "the Player must hear every Track again"
+    );
+}
+
+#[test]
+fn a_new_project_resets_mute_and_solo_too() {
+    let mut app = App::with_project(Project::new());
+    app.apply(Action::Mute(1));
+
+    app.apply(Action::NewProject);
+
+    assert_eq!(headers(&app), "T1 T2 T3 T4 T5 T6 T7 T8");
+}
+
+#[test]
+fn a_failed_open_leaves_mute_and_solo_alone() {
+    let mut app = App::with_project(song());
+    app.apply(Action::Mute(1));
+    choose_next_file(&mut app);
+    app.receive_file(FileResponse::Read {
+        path: PathBuf::from("./next.ptrk"),
+        contents: "not a project".to_owned(),
+    });
+
+    assert_eq!(headers(&app), "M1 T2 T3 T4 T5 T6 T7 T8");
+}
