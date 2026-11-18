@@ -7,7 +7,7 @@ use picotracker_core::player::{AudioRequest, Player, Resampler};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -21,6 +21,7 @@ const SYNTH_THREAD_NAP: Duration = Duration::from_millis(1);
 pub struct AudioOutput {
     requests: Producer<AudioRequest>,
     running: Arc<AtomicBool>,
+    finished_play: Arc<AtomicU64>,
     synth_thread: Option<JoinHandle<()>>,
     _stream: Stream,
 }
@@ -49,18 +50,34 @@ impl AudioOutput {
         stream.play()?;
 
         let running = Arc::new(AtomicBool::new(true));
+        let finished_play = Arc::new(AtomicU64::new(0));
         let synth_thread = thread::Builder::new().name("synth".into()).spawn({
             let running = Arc::clone(&running);
+            let finished_play = Arc::clone(&finished_play);
             let device_rate = config.sample_rate;
-            move || run_synth(&running, device_rate, player_requests, frames)
+            move || {
+                run_synth(
+                    &running,
+                    &finished_play,
+                    device_rate,
+                    player_requests,
+                    frames,
+                );
+            }
         })?;
 
         Ok(Self {
             requests,
             running,
+            finished_play,
             synth_thread: Some(synth_thread),
             _stream: stream,
         })
+    }
+
+    /// The number of the latest play that ended by itself.
+    pub fn finished_play(&self) -> u64 {
+        self.finished_play.load(Ordering::Relaxed)
     }
 
     /// Passes a request to the synth thread.
@@ -83,6 +100,7 @@ impl Drop for AudioOutput {
 /// Keeps the device's queue full until the output closes.
 fn run_synth(
     running: &AtomicBool,
+    finished_play: &AtomicU64,
     device_rate: u32,
     mut requests: Consumer<AudioRequest>,
     mut frames: Producer<f32>,
@@ -99,6 +117,7 @@ fn run_synth(
                 break;
             }
         }
+        finished_play.store(player.finished_play(), Ordering::Relaxed);
         thread::sleep(SYNTH_THREAD_NAP);
     }
 }
