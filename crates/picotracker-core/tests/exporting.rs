@@ -391,6 +391,105 @@ fn a_failed_write_keeps_the_old_hash() {
     assert_eq!(stored_hash(&app), hash);
 }
 
+/// Answers the folder listing the app has just asked for.
+fn answer_listing(app: &mut App, directory: &Path, entries: Vec<DirectoryEntry>) {
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::List {
+            directory: directory.to_path_buf()
+        }]
+    );
+    app.receive_file(FileResponse::Listed {
+        directory: directory.to_path_buf(),
+        entries,
+    });
+}
+
+/// An app holding the Project Imported from `./carts/game.p8`.
+fn imported_from_a_subfolder(contents: Vec<u8>) -> App {
+    let mut app = App::new();
+    app.apply(Action::Import);
+    let carts = DirectoryEntry {
+        name: "carts".to_owned(),
+        is_directory: true,
+    };
+    answer_listing(&mut app, Path::new("."), vec![carts]);
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    let cart = DirectoryEntry {
+        name: CART_NAME.to_owned(),
+        is_directory: false,
+    };
+    answer_listing(&mut app, &Path::new(".").join("carts"), vec![cart]);
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    app.take_file_requests();
+    app.receive_file(FileResponse::BytesRead {
+        path: Path::new(".").join("carts").join(CART_NAME),
+        contents,
+    });
+    app
+}
+
+/// Saves the Project as `s.ptrk` one folder up from `./carts`, returning the text written.
+fn save_as_one_folder_up(app: &mut App) -> String {
+    app.apply(Action::SaveAs);
+    answer_listing(app, &Path::new(".").join("carts"), Vec::new());
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    answer_listing(app, Path::new("."), Vec::new());
+    app.apply(Action::TypeChar('s'));
+    app.apply(Action::Confirm);
+    let requests = app.take_file_requests();
+    let [FileRequest::Write { path, contents }] = &requests[..] else {
+        panic!("expected one write, got {requests:?}");
+    };
+    let (path, contents) = (path.clone(), contents.clone());
+    app.receive_file(FileResponse::Written { path });
+    contents
+}
+
+#[test]
+fn saving_into_another_folder_keeps_the_target_cart_pointing_at_the_same_cart() {
+    let mut app = imported_from_a_subfolder(simple_cart().p8());
+
+    let saved = save_as_one_folder_up(&mut app);
+
+    let target = project_file::parse(&saved).unwrap();
+    assert_eq!(target.target_cart().unwrap().path, "carts/game.p8");
+    app.apply(Action::Export);
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::ReadBytes {
+            path: Path::new(".").join("carts").join(CART_NAME)
+        }]
+    );
+}
+
+#[test]
+fn saving_into_another_folder_leaves_nothing_unsaved() {
+    let mut app = imported_from_a_subfolder(simple_cart().p8());
+
+    save_as_one_folder_up(&mut app);
+
+    assert!(!app.has_unsaved_changes());
+}
+
+#[test]
+fn saving_again_in_the_same_folder_keeps_the_path_as_it_was() {
+    let mut app = imported_from_a_subfolder(simple_cart().p8());
+    save_as_one_folder_up(&mut app);
+
+    app.apply(Action::Save);
+
+    let requests = app.take_file_requests();
+    let [FileRequest::Write { contents, .. }] = &requests[..] else {
+        panic!("expected one write, got {requests:?}");
+    };
+    let project = project_file::parse(contents).unwrap();
+    assert_eq!(project.target_cart().unwrap().path, "carts/game.p8");
+}
+
 #[test]
 fn the_target_cart_path_is_relative_to_the_project_file() {
     let mut project = Project::new();

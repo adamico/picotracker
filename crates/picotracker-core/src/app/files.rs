@@ -322,6 +322,7 @@ impl App {
     fn finish_writing(&mut self, path: &Path) {
         match self.waiting.take() {
             Some(Waiting::Writing(written, project)) if written == path => {
+                self.adopt_saved_cart_path(&project);
                 self.saved_project = *project;
                 self.directory = folder_of(&written);
                 self.report(Report::info(format!("SAVED {}", shown_name(&written))));
@@ -458,11 +459,12 @@ impl App {
 
     fn write_project(&mut self, path: PathBuf) {
         self.file_list = None;
+        let project = self.project_saved_in(&folder_of(&path));
         self.file_requests.push(FileRequest::Write {
             path: path.clone(),
-            contents: project_file::write(&self.project),
+            contents: project_file::write(&project),
         });
-        self.waiting = Some(Waiting::Writing(path, Box::new(self.project.clone())));
+        self.waiting = Some(Waiting::Writing(path, Box::new(project)));
     }
 
     /// Enter says yes to the question and Esc says no. Other keys wait for an answer.
