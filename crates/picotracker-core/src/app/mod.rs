@@ -12,18 +12,18 @@ pub use action::{Action, Direction, KeyContext};
 pub use files::{DirectoryEntry, FileRequest, FileResponse};
 pub use messages::{Location, LogItem, Report, Severity};
 
-use crate::player::AudioRequest;
+use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::CHAIN_ENTRIES;
-use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
+use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
 use files::{Question, Waiting};
 use focus::Focus;
 use messages::Notice;
-use panes::chain::ChainPane;
+use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
 use panes::log::LogPane;
 use panes::overview::OverviewPane;
-use panes::phrase::PhrasePane;
+use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
 use status_line::StatusLine;
 use std::path::PathBuf;
@@ -33,6 +33,8 @@ use std::time::Duration;
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
 const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
+const FOLLOW_ON: &str = "FOLLOW ON";
+const FOLLOW_OFF: &str = "FOLLOW OFF";
 const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 
@@ -56,6 +58,15 @@ pub struct App {
     playing: bool,
     /// How many plays have been asked for, which numbers the latest one.
     plays: u64,
+    /// The Project as the Player last heard it.
+    heard: Arc<Project>,
+    track_mix: TrackMix,
+    playhead: Option<Playhead>,
+    /// Whether the panes track the Playhead.
+    follow: bool,
+    scope: [i8; SCOPE_COLUMNS],
+    /// Whether a note is sounding until its key is released.
+    previewing: bool,
     /// A brief remark about the last action, gone on the next one.
     status: Option<&'static str>,
     /// The latest result on the status line.
@@ -88,6 +99,12 @@ impl App {
     pub fn with_project(project: Project) -> Self {
         Self {
             saved_project: project.clone(),
+            heard: Arc::new(project.clone()),
+            track_mix: TrackMix::default(),
+            playhead: None,
+            follow: false,
+            scope: [0; SCOPE_COLUMNS],
+            previewing: false,
             project,
             project_path: None,
             directory: PathBuf::from("."),
@@ -170,6 +187,90 @@ impl App {
         }
     }
 
+    /// Takes in where playback has got to, and says whether the screen needs drawing again.
+    pub fn show_playback(&mut self, report: &PlaybackReport) -> bool {
+        self.playback_finished(report.finished_play);
+        let playhead = report.playhead.filter(|_| self.playing);
+        let moved = playhead != self.playhead;
+        let changed = moved || report.scope != self.scope;
+        self.playhead = playhead;
+        self.scope = report.scope;
+        if moved && self.follow {
+            self.follow_playhead();
+        }
+        changed
+    }
+
+    /// Tells the app that the held key has gone up, which ends a note preview.
+    pub fn key_released(&mut self) {
+        if self.previewing {
+            self.previewing = false;
+            self.audio_requests.push(AudioRequest::EndPreview);
+        }
+    }
+
+    /// The Step about to be edited, if the action can change a note that a preview would play.
+    fn step_before_edit(&self, action: Action) -> Option<(usize, Step)> {
+        let edits_note = matches!(
+            action,
+            Action::PianoKey(_) | Action::HexDigit(_) | Action::Nudge { .. }
+        );
+        if !edits_note || self.focus != Focus::Phrase {
+            return None;
+        }
+        let index = self.phrase.note_step()?;
+        Some((index, self.shown_phrase().step(index)))
+    }
+
+    /// Previews an entered or changed note while nothing is playing.
+    fn preview_edit(&mut self, action: Action, index: usize, before: Step) {
+        let phrase = self.shown_phrase();
+        let step = phrase.step(index);
+        let changed = step.pitch() != before.pitch() || step.instrument() != before.instrument();
+        let entered = matches!(action, Action::PianoKey(_));
+        if self.playing || step.is_silent() || !(entered || changed) {
+            return;
+        }
+        self.previewing = true;
+        self.audio_requests.push(AudioRequest::PreviewStep {
+            phrase,
+            step: index,
+            transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
+        });
+    }
+
+    /// Moves the panes to the Playhead.
+    fn follow_playhead(&mut self) {
+        let Some(playhead) = self.playhead else {
+            return;
+        };
+        if let Some((row, k)) = playhead.chain_row {
+            self.song.follow(row);
+            self.chain.follow(k);
+        }
+        let step = self
+            .phrase_under_cursor()
+            .and_then(|phrase| playhead.step_in(phrase, self.song.track()));
+        if let Some(step) = step {
+            self.phrase.follow(step);
+        }
+        let shown = self.shown_phrase();
+        self.phrase.keep_inside(&shown);
+    }
+
+    fn toggle_follow(&mut self) {
+        self.follow = !self.follow;
+        self.status = Some(if self.follow { FOLLOW_ON } else { FOLLOW_OFF });
+    }
+
+    /// Turns Follow off because the user has moved the cursor by hand, and says so.
+    fn stop_following(&mut self) {
+        if self.follow {
+            self.follow = false;
+            self.status = Some(FOLLOW_OFF);
+        }
+    }
+
     /// Tells the user the outcome of something they asked for. A result with items opens the Log
     /// without taking focus.
     pub fn report(&mut self, report: Report) {
@@ -215,6 +316,7 @@ impl App {
             self.use_file_list(action);
             return;
         }
+        let before_edit = self.step_before_edit(action);
         match action {
             Action::NewProject => self.new_project(),
             Action::OpenProject => self.open_project(),
@@ -228,6 +330,16 @@ impl App {
             Action::FocusPrevious => self.set_focus(self.focus.previous()),
             Action::PlayFocusedPane => self.play_or_stop(),
             Action::PlaySongFromCursor => self.play_song(),
+            Action::ToggleFollow => self.toggle_follow(),
+            Action::Mute(track) => self.change_track_mix(|mix| {
+                mix.toggle_mute(usize::from(track) - 1);
+            }),
+            Action::Solo(track) => self.change_track_mix(|mix| {
+                mix.toggle_solo(usize::from(track) - 1);
+            }),
+            Action::ClearMutesAndSolos => {
+                self.change_track_mix(|mix| *mix = TrackMix::default());
+            }
             Action::OctaveUp => self.phrase.change_octave(1),
             Action::OctaveDown => self.phrase.change_octave(-1),
             Action::SetSongLoopRow => self.song.toggle_loop_row(&mut self.project),
@@ -240,8 +352,33 @@ impl App {
             Action::Nudge { up, coarse } => self.nudge(up, coarse),
             _ => {}
         }
+        if let Some((index, before)) = before_edit {
+            self.preview_edit(action, index, before);
+        }
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
+        self.send_edits_to_the_player();
+    }
+
+    fn change_track_mix(&mut self, change: impl FnOnce(&mut TrackMix)) {
+        change(&mut self.track_mix);
+        self.audio_requests
+            .push(AudioRequest::SetTrackMix(self.track_mix));
+    }
+
+    /// Passes the Project to the Player when an action has changed what is playing.
+    fn send_edits_to_the_player(&mut self) {
+        if self.playing && *self.heard != self.project {
+            let project = self.project_for_player();
+            self.audio_requests
+                .push(AudioRequest::UpdateProject(project));
+        }
+    }
+
+    /// A copy of the Project for the Player, remembered as what it has heard.
+    fn project_for_player(&mut self) -> Arc<Project> {
+        self.heard = Arc::new(self.project.clone());
+        Arc::clone(&self.heard)
     }
 
     fn log_has_focus(&self) -> bool {
@@ -271,6 +408,7 @@ impl App {
             return;
         }
         if let Some(location) = self.log.picked_location() {
+            self.stop_following();
             self.song.jump_to(location.song_row, location.track);
             self.chain.jump_to(location.chain_row);
             self.phrase.jump_to(location.step);
@@ -352,6 +490,7 @@ impl App {
     fn play_or_stop(&mut self) {
         if self.playing {
             self.playing = false;
+            self.playhead = None;
             self.audio_requests.push(AudioRequest::Stop);
             return;
         }
@@ -364,6 +503,7 @@ impl App {
 
     fn start_playing(&mut self, request: AudioRequest) {
         self.playing = true;
+        self.previewing = false;
         self.plays += 1;
         self.audio_requests.push(request);
     }
@@ -374,10 +514,8 @@ impl App {
             self.status = Some(NOTHING_TO_PLAY);
             return;
         }
-        self.start_playing(AudioRequest::PlaySong {
-            project: Arc::new(self.project.clone()),
-            from_row,
-        });
+        let project = self.project_for_player();
+        self.start_playing(AudioRequest::PlaySong { project, from_row });
     }
 
     fn play_chain(&mut self) {
@@ -385,8 +523,9 @@ impl App {
             self.status = Some(NOTHING_TO_PLAY);
             return;
         }
+        let project = self.project_for_player();
         self.start_playing(AudioRequest::PlayChain {
-            project: Arc::new(self.project.clone()),
+            project,
             song_row: self.song.row(),
             track: self.song.track(),
             from_entry: self.chain.entry(),
@@ -404,12 +543,16 @@ impl App {
     }
 
     fn play_phrase(&mut self) {
-        let phrase = self.shown_phrase();
-        if phrase.is_silent() {
+        let Some(phrase) = self
+            .phrase_under_cursor()
+            .filter(|id| !self.project.phrase(*id).is_silent())
+        else {
             self.status = Some(NOTHING_TO_PLAY);
             return;
-        }
+        };
+        let project = self.project_for_player();
         self.start_playing(AudioRequest::PlayPhrase {
+            project,
             phrase,
             transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
             from_step: self.phrase.step(),
@@ -417,6 +560,9 @@ impl App {
     }
 
     fn move_cursor(&mut self, direction: Direction) {
+        if self.focus != Focus::RightSlot {
+            self.stop_following();
+        }
         match self.focus {
             Focus::Song => self.song.move_cursor(direction),
             Focus::Chain => self.chain.move_cursor(direction),
@@ -432,6 +578,7 @@ impl App {
     /// Draws the current state onto a fresh character grid.
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
+        let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
         // The file list takes the keys while it is open, so no pane shows a cursor.
         let focus = self.file_list.is_none().then_some(self.focus);
         self.song.draw(
@@ -439,22 +586,36 @@ impl App {
             layout::SONG,
             focus == Some(Focus::Song),
             &self.project,
+            &self.track_mix,
+            chain_row.map(|(row, _)| row),
         );
         self.chain.draw(
             &mut grid,
             layout::CHAIN,
             focus == Some(Focus::Chain),
             &self.project,
-            self.song.row(),
-            self.song.track(),
+            ChainView {
+                song_row: self.song.row(),
+                track: self.song.track(),
+                playing_entry: chain_row
+                    .filter(|(row, _)| *row == self.song.row())
+                    .map(|(_, k)| k),
+            },
         );
+        let phrase = self.phrase_under_cursor();
         self.phrase.draw(
             &mut grid,
             layout::PHRASE,
             focus == Some(Focus::Phrase),
-            self.phrase_under_cursor(),
-            &self.shown_phrase(),
-            self.entry_under_cursor().map_or(0, ChainEntry::transpose),
+            PhraseView {
+                id: phrase,
+                phrase: &self.shown_phrase(),
+                transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
+                playing_step: self
+                    .playhead
+                    .zip(phrase)
+                    .and_then(|(playhead, phrase)| playhead.step_in(phrase, self.song.track())),
+            },
         );
         let right_slot_focused = focus == Some(Focus::RightSlot);
         if let Some(list) = &self.file_list {
@@ -463,8 +624,12 @@ impl App {
             self.log
                 .draw(&mut grid, layout::RIGHT_SLOT, right_slot_focused);
         } else {
-            self.overview
-                .draw(&mut grid, layout::RIGHT_SLOT, right_slot_focused);
+            self.overview.draw(
+                &mut grid,
+                layout::RIGHT_SLOT,
+                right_slot_focused,
+                &self.scope,
+            );
         }
         layout::draw_separators(&mut grid);
         let project = self.project_name();

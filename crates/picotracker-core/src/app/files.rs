@@ -4,7 +4,7 @@
 use super::messages::Report;
 use super::panes::file_list::{Choice, FileList, Purpose};
 use super::{Action, App, Focus};
-use crate::player::AudioRequest;
+use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
 use crate::project_file;
 use std::path::{Path, PathBuf};
@@ -173,10 +173,19 @@ impl App {
     }
 
     /// Puts another Project in place, opening at the top of the Song with the Song pane focused.
+    /// Playback stops, and Mute and Solo do not carry over to the new Project.
     fn replace_project(&mut self, project: Project, path: Option<PathBuf>) {
-        if self.playing {
+        if self.playing || self.previewing {
             self.playing = false;
+            self.previewing = false;
             self.audio_requests.push(AudioRequest::Stop);
+        }
+        self.playhead = None;
+        self.scope = [0; SCOPE_COLUMNS];
+        if self.track_mix != TrackMix::default() {
+            self.track_mix = TrackMix::default();
+            self.audio_requests
+                .push(AudioRequest::SetTrackMix(self.track_mix));
         }
         self.saved_project = project.clone();
         self.project = project;
