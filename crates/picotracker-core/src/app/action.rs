@@ -74,6 +74,14 @@ pub enum Action {
         up: bool,
         coarse: bool,
     },
+    /// Says yes to a question, or takes the thing under the cursor.
+    Confirm,
+    /// Says no to a question, or dismisses what is showing.
+    Cancel,
+    /// Types one character of a file name.
+    TypeChar(char),
+    /// Takes the last character off a file name.
+    Backspace,
 }
 
 /// What the cursor is on, which decides what the keys that type characters do.
@@ -87,4 +95,6 @@ pub enum KeyContext {
     PhraseValue,
     /// A Chain or Phrase reference, or a transpose: hexadecimal digits are typed directly.
     ArrangeValue,
+    /// A file name: characters are typed as they are.
+    FileName,
 }

@@ -99,6 +99,19 @@ impl PhrasePane {
         self.step
     }
 
+    /// Puts the cursor on a Step.
+    pub fn jump_to(&mut self, step: usize) {
+        self.step = step.min(MAX_STEPS - 1);
+        self.header_row = None;
+    }
+
+    /// Puts the cursor back on the first Step, keeping the values that new notes take.
+    pub fn return_to_top(&mut self) {
+        self.step = 0;
+        self.column = 0;
+        self.header_row = None;
+    }
+
     /// Keeps the cursor inside a Phrase the pane has just moved to.
     pub fn keep_inside(&mut self, phrase: &Phrase) {
         self.step = self.step.min(phrase.length() - 1);

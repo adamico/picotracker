@@ -11,6 +11,7 @@ pub enum Key {
     Space,
     Enter,
     Escape,
+    Backspace,
     Insert,
     Delete,
     /// A function key, numbered from 1.
