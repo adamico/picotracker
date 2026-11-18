@@ -21,10 +21,15 @@ pub fn carry_out(request: FileRequest) -> FileResponse {
             Ok(contents) => FileResponse::BytesRead { path, contents },
             Err(error) => failed(path, &error),
         },
-        FileRequest::Write { path, contents } => match replace(&path, &contents) {
-            Ok(()) => FileResponse::Written { path },
-            Err(error) => failed(path, &error),
-        },
+        FileRequest::Write { path, contents } => written(path, contents.as_bytes()),
+        FileRequest::WriteBytes { path, contents } => written(path, &contents),
+    }
+}
+
+fn written(path: PathBuf, contents: &[u8]) -> FileResponse {
+    match replace(&path, contents) {
+        Ok(()) => FileResponse::Written { path },
+        Err(error) => failed(path, &error),
     }
 }
 
@@ -48,7 +53,7 @@ fn list(directory: &Path) -> io::Result<Vec<DirectoryEntry>> {
 }
 
 /// Writes beside the file and then swaps it in, so that a failed write leaves the old file whole.
-fn replace(path: &Path, contents: &str) -> io::Result<()> {
+fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
     let mut temporary: OsString = path.as_os_str().to_owned();
     temporary.push(".tmp");
     fs::write(&temporary, contents)?;

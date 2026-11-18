@@ -1,6 +1,7 @@
 //! New, Open, Save and Save As. The App core never touches the disk: it asks for files with
 //! `FileRequest`s and is given the results as `FileResponse`s.
 
+use super::exporting::FinishedExport;
 use super::messages::{LogItem, Report, Severity};
 use super::panes::file_list::{Choice, FileList, Purpose};
 use super::{Action, App, Focus};
@@ -25,6 +26,8 @@ pub enum FileRequest {
     ReadBytes { path: PathBuf },
     /// Replace a file with these contents.
     Write { path: PathBuf, contents: String },
+    /// Replace a file with these bytes.
+    WriteBytes { path: PathBuf, contents: Vec<u8> },
 }
 
 /// One thing a folder holds.
@@ -83,6 +86,10 @@ pub(super) enum Waiting {
     Importing(PathBuf),
     /// The Project as it was when the save was asked for.
     Writing(PathBuf, Box<Project>),
+    /// The Target Cart, read so that an Export can write into it.
+    ExportReading(PathBuf),
+    /// The Target Cart, being replaced by an Export.
+    ExportWriting(PathBuf, FinishedExport),
 }
 
 /// What a file can be Imported as.
@@ -98,7 +105,7 @@ pub(super) fn import_kind(file_name: &str) -> Option<ImportKind> {
 }
 
 /// The file name of a path in capitals, as messages show it.
-fn shown_name(path: &Path) -> String {
+pub(super) fn shown_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
@@ -149,7 +156,9 @@ impl App {
                 }
             }
             FileResponse::Read { path, contents } => self.finish_reading(path, &contents),
-            FileResponse::BytesRead { path, contents } => self.finish_importing(path, &contents),
+            FileResponse::BytesRead { path, contents } => {
+                self.finish_reading_bytes(path, &contents)
+            }
             FileResponse::Written { path } => self.finish_writing(&path),
             FileResponse::Failed { path, reason } => self.file_failed(&path, &reason),
         }
@@ -175,11 +184,27 @@ impl App {
         }
     }
 
-    fn finish_importing(&mut self, path: PathBuf, contents: &[u8]) {
-        if !matches!(&self.waiting, Some(Waiting::Importing(read)) if *read == path) {
-            return;
+    /// Passes a file's bytes to whatever asked for them.
+    fn finish_reading_bytes(&mut self, path: PathBuf, contents: &[u8]) {
+        match self.waiting.take() {
+            Some(Waiting::Importing(read)) if read == path => self.finish_importing(path, contents),
+            Some(Waiting::ExportReading(read)) if read == path => {
+                self.finish_reading_target(path, contents);
+            }
+            other => self.waiting = other,
         }
-        self.waiting = None;
+    }
+
+    pub(super) fn request_bytes(&mut self, path: PathBuf) {
+        self.file_requests.push(FileRequest::ReadBytes { path });
+    }
+
+    pub(super) fn request_write_bytes(&mut self, path: PathBuf, contents: Vec<u8>) {
+        self.file_requests
+            .push(FileRequest::WriteBytes { path, contents });
+    }
+
+    fn finish_importing(&mut self, path: PathBuf, contents: &[u8]) {
         self.file_list = None;
         let file_name = path
             .file_name()
@@ -223,6 +248,9 @@ impl App {
                 self.report(Report::info(format!("SAVED {}", shown_name(&written))));
                 self.project_path = Some(written);
             }
+            Some(Waiting::ExportWriting(written, finished)) if written == path => {
+                self.finish_writing_target(finished);
+            }
             other => self.waiting = other,
         }
     }
@@ -244,6 +272,11 @@ impl App {
             }
             Some(Waiting::Writing(written, _)) if written == path => {
                 format!("CANNOT SAVE {name}: {reason}")
+            }
+            Some(Waiting::ExportReading(target) | Waiting::ExportWriting(target, _))
+                if target == path =>
+            {
+                format!("CANNOT EXPORT TO {name}: {reason}")
             }
             other => {
                 self.waiting = other;
