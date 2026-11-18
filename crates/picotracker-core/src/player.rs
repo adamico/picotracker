@@ -75,6 +75,33 @@ impl TrackMix {
     }
 }
 
+/// The place being played, as the Player last reached it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Playhead {
+    /// The Song row and Chain row, unless a Phrase is playing alone.
+    pub chain_row: Option<(usize, usize)>,
+    /// The Phrase and Step each heard Track is on.
+    pub tracks: [Option<(PhraseId, usize)>; TRACKS],
+}
+
+impl Playhead {
+    /// The Step being played in a Phrase, looking at this Track first.
+    pub fn step_in(&self, phrase: PhraseId, track: usize) -> Option<usize> {
+        let step_on = |place: &Option<(PhraseId, usize)>| {
+            place.filter(|(id, _)| *id == phrase).map(|(_, step)| step)
+        };
+        step_on(&self.tracks[track]).or_else(|| self.tracks.iter().find_map(step_on))
+    }
+}
+
+/// What the Player tells the App core about playback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaybackReport {
+    pub playhead: Option<Playhead>,
+    /// The number of the latest play that ended by itself.
+    pub finished_play: u64,
+}
+
 /// Which Chain rows play, and in what order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Route {
@@ -216,6 +243,22 @@ impl Sequence {
         Some(entry_sound(self.project.phrase(entry.phrase()), entry))
     }
 
+    /// The place being played.
+    fn playhead(&self) -> Playhead {
+        let mut tracks = [None; TRACKS];
+        for (track, place) in tracks.iter_mut().enumerate() {
+            let lane = self.lanes[track];
+            if lane.state == LaneState::Playing && self.sounds(track) {
+                *place = self.entry(track).map(|entry| (entry.phrase(), lane.step));
+            }
+        }
+        let chain_row = match self.route {
+            Route::Phrase { .. } => None,
+            _ => Some((self.row, self.k)),
+        };
+        Playhead { chain_row, tracks }
+    }
+
     /// Whether every entry that sets the Chain row's length has played out: the entries not marked
     /// Fill, or the longest entry when all are marked Fill.
     fn chain_row_is_over(&self) -> bool {
@@ -306,6 +349,14 @@ impl Player {
     /// It is 0 until one has.
     pub fn finished_play(&self) -> u64 {
         self.finished_play
+    }
+
+    /// Where playback has got to, for the App core to show.
+    pub fn report(&self) -> PlaybackReport {
+        PlaybackReport {
+            playhead: self.sequence.as_ref().map(Sequence::playhead),
+            finished_play: self.finished_play,
+        }
     }
 
     fn cut(&mut self) {

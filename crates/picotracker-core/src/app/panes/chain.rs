@@ -1,8 +1,8 @@
 //! The Chain pane: the entries of the Chain under the Song cursor, and the Chain row strip.
 
 use super::{
-    EMPTY, FILL, HEADING, VALUE, draw_out_of_range_flag, draw_styled_value, draw_title, id_text,
-    nudged_id, stepped, typed_value,
+    EMPTY, FILL, HEADING, VALUE, draw_out_of_range_flag, draw_row_label, draw_styled_value,
+    draw_title, id_text, nudged_id, stepped, typed_value,
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
@@ -33,6 +33,15 @@ const COLUMNS: [(EntryCell, usize, &str); 3] = [
     (EntryCell::Transpose, 5, "---"),
     (EntryCell::Fill, 9, "----"),
 ];
+
+/// What the Chain pane shows.
+#[derive(Clone, Copy, Debug)]
+pub struct ChainView {
+    pub song_row: usize,
+    pub track: usize,
+    /// The entry the Playhead is on, when it is on this Song row.
+    pub playing_entry: Option<usize>,
+}
 
 /// The Chain pane's cursor.
 #[derive(Debug, Default)]
@@ -130,6 +139,14 @@ impl ChainPane {
         }
     }
 
+    /// Moves the cursor to the entry the Playhead is on.
+    pub fn follow(&mut self, entry: usize) {
+        if self.entry != entry {
+            self.entry = entry;
+            self.finish_typing();
+        }
+    }
+
     /// Draws the pane for the Song row and Track under the Song cursor.
     pub fn draw(
         &self,
@@ -137,9 +154,13 @@ impl ChainPane {
         area: Area,
         focused: bool,
         project: &Project,
-        song_row: usize,
-        track: usize,
+        view: ChainView,
     ) {
+        let ChainView {
+            song_row,
+            track,
+            playing_entry,
+        } = view;
         let id = project.song_cell(song_row, track);
         let number = id_text(id.map(ChainId::number));
         let title = format!("CHAIN {number}  T{} ROW {song_row:02X}", track + 1);
@@ -148,7 +169,8 @@ impl ChainPane {
 
         for index in 0..CHAIN_ENTRIES {
             let row = HEADER_ROWS + index;
-            grid.put(area.column, row, &format!("{index:X}"), HEADING);
+            let label = format!("{index:X}");
+            draw_row_label(grid, area.column, row, &label, playing_entry == Some(index));
             let entry = project.chain_row_entry(song_row, track, index);
             for (column, (cell, offset, empty)) in COLUMNS.iter().enumerate() {
                 let is_cursor = focused && index == self.entry && column == self.column;
@@ -168,7 +190,7 @@ impl ChainPane {
             }
         }
 
-        draw_chain_row_strip(grid, area, project, song_row);
+        draw_chain_row_strip(grid, area, project, song_row, playing_entry);
     }
 }
 
@@ -195,14 +217,20 @@ fn cell_text(cell: EntryCell, entry: ChainEntry) -> (String, Style) {
 }
 
 /// Draws the k-th entry of all 8 Tracks on this Song row, and how long each Chain row lasts.
-fn draw_chain_row_strip(grid: &mut Grid, area: Area, project: &Project, song_row: usize) {
+fn draw_chain_row_strip(
+    grid: &mut Grid,
+    area: Area,
+    project: &Project,
+    song_row: usize,
+    playing_entry: Option<usize>,
+) {
     draw_title(grid, area.column, STRIP_TITLE_ROW, "CHAIN ROWS", false);
     let heading = "K T1 T2 T3 T4 T5 T6 T7 T8  TICK";
     grid.put(area.column, STRIP_HEADING_ROW, heading, HEADING);
 
     for k in 0..CHAIN_ENTRIES {
         let row = STRIP_FIRST_ROW + k;
-        grid.put(area.column, row, &format!("{k:X}"), HEADING);
+        draw_row_label(grid, area.column, row, &format!("{k:X}"), playing_entry == Some(k));
         for track in 0..TRACKS {
             let column = area.column + STRIP_FIRST_TRACK_COLUMN + track * STRIP_TRACK_WIDTH;
             draw_strip_entry(

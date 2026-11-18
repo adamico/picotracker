@@ -1,7 +1,8 @@
 //! The Song pane: rows of Chains, one column per Track.
 
 use super::{
-    EMPTY, HEADING, VALUE, draw_styled_value, draw_title, id_text, nudged_id, stepped, typed_value,
+    EMPTY, HEADING, VALUE, draw_row_label, draw_styled_value, draw_title, id_text, nudged_id,
+    stepped, typed_value,
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
@@ -55,6 +56,14 @@ impl SongPane {
         self.row = stepped(self.row, rows, SONG_ROWS);
     }
 
+    /// Moves the cursor to the Song row the Playhead is on.
+    pub fn follow(&mut self, row: usize) {
+        if self.row != row {
+            self.row = row;
+            self.finish_typing();
+        }
+    }
+
     /// Ends the Chain number being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
         self.typed_digit = None;
@@ -94,6 +103,7 @@ impl SongPane {
         focused: bool,
         project: &Project,
         track_mix: &TrackMix,
+        playing_row: Option<usize>,
     ) {
         let loop_row = project
             .song_loop_row()
@@ -114,7 +124,8 @@ impl SongPane {
         for offset in 0..visible {
             let row = HEADER_ROWS + offset;
             let song_row = top + offset;
-            grid.put(area.column, row, &format!("{song_row:02X}"), HEADING);
+            let label = format!("{song_row:02X}");
+            draw_row_label(grid, area.column, row, &label, playing_row == Some(song_row));
             for track in 0..TRACKS {
                 let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
                 let is_cursor = focused && song_row == self.row && track == self.track;
