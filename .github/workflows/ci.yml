@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install the ALSA headers
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses
@@ -32,6 +34,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install the ALSA headers
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
       - uses: Swatinem/rust-cache@v2
       - name: Formatting
         run: cargo fmt --all --check

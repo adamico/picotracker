@@ -1,7 +1,7 @@
 //! The headless core of picotracker.
 //!
 //! Nothing in this crate may depend on a window or an audio device. The `picotracker` binary
-//! crate is the Window shell that connects this core to `winit`, `pixels` and, later, `cpal`.
+//! crate is the Window shell that connects this core to `winit`, `pixels` and `cpal`.
 //!
 //! Each module of the MVP spec has its own file here, declared up front so that tickets built in
 //! parallel do not collide in this list.

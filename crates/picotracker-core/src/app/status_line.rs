@@ -9,8 +9,8 @@ const BAR: Style = Style {
     bg: Colour::DarkBlue,
 };
 
-/// Draws the status line.
-pub fn draw(grid: &mut Grid) {
+/// Draws the status line, showing a message if there is one.
+pub fn draw(grid: &mut Grid, message: Option<&str>) {
     grid.fill_row(STATUS_ROW, BAR);
-    grid.put(0, STATUS_ROW, "READY", BAR);
+    grid.put(0, STATUS_ROW, message.unwrap_or("READY"), BAR);
 }
