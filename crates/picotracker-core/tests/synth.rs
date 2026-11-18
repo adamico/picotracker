@@ -53,7 +53,9 @@ fn frequency(samples: &[f32]) -> f32 {
 }
 
 fn peak(samples: &[f32]) -> f32 {
-    samples.iter().fold(0.0, |peak, sample| peak.max(sample.abs()))
+    samples
+        .iter()
+        .fold(0.0, |peak, sample| peak.max(sample.abs()))
 }
 
 fn assert_near(actual: f32, expected: f32, tolerance: f32) {
@@ -144,13 +146,20 @@ fn stopping_cuts_the_sound_at_once() {
     voice.stop();
 
     assert!(!voice.is_playing());
-    assert!(render(&mut voice, 2_000).iter().all(|sample| *sample == 0.0));
+    assert!(
+        render(&mut voice, 2_000)
+            .iter()
+            .all(|sample| *sample == 0.0)
+    );
 }
 
 #[test]
 fn reverb_1_echoes_after_two_ticks() {
     let dry = rendered(held(A_440, 32, 0), 3_000);
-    let wet = rendered(held(A_440, 32, packed_filters(false, false, 0, 1, 0)), 3_000);
+    let wet = rendered(
+        held(A_440, 32, packed_filters(false, false, 0, 1, 0)),
+        3_000,
+    );
 
     assert_eq!(dry[..360], wet[..360]);
     assert_ne!(dry[370..800], wet[370..800]);
@@ -161,7 +170,10 @@ fn reverb_1_echoes_after_two_ticks() {
 #[test]
 fn reverb_2_echoes_after_four_ticks() {
     let dry = rendered(held(A_440, 32, 0), 3_000);
-    let wet = rendered(held(A_440, 32, packed_filters(false, false, 0, 2, 0)), 3_000);
+    let wet = rendered(
+        held(A_440, 32, packed_filters(false, false, 0, 2, 0)),
+        3_000,
+    );
 
     assert_eq!(dry[..730], wet[..730]);
     assert_ne!(dry[740..1_500], wet[740..1_500]);

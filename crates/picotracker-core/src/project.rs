@@ -211,7 +211,9 @@ impl Phrase {
 
     /// Whether every Step inside LEN is silent.
     pub fn is_silent(&self) -> bool {
-        self.steps[..self.length].iter().all(|step| step.is_silent())
+        self.steps[..self.length]
+            .iter()
+            .all(|step| step.is_silent())
     }
 }
 
