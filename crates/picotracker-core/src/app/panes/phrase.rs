@@ -1,9 +1,11 @@
 //! The Phrase pane: the header and Steps of the Phrase being edited.
 
-use super::{EMPTY, HEADING, VALUE, draw_styled_value, draw_title, stepped};
+use super::{
+    EMPTY, HEADING, VALUE, draw_out_of_range_flag, draw_styled_value, draw_title, id_text, stepped,
+};
 use crate::app::layout::Area;
 use crate::app::{Direction, KeyContext};
-use crate::project::{MAX_STEPS, Phrase, Step};
+use crate::project::{MAX_STEPS, Phrase, PhraseId, Step};
 use crate::screen::grid::Grid;
 
 /// Rows above the first Step: the title, three header rows and the column headings.
@@ -95,6 +97,11 @@ impl PhrasePane {
     /// The Step under the cursor.
     pub fn step(&self) -> usize {
         self.step
+    }
+
+    /// Keeps the cursor inside a Phrase the pane has just moved to.
+    pub fn keep_inside(&mut self, phrase: &Phrase) {
+        self.step = self.step.min(phrase.length() - 1);
     }
 
     /// What the keys that type characters do here.
@@ -254,8 +261,18 @@ impl PhrasePane {
         }
     }
 
-    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, phrase: &Phrase) {
-        let title = format!("PHRASE 00   OCT {}", self.octave);
+    /// Draws a Phrase, or a blank Phrase under the title `--` when there is none to show.
+    pub fn draw(
+        &self,
+        grid: &mut Grid,
+        area: Area,
+        focused: bool,
+        id: Option<PhraseId>,
+        phrase: &Phrase,
+        transpose: i8,
+    ) {
+        let number = id_text(id.map(PhraseId::number));
+        let title = format!("PHRASE {number}   OCT {}", self.octave);
         draw_title(grid, area.column, 0, &title, focused);
         self.draw_header(grid, area, focused, phrase);
         grid.put(area.column, HEADER_ROWS - 1, "   NOT IN V F", HEADING);
@@ -273,6 +290,9 @@ impl PhrasePane {
                     VALUE
                 };
                 draw_styled_value(grid, area.column + offset, row, text, is_cursor, style);
+            }
+            if phrase.step_is_out_of_range(index, transpose) {
+                draw_out_of_range_flag(grid, area.column, row);
             }
         }
     }

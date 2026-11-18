@@ -222,7 +222,7 @@ fn the_chain_pane_title_follows_the_song_cursor() {
 
 #[test]
 fn actions_not_built_yet_change_nothing() {
-    let app = app_after(&[Action::Save, Action::PlayFocusedPane, Action::Mute(3)]);
+    let app = app_after(&[Action::Save, Action::ToggleFollow, Action::Mute(3)]);
 
     assert_eq!(
         app.grid().text_dump(),

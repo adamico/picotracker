@@ -48,6 +48,9 @@ pub(super) fn bindings() -> Vec<(Key, Modifiers, Action)> {
         (Key::Space, SHIFT, Action::PlaySongFromCursor),
         (Key::F(9), NONE, Action::ClearMutesAndSolos),
         (Key::F(10), NONE, Action::ToggleFollow),
+        (Key::Delete, NONE, Action::Clear),
+        (Key::Char('f'), CTRL, Action::ToggleFill),
+        (Key::Char('r'), CTRL, Action::SetSongLoopRow),
         (Key::Char('['), NONE, Action::OctaveDown),
         (Key::Char(']'), NONE, Action::OctaveUp),
         (Key::Up, SHIFT, nudge(true, false)),
@@ -72,13 +75,13 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
             Action::PianoKey(semitone),
         )
     });
-    let digits = (0..).zip(HEX_DIGITS.chars()).map(|(digit, ch)| {
-        (
-            KeyContext::PhraseValue,
-            Key::Char(ch),
-            Action::HexDigit(digit),
-        )
-    });
+    let digits = [KeyContext::PhraseValue, KeyContext::ArrangeValue]
+        .into_iter()
+        .flat_map(|context| {
+            (0..)
+                .zip(HEX_DIGITS.chars())
+                .map(move |(digit, ch)| (context, Key::Char(ch), Action::HexDigit(digit)))
+        });
     piano.chain(digits).collect()
 }
 

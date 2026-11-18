@@ -3,6 +3,17 @@
 
 /// The most Steps a Phrase can hold.
 pub const MAX_STEPS: usize = 32;
+/// The vertical lanes of the Song.
+pub const TRACKS: usize = 8;
+/// The entries of every Chain.
+pub const CHAIN_ENTRIES: usize = 16;
+/// The rows of the Song, as many as a two-digit hexadecimal row label can name.
+pub const SONG_ROWS: usize = 256;
+
+/// The Chains and the Phrases a Project can name with two hexadecimal digits.
+const ID_COUNT: usize = 256;
+const MIN_TRANSPOSE: i32 = i8::MIN as i32;
+const MAX_TRANSPOSE: i32 = i8::MAX as i32;
 
 const DEFAULT_LENGTH: usize = 16;
 const DEFAULT_SPEED: u8 = 16;
@@ -209,6 +220,27 @@ impl Phrase {
         &mut self.filters
     }
 
+    /// How long the Phrase plays once through, in Ticks.
+    pub fn ticks(&self) -> u32 {
+        self.length as u32 * u32::from(self.speed)
+    }
+
+    /// Whether a Step sounds outside PICO-8's pitch range 0 to 63 after this transpose.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is 32 or more.
+    pub fn step_is_out_of_range(&self, index: usize, transpose: i8) -> bool {
+        let step = self.steps[index];
+        let pitch = i32::from(step.pitch) + i32::from(transpose);
+        !step.is_silent() && !(0..=MAX_PITCH).contains(&pitch)
+    }
+
+    /// Whether any Step inside LEN sounds outside PICO-8's pitch range after this transpose.
+    pub fn is_out_of_range(&self, transpose: i8) -> bool {
+        (0..self.length).any(|index| self.step_is_out_of_range(index, transpose))
+    }
+
     /// Whether every Step inside LEN is silent.
     pub fn is_silent(&self) -> bool {
         self.steps[..self.length]
@@ -219,38 +251,201 @@ impl Phrase {
 
 /// Names one Phrase of a Project.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct PhraseId(usize);
+pub struct PhraseId(u8);
 
-/// The Phrase a new Project starts with.
-pub const FIRST_PHRASE: PhraseId = PhraseId(0);
+impl PhraseId {
+    pub const fn new(id: u8) -> Self {
+        Self(id)
+    }
+
+    /// The number shown for this Phrase.
+    pub const fn number(self) -> u8 {
+        self.0
+    }
+}
+
+/// Names one Chain of a Project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChainId(u8);
+
+impl ChainId {
+    pub const fn new(id: u8) -> Self {
+        Self(id)
+    }
+
+    /// The number shown for this Chain.
+    pub const fn number(self) -> u8 {
+        self.0
+    }
+}
+
+/// One filled entry of a Chain: a Phrase, its transpose and its Fill mark.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChainEntry {
+    phrase: PhraseId,
+    transpose: i8,
+    fill: bool,
+}
+
+impl ChainEntry {
+    /// An entry that plays a Phrase as written.
+    pub const fn new(phrase: PhraseId) -> Self {
+        Self {
+            phrase,
+            transpose: 0,
+            fill: false,
+        }
+    }
+
+    pub const fn phrase(self) -> PhraseId {
+        self.phrase
+    }
+
+    /// The semitones added to every Step of the Phrase.
+    pub const fn transpose(self) -> i8 {
+        self.transpose
+    }
+
+    /// Whether the Phrase repeats until the Chain row ends.
+    pub const fn fill(self) -> bool {
+        self.fill
+    }
+
+    pub fn set_phrase(&mut self, phrase: PhraseId) {
+        self.phrase = phrase;
+    }
+
+    /// Sets the transpose, stopping at -128 and 127.
+    pub fn set_transpose(&mut self, semitones: i32) {
+        self.transpose = semitones.clamp(MIN_TRANSPOSE, MAX_TRANSPOSE) as i8;
+    }
+
+    pub fn set_fill(&mut self, fill: bool) {
+        self.fill = fill;
+    }
+}
+
+/// An ordered list of entries, each holding a Phrase or empty.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Chain {
+    entries: [Option<ChainEntry>; CHAIN_ENTRIES],
+}
+
+impl Chain {
+    /// The entry at an index from 0 to 15.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is 16 or more.
+    pub fn entry(&self, index: usize) -> Option<ChainEntry> {
+        self.entries[index]
+    }
+
+    /// The entry at an index from 0 to 15, for editing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is 16 or more.
+    pub fn entry_mut(&mut self, index: usize) -> &mut Option<ChainEntry> {
+        &mut self.entries[index]
+    }
+}
 
 /// The tracker's saved work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {
     phrases: Vec<Phrase>,
+    chains: Vec<Chain>,
+    song: Vec<[Option<ChainId>; TRACKS]>,
+    song_loop_row: Option<usize>,
 }
 
 impl Default for Project {
     fn default() -> Self {
         Self {
-            phrases: vec![Phrase::default()],
+            phrases: vec![Phrase::default(); ID_COUNT],
+            chains: vec![Chain::default(); ID_COUNT],
+            song: vec![[None; TRACKS]; SONG_ROWS],
+            song_loop_row: Some(0),
         }
     }
 }
 
 impl Project {
-    /// A new Project holding one empty Phrase.
+    /// A new Project with an empty Song.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The Phrase with this id.
     pub fn phrase(&self, id: PhraseId) -> &Phrase {
-        &self.phrases[id.0]
+        &self.phrases[usize::from(id.0)]
     }
 
     /// The Phrase with this id, for editing.
     pub fn phrase_mut(&mut self, id: PhraseId) -> &mut Phrase {
-        &mut self.phrases[id.0]
+        &mut self.phrases[usize::from(id.0)]
+    }
+
+    /// The Chain with this id.
+    pub fn chain(&self, id: ChainId) -> &Chain {
+        &self.chains[usize::from(id.0)]
+    }
+
+    /// The Chain with this id, for editing.
+    pub fn chain_mut(&mut self, id: ChainId) -> &mut Chain {
+        &mut self.chains[usize::from(id.0)]
+    }
+
+    /// The Chain a Track holds on a Song row. Rows past the end of the Song hold none.
+    pub fn song_cell(&self, row: usize, track: usize) -> Option<ChainId> {
+        self.song.get(row)?[track]
+    }
+
+    /// Places a Chain on a Song row, or takes it away.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the row is 256 or more, or the Track is 8 or more.
+    pub fn set_song_cell(&mut self, row: usize, track: usize, chain: Option<ChainId>) {
+        self.song[row][track] = chain;
+    }
+
+    /// The k-th entry of a Track's Chain on a Song row.
+    pub fn chain_row_entry(&self, row: usize, track: usize, k: usize) -> Option<ChainEntry> {
+        self.chain(self.song_cell(row, track)?).entry(k)
+    }
+
+    /// How long a Chain row lasts: its longest Phrase not marked Fill, or its longest entry when
+    /// every entry is marked Fill. A Chain row with no entries lasts no time.
+    pub fn chain_row_ticks(&self, row: usize, k: usize) -> u32 {
+        let mut longest = 0;
+        let mut longest_fill = 0;
+        for track in 0..TRACKS {
+            if let Some(entry) = self.chain_row_entry(row, track, k) {
+                let ticks = self.phrase(entry.phrase()).ticks();
+                let slot = if entry.fill() {
+                    &mut longest_fill
+                } else {
+                    &mut longest
+                };
+                *slot = ticks.max(*slot);
+            }
+        }
+        if longest > 0 { longest } else { longest_fill }
+    }
+
+    /// Whether a Song row has nothing to play, which ends the Song.
+    pub fn song_row_is_empty(&self, row: usize) -> bool {
+        (0..CHAIN_ENTRIES).all(|k| self.chain_row_ticks(row, k) == 0)
+    }
+
+    /// The row the Song jumps to when it ends, if it loops at all.
+    pub const fn song_loop_row(&self) -> Option<usize> {
+        self.song_loop_row
+    }
+
+    pub fn set_song_loop_row(&mut self, row: Option<usize>) {
+        self.song_loop_row = row;
     }
 }
