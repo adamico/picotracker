@@ -2,12 +2,14 @@
 
 mod action;
 mod block_edits;
+mod change_speed;
 mod files;
 mod focus;
 mod history;
 mod layout;
 mod messages;
 mod panes;
+mod restructure;
 mod selection;
 mod status_line;
 
@@ -20,6 +22,7 @@ use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
 use block_edits::Clipboard;
+use change_speed::SpeedEntry;
 use files::{Question, Waiting};
 use focus::Focus;
 use history::{History, Merge, Spot};
@@ -27,6 +30,7 @@ use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
 use panes::log::LogPane;
+use panes::midi_dialog::MidiDialog;
 use panes::overview::OverviewPane;
 use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
@@ -84,12 +88,16 @@ pub struct App {
     /// The latest result on the status line.
     notice: Option<Notice>,
     question: Option<Question>,
+    /// The new Speed being typed for Change Speed.
+    speed_entry: Option<SpeedEntry>,
     log: LogPane,
     /// Whether the right-hand slot shows the Log instead of the Overview.
     log_open: bool,
     /// The pane that focus goes back to when the Log closes.
     log_return: Focus,
     file_list: Option<FileList>,
+    /// The MIDI Import dialog, which replaces the panes while it is open.
+    midi_dialog: Option<Box<MidiDialog>>,
     waiting: Option<Waiting>,
     file_requests: Vec<FileRequest>,
     audio_requests: Vec<AudioRequest>,
@@ -134,10 +142,12 @@ impl App {
             status: None,
             notice: None,
             question: None,
+            speed_entry: None,
             log: LogPane::default(),
             log_open: false,
             log_return: Focus::default(),
             file_list: None,
+            midi_dialog: None,
             waiting: None,
             file_requests: Vec::new(),
             audio_requests: Vec::new(),
@@ -172,8 +182,14 @@ impl App {
 
     /// What the keys that type characters do at the cursor.
     pub fn key_context(&self) -> KeyContext {
+        if self.speed_entry.is_some() {
+            return KeyContext::SpeedEntry;
+        }
         if self.question.is_some() {
             return KeyContext::Navigation;
+        }
+        if self.midi_dialog.is_some() {
+            return KeyContext::MidiImport;
         }
         if let Some(list) = &self.file_list {
             return match list.purpose() {
@@ -368,11 +384,21 @@ impl App {
             self.chain.finish_typing();
             self.phrase.finish_typing();
         }
+        if self.midi_dialog.is_some() {
+            self.use_midi_dialog(action);
+            return;
+        }
+        if self.speed_entry.is_some() {
+            self.use_speed_entry(action);
+            self.settle_after_edit();
+            return;
+        }
         if action == Action::Cancel && self.selection.take().is_some() {
             return;
         }
         if self.question.is_some() {
             self.answer_question(action);
+            self.settle_after_edit();
             return;
         }
         if self.file_list.is_some() {
@@ -393,6 +419,13 @@ impl App {
             Action::Copy => self.copy(),
             Action::Cut => self.cut(),
             Action::Paste => self.paste(),
+            Action::Clone => self.clone_items(false),
+            Action::DeepClone => self.clone_items(true),
+            Action::NewUnused => self.new_unused(),
+            Action::InsertRow => self.insert_row(),
+            Action::DeleteRow => self.delete_row(),
+            Action::PurgeUnused => self.ask_to_purge(),
+            Action::ChangeSpeed => self.ask_for_speed(),
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::Move(direction) => self.move_cursor(direction),
@@ -425,6 +458,11 @@ impl App {
         if let Some((index, before)) = before_edit {
             self.preview_edit(action, index, before);
         }
+        self.settle_after_edit();
+    }
+
+    /// Keeps the cursor on the Phrase now showing, and lets the Player hear what changed.
+    fn settle_after_edit(&mut self) {
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
         self.send_edits_to_the_player();
@@ -652,6 +690,11 @@ impl App {
     /// Draws the current state onto a fresh character grid.
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
+        if let Some(dialog) = &self.midi_dialog {
+            dialog.draw(&mut grid);
+            status_line::draw(&mut grid, &StatusLine::Hints(dialog.hints()));
+            return grid;
+        }
         let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
         // The file list takes the keys while it is open, so no pane shows a cursor.
         let focus = self.file_list.is_none().then_some(self.focus);
@@ -714,6 +757,9 @@ impl App {
 
     /// What the status line shows: what most needs the user's attention comes first.
     fn status_line<'a>(&'a self, project: &'a str) -> StatusLine<'a> {
+        if let Some(entry) = &self.speed_entry {
+            return StatusLine::Question(entry.text());
+        }
         if let Some(question) = &self.question {
             return StatusLine::Question(&question.text);
         }
