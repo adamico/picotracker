@@ -2,7 +2,8 @@
 
 use super::{HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
-use crate::app::files::{DirectoryEntry, import_kind};
+use crate::app::files::DirectoryEntry;
+use crate::app::importing::import_kind;
 use crate::app::layout::Area;
 use crate::screen::grid::{Grid, Style};
 use crate::screen::palette::Colour;

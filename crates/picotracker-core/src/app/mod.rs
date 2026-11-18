@@ -7,6 +7,7 @@ mod exporting;
 mod files;
 mod focus;
 mod history;
+mod importing;
 mod layout;
 mod messages;
 mod panes;
