@@ -93,7 +93,14 @@ fn the_speed_stops_at_1_and_255() {
     assert_eq!(phrase(&app).speed(), 1);
     assert_eq!(phrase_line(&app, SPEED_LINE), "SPD[01]BPM 1807");
 
-    let app = phrase_app(&[UP, UP, UP, Action::HexDigit(0xF), Action::HexDigit(0xF), NUDGE_UP]);
+    let app = phrase_app(&[
+        UP,
+        UP,
+        UP,
+        Action::HexDigit(0xF),
+        Action::HexDigit(0xF),
+        NUDGE_UP,
+    ]);
     assert_eq!(phrase(&app).speed(), 255);
 }
 
@@ -129,27 +136,31 @@ fn len_runs_from_1_to_32_and_sets_the_visible_steps() {
 
 #[test]
 fn shortening_len_keeps_the_cursor_inside_the_phrase() {
-    let app = phrase_app(&[
-        &[DOWN; 10][..],
-        &[UP; 12],
-        &[Action::HexDigit(0), Action::HexDigit(2)],
-        &[DOWN; 9],
-    ]
-    .concat());
+    let app = phrase_app(
+        &[
+            &[DOWN; 10][..],
+            &[UP; 12],
+            &[Action::HexDigit(0), Action::HexDigit(2)],
+            &[DOWN; 9],
+        ]
+        .concat(),
+    );
 
     assert_eq!(phrase_line(&app, FIRST_STEP_LINE + 1), "01[...].. . .");
 }
 
 #[test]
 fn shortening_and_lengthening_len_keeps_the_steps_past_the_end() {
-    let app = phrase_app(&[
-        &[DOWN; 8][..],
-        &[Action::PianoKey(0)],
-        &[UP; 11],
-        &[Action::HexDigit(0), Action::HexDigit(4)],
-        &[Action::HexDigit(1), Action::HexDigit(0)],
-    ]
-    .concat());
+    let app = phrase_app(
+        &[
+            &[DOWN; 8][..],
+            &[Action::PianoKey(0)],
+            &[UP; 11],
+            &[Action::HexDigit(0), Action::HexDigit(4)],
+            &[Action::HexDigit(1), Action::HexDigit(0)],
+        ]
+        .concat(),
+    );
 
     assert_eq!(phrase(&app).length(), 16);
     assert_eq!(phrase(&app).step(8).volume(), 5);

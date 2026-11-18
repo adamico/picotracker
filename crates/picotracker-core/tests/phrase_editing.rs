@@ -102,7 +102,13 @@ fn pitch_33_is_named_a_2() {
 
 #[test]
 fn the_octave_keys_change_the_octave_of_later_notes() {
-    let app = phrase_app(&[Action::OctaveUp, C, Action::OctaveDown, Action::OctaveDown, C]);
+    let app = phrase_app(&[
+        Action::OctaveUp,
+        C,
+        Action::OctaveDown,
+        Action::OctaveDown,
+        C,
+    ]);
 
     assert_eq!(step(&app, 0).pitch(), 36);
     assert_eq!(step(&app, 1).pitch(), 12);
@@ -333,7 +339,11 @@ fn the_pc_tracker_piano_follows_two_rows_of_the_keyboard() {
         assert_eq!(piano(ch), Some(Action::PianoKey(semitone as u8)), "{ch}");
     }
     for (semitone, ch) in "q2w3er5t6y7u".chars().enumerate() {
-        assert_eq!(piano(ch), Some(Action::PianoKey(12 + semitone as u8)), "{ch}");
+        assert_eq!(
+            piano(ch),
+            Some(Action::PianoKey(12 + semitone as u8)),
+            "{ch}"
+        );
     }
 }
 
@@ -342,8 +352,14 @@ fn the_pc_tracker_brackets_change_the_octave_and_modified_arrows_nudge() {
     let keymap = Keymap::pc_tracker();
     let action = |key: Key, modifiers: Modifiers| keymap.action_for(KeyPress::new(key, modifiers));
 
-    assert_eq!(action(Key::Char('['), Modifiers::NONE), Some(Action::OctaveDown));
-    assert_eq!(action(Key::Char(']'), Modifiers::NONE), Some(Action::OctaveUp));
+    assert_eq!(
+        action(Key::Char('['), Modifiers::NONE),
+        Some(Action::OctaveDown)
+    );
+    assert_eq!(
+        action(Key::Char(']'), Modifiers::NONE),
+        Some(Action::OctaveUp)
+    );
     assert_eq!(
         action(Key::Up, Modifiers::SHIFT),
         Some(Action::Nudge {

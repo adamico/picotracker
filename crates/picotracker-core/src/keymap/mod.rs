@@ -46,7 +46,10 @@ impl Keymap {
     /// characters depend on the context, and they do not repeat while held.
     pub fn action_in(&self, press: KeyPress, context: KeyContext) -> Option<Action> {
         let typed = (press.modifiers == Modifiers::NONE && !press.repeat)
-            .then(|| self.context_bindings.get(&(context, press.key.normalised())))
+            .then(|| {
+                self.context_bindings
+                    .get(&(context, press.key.normalised()))
+            })
             .flatten();
         typed.copied().or_else(|| self.action_for(press))
     }
