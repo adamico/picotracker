@@ -1,4 +1,4 @@
-//! The PC tracker preset, checked against the Keys table in the MVP spec.
+//!The PC tracker preset, checked against the Keys table in the MVP spec.
 
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};

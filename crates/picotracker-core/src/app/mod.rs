@@ -3,6 +3,7 @@
 mod action;
 mod block_edits;
 mod change_speed;
+mod exporting;
 mod files;
 mod focus;
 mod history;
@@ -201,6 +202,7 @@ impl App {
             Focus::Song => KeyContext::ArrangeValue,
             Focus::Chain if self.chain.takes_digits() => KeyContext::ArrangeValue,
             Focus::Phrase => self.phrase.key_context(),
+            Focus::RightSlot if !self.log_open => KeyContext::ArrangeValue,
             _ => KeyContext::Navigation,
         }
     }
@@ -350,6 +352,7 @@ impl App {
             song: self.song.spot(),
             chain: self.chain.spot(),
             phrase: self.phrase.spot(),
+            overview: self.overview.channel(),
         }
     }
 
@@ -361,6 +364,7 @@ impl App {
         self.song.return_to(spot.song);
         self.chain.return_to(spot.chain);
         self.phrase.return_to(spot.phrase);
+        self.overview.return_to(spot.overview);
     }
 
     fn undo(&mut self) {
@@ -412,6 +416,7 @@ impl App {
             Action::Save => self.save(),
             Action::SaveAs => self.save_as(),
             Action::Import => self.import(),
+            Action::Export => self.export(),
             Action::ToggleLog => self.toggle_log(),
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
@@ -524,12 +529,14 @@ impl App {
         }
     }
 
-    /// Esc dismisses a lasting result first, and then closes the Log.
+    /// Esc dismisses a lasting result first, and then closes the Log or leaves the Overview.
     fn cancel(&mut self) {
         if self.notice.as_ref().is_some_and(Notice::is_persistent) {
             self.notice = None;
         } else if self.log_has_focus() {
             self.close_log();
+        } else if self.focus == Focus::RightSlot {
+            self.set_focus(Focus::Phrase);
         }
     }
 
@@ -538,6 +545,9 @@ impl App {
             Focus::Song => self.song.type_digit(&mut self.project, digit),
             Focus::Chain => self.edit_chain(|pane, chain| pane.type_digit(chain, digit)),
             Focus::Phrase => self.edit_phrase(|pane, phrase| pane.type_digit(phrase, digit)),
+            Focus::RightSlot if !self.log_open => {
+                self.overview.type_digit(&mut self.project, digit);
+            }
             Focus::RightSlot => {}
         }
     }
@@ -746,6 +756,7 @@ impl App {
                 &mut grid,
                 layout::RIGHT_SLOT,
                 right_slot_focused,
+                self.project.export_tracks(),
                 &self.scope,
             );
         }
