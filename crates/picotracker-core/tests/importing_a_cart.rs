@@ -215,10 +215,8 @@ fn import_stops_playback() {
 
 #[test]
 fn warnings_are_counted_on_the_status_line_and_listed_in_the_log() {
-    let mut looping = TestSfx::with_pitches(8, &[12]);
-    looping.loop_end = 8;
     let cart = TestCart {
-        sfx: vec![looping],
+        sfx: vec![TestSfx::with_pitches(0, &[12])],
         patterns: vec![TestPattern::playing([Some(0), None, None, None])],
     };
     let mut app = App::new();
@@ -230,7 +228,35 @@ fn warnings_are_counted_on_the_status_line_and_listed_in_the_log() {
         "! IMPORTED SONG 1 OF DEMO.P8 WITH 1 WARNING  ^L LOG"
     );
     let dump = app.grid().text_dump();
-    assert!(dump.contains("PATTERN 00 MAY NOT"), "{dump}");
+    assert!(dump.contains("SFX 00 HAS SPD 0"), "{dump}");
+}
+
+#[test]
+fn enter_on_a_timing_warning_jumps_to_the_step_it_is_about() {
+    // On the second Pattern, 5 Steps at Speed 8 end inside the 14th Step at Speed 3.
+    let mut setter = TestSfx::with_pitches(8, &[12]);
+    setter.loop_start = 5;
+    let cart = TestCart {
+        sfx: vec![
+            TestSfx::with_pitches(8, &[20]),
+            setter,
+            TestSfx::with_pitches(3, &[24]),
+        ],
+        patterns: vec![
+            TestPattern::playing([Some(0), None, None, None]),
+            TestPattern::playing([Some(1), Some(2), None, None]),
+        ],
+    };
+    let mut app = App::new();
+    import_file(&mut app, "demo.p8", cart.p8());
+    let cut_off = app.project().chain_row_entry(1, 1, 0).unwrap().phrase();
+
+    app.apply(Action::FocusPrevious);
+    app.apply(Action::Confirm);
+
+    assert_eq!(app.phrase_under_cursor(), Some(cut_off));
+    let dump = app.grid().text_dump();
+    assert!(dump.contains("0C[...]"), "{dump}");
 }
 
 #[test]

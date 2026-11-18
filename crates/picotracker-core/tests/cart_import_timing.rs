@@ -1,0 +1,289 @@
+//! Cart Import rebuilds what PICO-8 plays (ADR 0006). Every Cart here is generated in test code.
+//! None was saved by PICO-8. The expected lengths come from the spec and the PICO-8 measurements
+//! recorded with it.
+
+mod support;
+
+use picotracker_core::cart::Cart;
+use picotracker_core::cart_import::import;
+use picotracker_core::project::{ChainEntry, Phrase, Project};
+use support::{TestCart, TestPattern, TestSfx};
+
+fn imported(cart: &TestCart) -> (Project, Vec<String>) {
+    let imported = import(&Cart::read(&cart.p8()).unwrap(), "demo.p8");
+    let warnings = imported.warnings.into_iter().map(|w| w.text).collect();
+    (imported.project, warnings)
+}
+
+/// A Cart with one Pattern playing SFX 0, 1, 2 and 3 on the first channels.
+fn one_pattern(sfx: Vec<TestSfx>) -> TestCart {
+    let mut channels = [None; 4];
+    for (channel, slot) in channels.iter_mut().zip(0..sfx.len() as u8) {
+        *channel = Some(slot);
+    }
+    TestCart {
+        sfx,
+        patterns: vec![TestPattern::playing(channels)],
+    }
+}
+
+/// An SFX at this Speed with 32 different audible notes, pitched 10, 11, 12 and so on.
+fn counting(speed: u8) -> TestSfx {
+    let pitches: Vec<u8> = (10..42).collect();
+    TestSfx::with_pitches(speed, &pitches)
+}
+
+fn with_len(mut sfx: TestSfx, len: u8) -> TestSfx {
+    sfx.loop_start = len;
+    sfx.loop_end = 0;
+    sfx
+}
+
+fn looping(mut sfx: TestSfx, start: u8, end: u8) -> TestSfx {
+    sfx.loop_start = start;
+    sfx.loop_end = end;
+    sfx
+}
+
+fn entry(project: &Project, track: usize, chain_row: usize) -> ChainEntry {
+    project.chain_row_entry(0, track, chain_row).unwrap()
+}
+
+fn phrase(project: &Project, track: usize, chain_row: usize) -> &Phrase {
+    project.phrase(entry(project, track, chain_row).phrase())
+}
+
+/// The pitches of the Steps inside LEN, with silent Steps as `None`.
+fn pitches(phrase: &Phrase) -> Vec<Option<u8>> {
+    (0..phrase.length())
+        .map(|index| phrase.step(index))
+        .map(|step| (!step.is_silent()).then_some(step.pitch()))
+        .collect()
+}
+
+fn audible(range: std::ops::Range<u8>) -> Vec<Option<u8>> {
+    range.map(Some).collect()
+}
+
+#[test]
+fn the_left_most_non_looping_channel_sets_the_length_and_cuts_off_the_others() {
+    let cart = one_pattern(vec![with_len(counting(8), 8), counting(8), counting(4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(project.chain_row_ticks(0, 0), 64);
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..18));
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..18));
+    assert_eq!(pitches(phrase(&project, 2, 0)), audible(10..26));
+}
+
+#[test]
+fn a_pattern_ending_partway_through_a_step_drops_that_step_with_a_warning() {
+    // 5 Steps at Speed 8 last 40 Ticks, which is 13 Steps at Speed 3 and one Tick over.
+    let cart = one_pattern(vec![with_len(counting(8), 5), counting(3)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..23));
+    assert_eq!(
+        warnings,
+        ["PATTERN 00 ENDS INSIDE A STEP: T2 PHRASE 01 LOST ITS LAST STEP."]
+    );
+}
+
+#[test]
+fn a_channel_too_slow_for_one_whole_step_becomes_an_empty_entry_with_a_warning() {
+    let cart = one_pattern(vec![with_len(counting(1), 1), counting(8)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(project.chain_row_entry(0, 1, 0), None);
+    assert_eq!(
+        warnings,
+        ["PATTERN 00 ENDS INSIDE A STEP: T2 LOST ITS ONLY STEP."]
+    );
+}
+
+#[test]
+fn a_loop_over_the_whole_sfx_becomes_fill_and_drops_the_notes_after_it() {
+    let cart = one_pattern(vec![counting(8), looping(counting(8), 0, 4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert!(entry(&project, 1, 0).fill());
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..14));
+    assert!(phrase(&project, 1, 0).step(4).is_silent());
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+}
+
+#[test]
+fn a_lead_in_loop_is_unrolled() {
+    let cart = one_pattern(vec![with_len(counting(8), 10), looping(counting(8), 2, 4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert!(!entry(&project, 1, 0).fill());
+    let expected = [10, 11, 12, 13, 12, 13, 12, 13, 12, 13].map(Some);
+    assert_eq!(pitches(phrase(&project, 1, 0)), expected);
+}
+
+#[test]
+fn an_unroll_over_32_steps_becomes_fill_over_the_loop_body_with_a_warning() {
+    // 32 Steps at Speed 16 last 512 Ticks, which is 64 Steps at Speed 8.
+    let cart = one_pattern(vec![counting(16), looping(counting(8), 2, 6)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert!(entry(&project, 1, 0).fill());
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(12..16));
+    assert_eq!(
+        warnings,
+        ["SFX 01 LEAD-IN NEEDS 64 STEPS UNROLLED: KEPT AS FILL OVER THE LOOP BODY ONLY."]
+    );
+}
+
+#[test]
+fn len_on_a_channel_that_does_not_set_the_length_does_not_stop_it() {
+    let cart = one_pattern(vec![counting(8), with_len(counting(8), 4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..42));
+}
+
+#[test]
+fn when_every_channel_loops_the_slowest_is_unrolled_to_32_steps_without_fill() {
+    let cart = one_pattern(vec![looping(counting(4), 0, 8), looping(counting(8), 0, 8)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert!(entry(&project, 0, 0).fill());
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..18));
+    assert!(!entry(&project, 1, 0).fill());
+    let unrolled: Vec<Option<u8>> = (0..32).map(|step| Some(10 + step % 8)).collect();
+    assert_eq!(pitches(phrase(&project, 1, 0)), unrolled);
+}
+
+#[test]
+fn a_loop_start_at_or_past_a_non_zero_loop_end_plays_all_32_notes_and_sets_the_length() {
+    let cart = one_pattern(vec![looping(counting(8), 8, 4), counting(4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..42));
+}
+
+#[test]
+fn spd_0_becomes_speed_1_with_one_warning_per_sfx() {
+    let cart = TestCart {
+        sfx: vec![counting(0)],
+        patterns: vec![TestPattern::playing([Some(0), Some(0), None, None])],
+    };
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(phrase(&project, 0, 0).speed(), 1);
+    assert_eq!(project.chain_row_ticks(0, 0), 32);
+    assert_eq!(
+        warnings,
+        ["SFX 00 HAS SPD 0: SET TO SPEED 1, TIMING FOLLOWS PICO-8."]
+    );
+}
+
+const BIT_7_WARNING: &str =
+    "SFX 00 HAS BIT 7 SET: IMPORTED AS A PLAIN PHRASE THAT NEVER SETS THE PATTERN LENGTH.";
+
+#[test]
+fn a_bit_7_sfx_is_an_ordinary_phrase_that_never_sets_the_length() {
+    let cart = one_pattern(vec![
+        looping(counting(8), 0x88, 0x10),
+        with_len(counting(16), 8),
+    ]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 128);
+    assert!(!entry(&project, 0, 0).fill());
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..26));
+    assert_eq!(warnings, [BIT_7_WARNING]);
+}
+
+#[test]
+fn a_len_of_128_or_more_counts_as_bit_7() {
+    let cart = one_pattern(vec![with_len(counting(8), 200), with_len(counting(8), 4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 32);
+    assert_eq!(warnings, [BIT_7_WARNING]);
+}
+
+#[test]
+fn a_bit_7_sfx_stops_sounding_after_its_32_notes() {
+    let cart = one_pattern(vec![looping(counting(4), 0x80, 0x08), counting(8)]);
+
+    let (project, _) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..42));
+}
+
+#[test]
+fn beside_channels_that_all_loop_the_length_follows_the_looping_channels_alone() {
+    let cart = one_pattern(vec![
+        looping(counting(16), 0x88, 0x90),
+        looping(counting(8), 0, 8),
+    ]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..26));
+    assert!(!entry(&project, 1, 0).fill());
+    assert_eq!(phrase(&project, 1, 0).length(), 32);
+    assert_eq!(warnings, [BIT_7_WARNING]);
+}
+
+#[test]
+fn a_pattern_holding_only_bit_7_sfx_stays_as_a_32_step_chain_row_with_a_warning() {
+    let cart = one_pattern(vec![
+        looping(counting(8), 0x88, 0x10),
+        with_len(counting(4), 0xff),
+    ]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..42));
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..42));
+    assert_eq!(
+        warnings,
+        [
+            "PATTERN 00 HOLDS ONLY BIT 7 SFX: THE CART STALLS HERE, THE EXPORTED SONG PLAYS \
+             THROUGH.",
+            BIT_7_WARNING,
+            "SFX 01 HAS BIT 7 SET: IMPORTED AS A PLAIN PHRASE THAT NEVER SETS THE PATTERN LENGTH.",
+        ]
+    );
+}
+
+#[test]
+fn a_loop_past_the_last_note_does_not_set_the_length_and_stays_silent_after_note_31() {
+    // PICO-8 plays notes 0 to 31 and then stays silent, for as long as the Pattern lasts.
+    let cart = one_pattern(vec![looping(counting(1), 32, 33), counting(8)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert!(!entry(&project, 0, 0).fill());
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..42));
+}

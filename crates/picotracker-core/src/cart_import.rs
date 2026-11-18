@@ -1,31 +1,47 @@
 //! Cart Import: turns a Cart and a chosen song into a Project and warnings.
 //!
-//! This covers simple music: the first song of the Cart, whose Patterns play their SFX straight
-//! through. A Pattern whose timing PICO-8 would play differently is imported as stored and warned
-//! about.
+//! This covers the first song of the Cart. Each Pattern is rebuilt from what PICO-8 plays, not from
+//! the stored SFX (ADR 0006).
 
-use crate::cart::{Cart, SFX_NOTES, SLOTS, Sfx};
+mod rebuild;
+
+use crate::cart::{Cart, SLOTS};
 use crate::project::{
-    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Filters, Phrase, PhraseId, Project, Step,
-    TargetCart,
+    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, TargetCart,
 };
+use rebuild::{has_bit_7, rebuild_pattern};
 use std::collections::BTreeSet;
 
 const LAST_SLOT: u8 = SLOTS as u8 - 1;
-/// Bit 7 of byte 66 marks an SFX as a Waveform Instrument.
-const WAVEFORM_FLAG: u8 = 0x80;
-const NOIZ_BIT: u8 = 0x02;
-const BUZZ_BIT: u8 = 0x04;
-const DETUNE_DIVISOR: u8 = 8;
-const REVERB_DIVISOR: u8 = 24;
-const DAMPEN_DIVISOR: u8 = 72;
-const FILTER_LEVELS: u8 = 3;
 
 /// A Project rebuilt from a Cart, and everything about it that differs from the Cart.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportedCart {
     pub project: Project,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<ImportWarning>,
+}
+
+/// Something about an Import that the user should know.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportWarning {
+    pub text: String,
+    /// The place in the Song it is about, if it is about one place.
+    pub place: Option<SongPlace>,
+}
+
+impl ImportWarning {
+    fn general(text: String) -> Self {
+        Self { text, place: None }
+    }
+}
+
+/// A place in the imported Song.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SongPlace {
+    pub song_row: usize,
+    pub track: usize,
+    pub chain_row: usize,
+    pub step: usize,
 }
 
 /// The Patterns of one song.
@@ -64,73 +80,6 @@ fn first_song(cart: &Cart) -> Option<SongRange> {
         last,
         loop_row,
     })
-}
-
-/// How many notes of an SFX play: its LEN if it has one, or else all of them.
-fn played_notes(sfx: Sfx<'_>) -> usize {
-    let start = usize::from(sfx.loop_start());
-    if sfx.loop_end() == 0 && (1..=SFX_NOTES).contains(&start) {
-        start
-    } else {
-        SFX_NOTES
-    }
-}
-
-/// Whether an SFX plays once from its first note at a Speed the Project can hold.
-fn plays_straight_through(sfx: Sfx<'_>) -> bool {
-    let has_loop = sfx.loop_start() < sfx.loop_end();
-    let long_len = sfx.loop_end() == 0 && usize::from(sfx.loop_start()) > SFX_NOTES;
-    sfx.speed() > 0 && !has_loop && !long_len && sfx.loop_start() & WAVEFORM_FLAG == 0
-}
-
-/// Whether a Pattern lasts as long in the Project as in PICO-8: PICO-8 ends it with the left-most
-/// channel, and the Project with the longest.
-fn timing_is_simple(cart: &Cart, slot: u8) -> bool {
-    let pattern = cart.pattern(slot);
-    let sfx: Vec<Sfx<'_>> = (0..EXPORT_CHANNELS)
-        .filter_map(|channel| pattern.channel(channel))
-        .map(|played| cart.sfx(played))
-        .collect();
-    let ticks = |sfx: &Sfx<'_>| played_notes(*sfx) * usize::from(sfx.speed());
-    let left_most = sfx.first().map_or(0, ticks);
-    sfx.iter()
-        .all(|sfx| plays_straight_through(*sfx) && ticks(sfx) <= left_most)
-}
-
-fn filters_of(sfx: Sfx<'_>) -> Filters {
-    let byte = sfx.filters();
-    let level = |divisor: u8| i32::from(byte / divisor % FILTER_LEVELS);
-    let mut filters = Filters::default();
-    filters.set_noiz(byte & NOIZ_BIT != 0);
-    filters.set_buzz(byte & BUZZ_BIT != 0);
-    filters.set_detune(level(DETUNE_DIVISOR));
-    filters.set_reverb(level(REVERB_DIVISOR));
-    filters.set_dampen(level(DAMPEN_DIVISOR));
-    filters
-}
-
-/// The Phrase holding every stored note of an SFX, one Step per note.
-fn phrase_of(sfx: Sfx<'_>) -> Phrase {
-    let mut phrase = Phrase::default();
-    for index in 0..SFX_NOTES {
-        let note = sfx.note(index);
-        // The Cart codec hands out values that are always inside a Step's limits.
-        *phrase.step_mut(index) =
-            Step::new(note.pitch, note.instrument, note.volume, note.effect).unwrap_or_default();
-    }
-    phrase.set_length(played_notes(sfx) as i32);
-    phrase.set_speed(i32::from(sfx.speed()));
-    *phrase.filters_mut() = filters_of(sfx);
-    phrase
-}
-
-/// The SFX slots that the audible notes of an SFX play as instruments.
-fn instruments_of(sfx: Sfx<'_>) -> BTreeSet<u8> {
-    (0..played_notes(sfx))
-        .map(|index| sfx.note(index))
-        .filter(|note| note.custom && note.volume > 0)
-        .map(|note| note.instrument)
-        .collect()
 }
 
 /// Gives equal Phrases and equal Chains one id each.
@@ -178,7 +127,9 @@ pub fn import(cart: &Cart, cart_path: &str) -> ImportedCart {
         claim = build_song(cart, song, &mut project, &mut warnings);
         let more_music = (song.last..LAST_SLOT).any(|slot| !cart.pattern(slot + 1).is_empty());
         if more_music {
-            warnings.push("CART HOLDS MORE MUSIC: IMPORTED SONG 1 ONLY".to_owned());
+            warnings.push(ImportWarning::general(
+                "CART HOLDS MORE MUSIC: IMPORTED SONG 1 ONLY".to_owned(),
+            ));
         }
     }
 
@@ -191,35 +142,120 @@ pub fn import(cart: &Cart, cart_path: &str) -> ImportedCart {
     ImportedCart { project, warnings }
 }
 
+/// Says which Step was lost where a Pattern ends inside it.
+fn lost_step_warning(
+    pattern: u8,
+    place: SongPlace,
+    phrase: Option<(PhraseId, usize)>,
+) -> ImportWarning {
+    let track = place.track + 1;
+    let (lost, step) = match phrase {
+        Some((id, length)) => (
+            format!("T{track} PHRASE {:02X} LOST ITS LAST STEP.", id.number()),
+            length - 1,
+        ),
+        None => (format!("T{track} LOST ITS ONLY STEP."), 0),
+    };
+    ImportWarning {
+        text: format!("PATTERN {pattern:02X} ENDS INSIDE A STEP: {lost}"),
+        place: Some(SongPlace { step, ..place }),
+    }
+}
+
 /// Writes a song into the Project, one Song row per Pattern, and says what it claims.
 fn build_song(
     cart: &Cart,
     song: SongRange,
     project: &mut Project,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<ImportWarning>,
 ) -> Claim {
     let mut shared = Shared::default();
     let mut claimed = BTreeSet::new();
     let mut with_instruments = BTreeSet::new();
+    let mut spd_0_warned = BTreeSet::new();
+    let mut bit_7_warned = BTreeSet::new();
     for (row, slot) in (song.first..=song.last).enumerate() {
         let pattern = cart.pattern(slot);
-        if !timing_is_simple(cart, slot) {
-            warnings.push(format!(
-                "PATTERN {slot:02X} MAY NOT PLAY AS IN PICO-8: TIMING"
-            ));
+        claimed.extend((0..EXPORT_CHANNELS).filter_map(|channel| pattern.channel(channel)));
+        let rebuilt = rebuild_pattern(cart, pattern);
+        if rebuilt.only_bit_7 {
+            let track = (0..EXPORT_CHANNELS).find(|&c| pattern.channel(c).is_some());
+            warnings.push(ImportWarning {
+                text: format!(
+                    "PATTERN {slot:02X} HOLDS ONLY BIT 7 SFX: THE CART STALLS HERE, THE EXPORTED \
+                     SONG PLAYS THROUGH."
+                ),
+                place: track.map(|track| SongPlace {
+                    song_row: row,
+                    track,
+                    chain_row: 0,
+                    step: 0,
+                }),
+            });
         }
         for channel in 0..EXPORT_CHANNELS {
-            let mut chain = Chain::default();
             if let Some(played) = pattern.channel(channel) {
+                let place = SongPlace {
+                    song_row: row,
+                    track: channel,
+                    chain_row: 0,
+                    step: 0,
+                };
                 let sfx = cart.sfx(played);
-                let phrase = shared.phrase(project, phrase_of(sfx));
-                *chain.entry_mut(0) = Some(ChainEntry::new(phrase));
-                claimed.insert(played);
-                let instruments = instruments_of(sfx);
-                if !instruments.is_empty() {
-                    with_instruments.insert(played);
+                if sfx.speed() == 0 && spd_0_warned.insert(played) {
+                    warnings.push(ImportWarning {
+                        text: format!(
+                            "SFX {played:02X} HAS SPD 0: SET TO SPEED 1, TIMING FOLLOWS PICO-8."
+                        ),
+                        place: Some(place),
+                    });
                 }
-                claimed.extend(instruments);
+                if has_bit_7(sfx) && bit_7_warned.insert(played) {
+                    warnings.push(ImportWarning {
+                        text: format!(
+                            "SFX {played:02X} HAS BIT 7 SET: IMPORTED AS A PLAIN PHRASE THAT \
+                             NEVER SETS THE PATTERN LENGTH."
+                        ),
+                        place: Some(place),
+                    });
+                }
+            }
+            let mut chain = Chain::default();
+            for (k, chain_row) in rebuilt.chain_rows.iter().enumerate() {
+                let (Some(played), Some(rebuilt)) = (pattern.channel(channel), &chain_row[channel])
+                else {
+                    continue;
+                };
+                let place = SongPlace {
+                    song_row: row,
+                    track: channel,
+                    chain_row: k,
+                    step: 0,
+                };
+                let mut phrase = None;
+                if let Some(entry) = &rebuilt.entry {
+                    let id = shared.phrase(project, entry.phrase);
+                    let mut chain_entry = ChainEntry::new(id);
+                    chain_entry.set_fill(entry.fill);
+                    *chain.entry_mut(k) = Some(chain_entry);
+                    phrase = Some((id, entry.phrase.length()));
+                    if !entry.instruments.is_empty() {
+                        with_instruments.insert(played);
+                    }
+                    claimed.extend(entry.instruments.iter().copied());
+                }
+                if rebuilt.lost_step {
+                    warnings.push(lost_step_warning(slot, place, phrase));
+                }
+                if let Some(needed) = rebuilt.unroll_needed {
+                    warnings.push(ImportWarning {
+                        text: format!(
+                            "SFX {played:02X} LEAD-IN NEEDS {needed} STEPS UNROLLED: KEPT AS FILL \
+                             OVER THE LOOP BODY ONLY."
+                        ),
+                        place: Some(place),
+                    });
+                }
             }
             let chain = shared.chain(project, chain);
             project.set_song_cell(row, channel, Some(chain));
@@ -229,7 +265,8 @@ fn build_song(
     warnings.extend(
         with_instruments
             .iter()
-            .map(|slot| format!("SFX {slot:02X} PLAYS SFX INSTRUMENTS AS BUILT-IN ONES")),
+            .map(|slot| format!("SFX {slot:02X} PLAYS SFX INSTRUMENTS AS BUILT-IN ONES"))
+            .map(ImportWarning::general),
     );
     Claim {
         sfx: claimed.into_iter().collect(),
