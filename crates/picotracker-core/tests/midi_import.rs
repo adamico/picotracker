@@ -1,10 +1,10 @@
 //! The MIDI compiler: small files built in code go in, expected Projects and warnings come out.
 
-mod support;
+mod midi_support;
 
 use picotracker_core::midi_import::{self, Analysis, Choices, Imported};
 use picotracker_core::project::{Phrase, Project, Step};
-use support::{BEAT, STEP, Song};
+use midi_support::{BEAT, STEP, Song};
 
 const TILTED_SAW: u8 = 1;
 const MIDDLE_C: u8 = 60;
