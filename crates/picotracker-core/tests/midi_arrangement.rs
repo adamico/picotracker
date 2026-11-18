@@ -2,9 +2,9 @@
 
 mod midi_support;
 
+use midi_support::{STEP, Song};
 use picotracker_core::midi_import::{self, Analysis, Choices, Imported};
 use picotracker_core::project::{Phrase, Project, Step};
-use midi_support::{STEP, Song};
 
 const MIDDLE_C: u8 = 60;
 const MIDDLE_C_PITCH: u8 = 24;

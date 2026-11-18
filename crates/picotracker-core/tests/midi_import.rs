@@ -2,9 +2,9 @@
 
 mod midi_support;
 
+use midi_support::{BEAT, STEP, Song};
 use picotracker_core::midi_import::{self, Analysis, Choices, Imported};
 use picotracker_core::project::{Phrase, Project, Step};
-use midi_support::{BEAT, STEP, Song};
 
 const TILTED_SAW: u8 = 1;
 const MIDDLE_C: u8 = 60;
