@@ -458,6 +458,15 @@ pub struct TargetCart {
     pub claimed_bytes_hash: Option<String>,
 }
 
+/// A place in the Song that a message is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SongPlace {
+    pub song_row: usize,
+    pub track: usize,
+    pub chain_row: usize,
+    pub step: usize,
+}
+
 /// The tracker's saved work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {

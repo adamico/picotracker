@@ -16,7 +16,7 @@ mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
 pub use files::{DirectoryEntry, FileRequest, FileResponse};
-pub use messages::{Location, LogItem, Report, Severity};
+pub use messages::{LogItem, Report, Severity};
 
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::CHAIN_ENTRIES;

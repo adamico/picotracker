@@ -3,7 +3,8 @@
 use super::{HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
 use crate::app::layout::Area;
-use crate::app::messages::{Location, LogItem, Severity};
+use crate::app::messages::{LogItem, Severity};
+use crate::project::SongPlace;
 use crate::screen::grid::{Grid, Style};
 use crate::screen::palette::Colour;
 
@@ -41,7 +42,7 @@ impl LogPane {
     }
 
     /// The place the picked item is about, if it has one.
-    pub fn picked_location(&self) -> Option<Location> {
+    pub fn picked_location(&self) -> Option<SongPlace> {
         self.items.get(self.picked)?.location
     }
 
