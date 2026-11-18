@@ -93,7 +93,31 @@ impl Default for PhrasePane {
     }
 }
 
+/// Where the Phrase pane's cursor is.
+#[derive(Clone, Copy, Debug)]
+pub struct PhraseSpot {
+    step: usize,
+    column: usize,
+    header_row: Option<usize>,
+}
+
 impl PhrasePane {
+    /// Where the cursor is now.
+    pub fn spot(&self) -> PhraseSpot {
+        PhraseSpot {
+            step: self.step,
+            column: self.column,
+            header_row: self.header_row,
+        }
+    }
+
+    /// Puts the cursor back where it was.
+    pub fn return_to(&mut self, spot: PhraseSpot) {
+        self.step = spot.step;
+        self.column = spot.column;
+        self.header_row = spot.header_row;
+    }
+
     /// The Step under the cursor.
     pub fn step(&self) -> usize {
         self.step

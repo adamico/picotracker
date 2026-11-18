@@ -1,6 +1,10 @@
 //! Project model: the Song, Chains, Phrases, Steps, Instruments, Export Tracks, Target Cart and
 //! Claim, plus validated edits.
 
+mod change;
+
+pub(crate) use change::ProjectChange;
+
 use std::collections::BTreeMap;
 
 /// The most Steps a Phrase can hold.
