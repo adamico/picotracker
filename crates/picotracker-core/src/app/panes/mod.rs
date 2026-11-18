@@ -3,6 +3,7 @@
 pub mod chain;
 pub mod file_list;
 pub mod log;
+pub mod midi_dialog;
 pub mod overview;
 pub mod phrase;
 pub mod song;
