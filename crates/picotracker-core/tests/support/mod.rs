@@ -139,9 +139,8 @@ impl TestPattern {
 
     /// The Pattern's `__music__` line.
     pub fn line(&self) -> String {
-        let flags = u8::from(self.loop_start)
-            | u8::from(self.loop_back) << 1
-            | u8::from(self.stop) << 2;
+        let flags =
+            u8::from(self.loop_start) | u8::from(self.loop_back) << 1 | u8::from(self.stop) << 2;
         let [a, b, c, d] = self.bytes().map(|byte| byte & 0x7f);
         format!("{flags:02x} {a:02x}{b:02x}{c:02x}{d:02x}")
     }

@@ -1,8 +1,8 @@
-//! The file list, drawn in the right-hand slot while a Project is opened or saved.
+//! The file list, drawn in the right-hand slot while a file is opened, saved or Imported.
 
 use super::{HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
-use crate::app::files::DirectoryEntry;
+use crate::app::files::{DirectoryEntry, import_kind};
 use crate::app::layout::Area;
 use crate::screen::grid::{Grid, Style};
 use crate::screen::palette::Colour;
@@ -24,6 +24,17 @@ const POINTER: Style = Style::fg(Colour::Yellow);
 pub enum Purpose {
     Open,
     SaveAs,
+    Import,
+}
+
+impl Purpose {
+    /// Whether the list shows a file with this name.
+    fn lists(self, name: &str) -> bool {
+        match self {
+            Self::Open | Self::SaveAs => is_project_file(name),
+            Self::Import => import_kind(name).is_some(),
+        }
+    }
 }
 
 /// What Enter leads to.
@@ -35,6 +46,8 @@ pub enum Choice {
     Folder(PathBuf),
     /// Open this file.
     Open(PathBuf),
+    /// Import this file.
+    Import(PathBuf),
     /// Save to this file, which may already exist.
     Save { path: PathBuf, exists: bool },
 }
@@ -71,11 +84,12 @@ impl FileList {
         self.purpose
     }
 
-    /// Shows what a folder holds: its folders, then its Project files, each in name order.
+    /// Shows what a folder holds: its folders, then the files this list is for, each in name
+    /// order.
     pub fn show(&mut self, directory: PathBuf, entries: Vec<DirectoryEntry>) {
         let mut rows: Vec<Row> = entries
             .into_iter()
-            .filter(|entry| entry.is_directory || is_project_file(&entry.name))
+            .filter(|entry| entry.is_directory || self.purpose.lists(&entry.name))
             .map(|entry| Row {
                 name: entry.name,
                 is_directory: entry.is_directory,
@@ -122,12 +136,16 @@ impl FileList {
             Choice::Folder(parent_of(&self.directory))
         } else if row.is_directory {
             Choice::Folder(self.directory.join(&row.name))
-        } else if self.purpose == Purpose::Open {
-            Choice::Open(self.directory.join(&row.name))
         } else {
-            self.name.clone_from(&row.name);
-            self.picked = 0;
-            Choice::Stay
+            match self.purpose {
+                Purpose::Open => Choice::Open(self.directory.join(&row.name)),
+                Purpose::Import => Choice::Import(self.directory.join(&row.name)),
+                Purpose::SaveAs => {
+                    self.name.clone_from(&row.name);
+                    self.picked = 0;
+                    Choice::Stay
+                }
+            }
         }
     }
 
@@ -151,6 +169,7 @@ impl FileList {
         let title = match self.purpose {
             Purpose::Open => "OPEN PROJECT",
             Purpose::SaveAs => "SAVE PROJECT AS",
+            Purpose::Import => "IMPORT FILE",
         };
         draw_title(grid, area.column, 0, title, true);
         let directory = self.directory.to_string_lossy();

@@ -285,10 +285,12 @@ fn decode_png(bytes: &[u8]) -> Option<Vec<u8>> {
     reader.next_frame(&mut pixels).ok()?;
     Some(
         pixels
-            .chunks_exact(PNG_CHANNELS)
+            .as_chunks::<PNG_CHANNELS>()
+            .0
+            .iter()
             .take(MUSIC_END)
             .map(|pixel| {
-                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]].map(|bits| bits & 3);
+                let [r, g, b, a] = pixel.map(|bits| bits & 3);
                 a << 6 | r << 4 | g << 2 | b
             })
             .collect(),
@@ -363,10 +365,8 @@ fn parse_sfx_line(line: &[u8]) -> Option<[u8; SFX_BYTES]> {
     for (index, byte) in sfx[FILTERS_BYTE..].iter_mut().enumerate() {
         *byte = digits[index * 2] << 4 | digits[index * 2 + 1];
     }
-    for (index, note) in digits[SFX_HEADER_DIGITS..]
-        .chunks_exact(NOTE_DIGITS)
-        .enumerate()
-    {
+    let notes = digits[SFX_HEADER_DIGITS..].as_chunks::<NOTE_DIGITS>().0;
+    for (index, note) in notes.iter().enumerate() {
         let pitch = u16::from(note[0] << 4 | note[1]) & 0x3f;
         let instrument = u16::from(note[2] & 7);
         let custom = u16::from(note[2] >> 3);
