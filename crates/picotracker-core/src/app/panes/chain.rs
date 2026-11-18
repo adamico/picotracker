@@ -46,6 +46,11 @@ pub struct ChainPane {
 }
 
 impl ChainPane {
+    /// Puts the cursor on a Chain entry.
+    pub fn jump_to(&mut self, entry: usize) {
+        self.entry = entry.min(CHAIN_ENTRIES - 1);
+    }
+
     pub fn move_cursor(&mut self, direction: Direction) {
         let (columns, rows) = direction.delta();
         self.column = stepped(self.column, columns, COLUMNS.len());

@@ -42,4 +42,4 @@ SONG  LOOP 00               │CHAIN --  T1 ROW 00              │PHRASE --   O
 27  -- -- -- -- -- -- -- -- │                                 │                   │
 28  -- -- -- -- -- -- -- -- │                                 │                   │
 29  -- -- -- -- -- -- -- -- │                                 │                   │
-READY
+^N NEW  ^O OPEN  ^S SAVE  ^L LOG  SPACE PLAY                                                      UNTITLED

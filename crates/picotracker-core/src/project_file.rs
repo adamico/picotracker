@@ -250,7 +250,10 @@ impl ProjectDocument {
         project.set_default_speed(i32::from(self.default_speed));
 
         if let Some(row) = self.song_loop_row {
-            require(usize::from(row) < SONG_ROWS, "SONG LOOP ROW IS OUT OF RANGE")?;
+            require(
+                usize::from(row) < SONG_ROWS,
+                "SONG LOOP ROW IS OUT OF RANGE",
+            )?;
         }
         project.set_song_loop_row(self.song_loop_row.map(usize::from));
 
@@ -447,13 +450,7 @@ impl PhraseDocument {
         )?;
         require(self.speed >= 1, "PHRASE SPEED IS 0")?;
         require(self.steps.len() <= MAX_STEPS, "PHRASE HAS TOO MANY STEPS")?;
-        let filters = read_filters(
-            self.noiz,
-            self.buzz,
-            self.detune,
-            self.reverb,
-            self.dampen,
-        )?;
+        let filters = read_filters(self.noiz, self.buzz, self.detune, self.reverb, self.dampen)?;
 
         let phrase = project.phrase_mut(PhraseId::new(self.id));
         phrase.set_length(i32::from(self.length));
