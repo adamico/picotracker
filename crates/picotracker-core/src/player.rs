@@ -1,7 +1,7 @@
 //! Player: turns a Project and a play request into the Playhead and samples. The Window shell
 //! owns the audio stream that carries them to a device.
 
-use crate::project::{CHAIN_ENTRIES, ChainEntry, MAX_STEPS, Phrase, Project, TRACKS};
+use crate::project::{CHAIN_ENTRIES, ChainEntry, MAX_STEPS, Phrase, PhraseId, Project, TRACKS};
 use crate::synth::{Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
 use std::sync::Arc;
 
@@ -10,7 +10,8 @@ use std::sync::Arc;
 pub enum AudioRequest {
     /// Loops one Phrase over its LEN, starting from one of its Steps.
     PlayPhrase {
-        phrase: Phrase,
+        project: Arc<Project>,
+        phrase: PhraseId,
         transpose: i8,
         from_step: usize,
     },
@@ -27,6 +28,9 @@ pub enum AudioRequest {
         project: Arc<Project>,
         from_row: usize,
     },
+    /// Swaps in the edited Project. What is playing carries on and hears each change the next time
+    /// the Playhead reaches it.
+    UpdateProject(Arc<Project>),
     /// Cuts the sound at once.
     Stop,
 }
@@ -38,48 +42,158 @@ enum Route {
     Song,
     /// One Track, round and round the Chain rows of one Song row.
     Chain { track: usize },
+    /// One Phrase alone, round and round its LEN.
+    Phrase { phrase: PhraseId, transpose: i8 },
 }
 
-/// The place in a Project that is playing, advanced one Chain row at a time.
+/// How far a Track has got through its entry of the current Chain row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum LaneState {
+    /// No entry, or one that was cleared while it played.
+    #[default]
+    Idle,
+    Playing,
+    /// Played to its LEN, and silent until the next Chain row.
+    Finished,
+}
+
+/// One Track's place in the current Chain row. Every Track keeps time, heard or not.
+#[derive(Clone, Copy, Debug, Default)]
+struct Lane {
+    state: LaneState,
+    fill: bool,
+    /// Whether a Fill entry has played its Phrase through at least once.
+    played_through: bool,
+    step: usize,
+    samples_left: u64,
+}
+
+impl Lane {
+    fn starting(entry: Option<ChainEntry>, project: &Project, from_step: usize) -> Self {
+        let Some(entry) = entry else {
+            return Self::default();
+        };
+        let phrase = project.phrase(entry.phrase());
+        Self {
+            state: LaneState::Playing,
+            fill: entry.fill(),
+            played_through: false,
+            step: from_step.min(phrase.length() - 1),
+            samples_left: step_samples(phrase),
+        }
+    }
+
+    /// Moves on from a finished Step, reading the entry as it stands now.
+    fn finish_step(&mut self, entry: Option<ChainEntry>, project: &Project) {
+        let Some(entry) = entry else {
+            self.state = LaneState::Idle;
+            return;
+        };
+        let phrase = project.phrase(entry.phrase());
+        self.fill = entry.fill();
+        if self.step + 1 < phrase.length() {
+            self.step += 1;
+        } else if entry.fill() {
+            self.step = 0;
+            self.played_through = true;
+        } else {
+            self.state = LaneState::Finished;
+            return;
+        }
+        self.samples_left = step_samples(phrase);
+    }
+}
+
+/// How long one Step of a Phrase lasts.
+fn step_samples(phrase: &Phrase) -> u64 {
+    u64::from(phrase.speed()) * u64::from(SAMPLES_PER_TICK)
+}
+
+/// The place in a Project that is playing, advanced one Step at a time.
 #[derive(Clone, Debug)]
 struct Sequence {
     project: Arc<Project>,
     route: Route,
     row: usize,
     k: usize,
-    samples_left: u64,
+    lanes: [Lane; TRACKS],
+    /// A looping Chain with nothing left to play waits here for an edit to give it notes again.
+    waiting: bool,
 }
 
 impl Sequence {
-    /// The Chain row that plays after this one, if the Song has not ended.
+    /// The Chain row that plays after this one, if the Song has not ended. A Song row emptied
+    /// while it played acts like reaching an empty row.
     fn next_chain_row(&self) -> Option<(usize, usize)> {
         let project = &self.project;
         let later_in_row = first_chain_row(project, self.row, self.k + 1);
         match self.route {
+            Route::Phrase { .. } => None,
             Route::Chain { .. } => later_in_row
                 .or_else(|| first_chain_row(project, self.row, 0))
                 .map(|k| (self.row, k)),
-            Route::Song => later_in_row.map(|k| (self.row, k)).or_else(|| {
+            Route::Song => {
+                let emptied = project.song_row_is_empty(self.row);
+                if let Some(k) = later_in_row.filter(|_| !emptied) {
+                    return Some((self.row, k));
+                }
                 let next_row = self.row + 1;
-                let row = if project.song_row_is_empty(next_row) {
+                let row = if emptied || project.song_row_is_empty(next_row) {
                     project.song_loop_row()?
                 } else {
                     next_row
                 };
                 Some((row, first_chain_row(project, row, 0)?))
-            }),
+            }
         }
     }
 
-    /// The entry a Track plays in the current Chain row.
+    /// The entry that keeps time on a Track, as the Project stands now.
     fn entry(&self, track: usize) -> Option<ChainEntry> {
-        let sounds = match self.route {
+        match self.route {
+            Route::Phrase { phrase, transpose } => (track == 0).then(|| {
+                let mut entry = ChainEntry::new(phrase);
+                entry.set_transpose(i32::from(transpose));
+                entry.set_fill(true);
+                entry
+            }),
+            _ => self.project.chain_row_entry(self.row, track, self.k),
+        }
+    }
+
+    /// Whether a Track is heard on this route.
+    fn sounds(&self, track: usize) -> bool {
+        match self.route {
             Route::Song => true,
             Route::Chain { track: alone } => track == alone,
-        };
-        sounds
-            .then(|| self.project.chain_row_entry(self.row, track, self.k))
-            .flatten()
+            Route::Phrase { .. } => track == 0,
+        }
+    }
+
+    /// The sound of a Track's entry, if the Track is heard.
+    fn sound(&self, track: usize) -> Option<Sound> {
+        let entry = self.entry(track).filter(|_| self.sounds(track))?;
+        Some(entry_sound(self.project.phrase(entry.phrase()), entry))
+    }
+
+    /// Whether every entry that sets the Chain row's length has played out: the entries not marked
+    /// Fill, or the longest entry when all are marked Fill.
+    fn chain_row_is_over(&self) -> bool {
+        if matches!(self.route, Route::Phrase { .. }) {
+            return false;
+        }
+        let mut plain = self
+            .lanes
+            .iter()
+            .filter(|lane| lane.state != LaneState::Idle && !lane.fill)
+            .peekable();
+        if plain.peek().is_some() {
+            return plain.all(|lane| lane.state == LaneState::Finished);
+        }
+        self.lanes
+            .iter()
+            .filter(|lane| lane.state == LaneState::Playing)
+            .all(|lane| lane.played_through)
     }
 }
 
@@ -116,16 +230,15 @@ impl Player {
 
     /// Carries out one request.
     pub fn handle(&mut self, request: AudioRequest) {
-        self.cut();
         match request {
             AudioRequest::PlayPhrase {
+                project,
                 phrase,
                 transpose,
                 from_step,
             } => {
-                self.plays += 1;
-                let sound = sound(&phrase, transpose, 0, phrase.length() as u8);
-                self.voices[0].play(sound, from_step);
+                let route = Route::Phrase { phrase, transpose };
+                self.start(project, route, 0, Some(0), from_step);
             }
             AudioRequest::PlayChain {
                 project,
@@ -135,13 +248,14 @@ impl Player {
             } => {
                 let k = first_chain_row(&project, song_row, from_entry)
                     .or_else(|| first_chain_row(&project, song_row, 0));
-                self.start(project, Route::Chain { track }, song_row, k);
+                self.start(project, Route::Chain { track }, song_row, k, 0);
             }
             AudioRequest::PlaySong { project, from_row } => {
                 let k = first_chain_row(&project, from_row, 0);
-                self.start(project, Route::Song, from_row, k);
+                self.start(project, Route::Song, from_row, k, 0);
             }
-            AudioRequest::Stop => {}
+            AudioRequest::UpdateProject(project) => self.update_project(project),
+            AudioRequest::Stop => self.cut(),
         }
     }
 
@@ -158,57 +272,120 @@ impl Player {
         }
     }
 
-    fn start(&mut self, project: Arc<Project>, route: Route, row: usize, k: Option<usize>) {
+    fn update_project(&mut self, project: Arc<Project>) {
+        let Some(sequence) = self.sequence.as_mut() else {
+            return;
+        };
+        sequence.project = project;
+        if sequence.waiting {
+            self.leave_chain_row();
+        }
+    }
+
+    fn start(
+        &mut self,
+        project: Arc<Project>,
+        route: Route,
+        row: usize,
+        k: Option<usize>,
+        from_step: usize,
+    ) {
+        self.cut();
         self.plays += 1;
         let Some(k) = k else {
             self.finished_play = self.plays;
             return;
         };
-        self.enter_chain_row(Sequence {
+        let sequence = Sequence {
             project,
             route,
             row,
             k,
-            samples_left: 0,
-        });
+            lanes: [Lane::default(); TRACKS],
+            waiting: false,
+        };
+        self.enter_chain_row(sequence, from_step);
     }
 
     /// Starts every Track on a Chain row. A Track with no entry lets its sound die away.
-    fn enter_chain_row(&mut self, mut sequence: Sequence) {
+    fn enter_chain_row(&mut self, mut sequence: Sequence, from_step: usize) {
         for (track, voice) in self.voices.iter_mut().enumerate() {
-            let sound = sequence.entry(track).map_or_else(Sound::default, |entry| {
-                entry_sound(sequence.project.phrase(entry.phrase()), entry)
-            });
-            voice.play(sound, 0);
+            let lane = Lane::starting(sequence.entry(track), &sequence.project, from_step);
+            sequence.lanes[track] = lane;
+            voice.play(sequence.sound(track).unwrap_or_default(), lane.step);
         }
-        let ticks = sequence.project.chain_row_ticks(sequence.row, sequence.k);
-        sequence.samples_left = u64::from(ticks) * u64::from(SAMPLES_PER_TICK);
         self.sequence = Some(sequence);
     }
 
-    /// Moves to the next Chain row when the current one has run out.
+    /// Goes on to the next Chain row. With none to go to, a looping Chain waits for an edit and
+    /// anything else ends the play.
+    fn leave_chain_row(&mut self) {
+        let Some(mut sequence) = self.sequence.take() else {
+            return;
+        };
+        if let Some((row, k)) = sequence.next_chain_row() {
+            (sequence.row, sequence.k) = (row, k);
+            sequence.waiting = false;
+            self.enter_chain_row(sequence, 0);
+            return;
+        }
+        for voice in &mut self.voices {
+            voice.play(Sound::default(), 0);
+        }
+        if matches!(sequence.route, Route::Chain { .. }) {
+            sequence.lanes = [Lane::default(); TRACKS];
+            sequence.waiting = true;
+            self.sequence = Some(sequence);
+        } else {
+            self.finished_play = self.plays;
+        }
+    }
+
+    /// Moves every Track that has finished a Step on to its next one, reading the Project as it
+    /// stands now. A Step already sounding is never touched.
     fn advance(&mut self) {
         let Some(sequence) = self.sequence.as_mut() else {
             return;
         };
-        if sequence.samples_left == 0 {
-            let mut sequence = self.sequence.take().expect("a sequence is playing");
-            match sequence.next_chain_row() {
-                Some((row, k)) => {
-                    (sequence.row, sequence.k) = (row, k);
-                    self.enter_chain_row(sequence);
-                }
-                None => {
-                    self.finished_play = self.plays;
-                    for voice in &mut self.voices {
-                        voice.play(Sound::default(), 0);
-                    }
-                    return;
-                }
+        let mut moved = [false; TRACKS];
+        for (track, moved) in moved.iter_mut().enumerate() {
+            let lane = sequence.lanes[track];
+            if lane.state == LaneState::Playing && lane.samples_left == 0 {
+                let entry = sequence.entry(track);
+                sequence.lanes[track].finish_step(entry, &sequence.project);
+                *moved = true;
+            }
+        }
+        if moved.contains(&true) {
+            if sequence.chain_row_is_over() {
+                self.leave_chain_row();
+            } else {
+                self.start_next_steps(moved);
             }
         }
         if let Some(sequence) = self.sequence.as_mut() {
-            sequence.samples_left -= 1;
+            for lane in &mut sequence.lanes {
+                if lane.state == LaneState::Playing {
+                    lane.samples_left -= 1;
+                }
+            }
+        }
+    }
+
+    /// Gives each Track that has just moved the Step it moved to, or silence if its entry is over.
+    fn start_next_steps(&mut self, moved: [bool; TRACKS]) {
+        let Some(sequence) = self.sequence.as_ref() else {
+            return;
+        };
+        for track in (0..TRACKS).filter(|&track| moved[track]) {
+            let lane = sequence.lanes[track];
+            let sound = sequence
+                .sound(track)
+                .filter(|_| lane.state == LaneState::Playing);
+            match sound {
+                Some(sound) => self.voices[track].continue_at(sound, lane.step),
+                None => self.voices[track].play(Sound::default(), 0),
+            }
         }
     }
 
@@ -225,18 +402,13 @@ impl Player {
     }
 }
 
-/// The sound of a Chain entry: Fill loops the Phrase, and otherwise it plays once over its LEN.
+/// The sound of a Chain entry. It loops over LEN, because the Player decides when each Step and
+/// the entry itself end.
 fn entry_sound(phrase: &Phrase, entry: ChainEntry) -> Sound {
-    let length = phrase.length() as u8;
-    if entry.fill() {
-        sound(phrase, entry.transpose(), 0, length)
-    } else {
-        sound(phrase, entry.transpose(), length, 0)
-    }
+    sound(phrase, entry.transpose(), 0, phrase.length() as u8)
 }
 
-/// The sound of a Phrase, with each Step at its true pitch after the transpose. A loop start with
-/// a loop end of 0 is PICO-8's LEN.
+/// The sound of a Phrase, with each Step at its true pitch after the transpose.
 fn sound(phrase: &Phrase, transpose: i8, loop_start: u8, loop_end: u8) -> Sound {
     let mut notes = [Note::default(); MAX_STEPS];
     for (index, note) in notes.iter_mut().enumerate() {
