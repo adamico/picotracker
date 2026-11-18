@@ -1,0 +1,186 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway decision aid for adamico/picotracker#18. Never merge.
+     Three layouts for the MIDI Import dialog on the 106×45 grid (640×360, 6×8 cells, 5×7 font, PICO-8 palette).
+     Switch with ?variant=A|B|C, the bottom bar, or keys 1–3. The MIDI file is fake; all text is draft copy.
+       A  One page: everything on one full-screen view.
+       B  Step by step: Voices, Steps per beat, Instruments, Review.
+       C  Live preview: the normal panes show the Project that would be built; settings fold up on the right. -->
+<html><head><meta charset="utf-8"><title>MIDI Import prototype</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px sans-serif}
+#stage{position:fixed;left:0;top:0;bottom:0;right:300px;display:flex;align-items:center;justify-content:center;background:#0b0b0b}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block;background:#000}
+#side{position:fixed;top:0;right:0;bottom:0;width:300px;background:#f4f4f4;color:#000;overflow:auto;padding:10px;box-sizing:border-box;font-size:12px}
+#side h3{margin:10px 0 4px;font-size:13px}#side .vdesc{background:#fff;border:1px solid #ccc;border-radius:6px;padding:6px;margin-bottom:6px}
+#side .k{font-family:monospace;background:#ddd;padding:0 3px;border-radius:3px}#side pre{font-size:10.5px;white-space:pre-wrap;background:#fff;border:1px solid #ccc;border-radius:6px;padding:6px;margin:0}
+#bar{position:fixed;bottom:12px;left:calc(50% - 150px);transform:translateX(-50%);background:#fff;color:#000;border-radius:20px;padding:6px 14px;box-shadow:0 2px 12px #000a;font:bold 13px sans-serif;display:flex;gap:12px;align-items:center;z-index:9}
+#bar button{border:0;background:#000;color:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer}
+</style></head><body>
+<div id="stage"><canvas id="c"></canvas></div>
+<div id="side"></div>
+<div id="bar"><button id="prev">◀</button><span id="lbl"></span><button id="next">▶</button></div>
+<script>
+const F57={0:'.xxx./x...x/x..xx/x.x.x/xx..x/x...x/.xxx.',1:'..x../.xx../..x../..x../..x../..x../.xxx.',2:'.xxx./x...x/....x/...x./..x../.x.../xxxxx',3:'xxxxx/...x./..x../...x./....x/x...x/.xxx.',4:'...x./..xx./.x.x./x..x./xxxxx/...x./...x.',5:'xxxxx/x..../xxxx./....x/....x/x...x/.xxx.',6:'..xx./.x.../x..../xxxx./x...x/x...x/.xxx.',7:'xxxxx/....x/...x./..x../.x.../.x.../.x...',8:'.xxx./x...x/x...x/.xxx./x...x/x...x/.xxx.',9:'.xxx./x...x/x...x/.xxxx/....x/...x./.xx..',
+A:'.xxx./x...x/x...x/xxxxx/x...x/x...x/x...x',B:'xxxx./x...x/x...x/xxxx./x...x/x...x/xxxx.',C:'.xxx./x...x/x..../x..../x..../x...x/.xxx.',D:'xxx../x..x./x...x/x...x/x...x/x..x./xxx..',E:'xxxxx/x..../x..../xxxx./x..../x..../xxxxx',F:'xxxxx/x..../x..../xxxx./x..../x..../x....',G:'.xxx./x...x/x..../x.xxx/x...x/x...x/.xxxx',H:'x...x/x...x/x...x/xxxxx/x...x/x...x/x...x',I:'.xxx./..x../..x../..x../..x../..x../.xxx.',J:'..xxx/...x./...x./...x./...x./x..x./.xx..',K:'x...x/x..x./x.x../xx.../x.x../x..x./x...x',L:'x..../x..../x..../x..../x..../x..../xxxxx',M:'x...x/xx.xx/x.x.x/x.x.x/x...x/x...x/x...x',N:'x...x/x...x/xx..x/x.x.x/x..xx/x...x/x...x',O:'.xxx./x...x/x...x/x...x/x...x/x...x/.xxx.',P:'xxxx./x...x/x...x/xxxx./x..../x..../x....',Q:'.xxx./x...x/x...x/x...x/x.x.x/x..x./.xx.x',R:'xxxx./x...x/x...x/xxxx./x.x../x..x./x...x',S:'.xxxx/x..../x..../.xxx./....x/....x/xxxx.',T:'xxxxx/..x../..x../..x../..x../..x../..x..',U:'x...x/x...x/x...x/x...x/x...x/x...x/.xxx.',V:'x...x/x...x/x...x/x...x/x...x/.x.x./..x..',W:'x...x/x...x/x...x/x.x.x/x.x.x/x.x.x/.x.x.',X:'x...x/x...x/.x.x./..x../.x.x./x...x/x...x',Y:'x...x/x...x/x...x/.x.x./..x../..x../..x..',Z:'xxxxx/....x/...x./..x../.x.../x..../xxxxx',
+'-':'...../...../...../xxxxx/...../...../.....','+':'...../..x../..x../xxxxx/..x../..x../.....','#':'.x.x./.x.x./xxxxx/.x.x./xxxxx/.x.x./.x.x.','.':'...../...../...../...../...../.xx../.xx..',':':'...../.xx../.xx../...../.xx../.xx../.....','/':'...../....x/...x./..x../.x.../x..../.....','|':'..x../..x../..x../..x../..x../..x../..x..','~':'...../...../.x.../x.x.x/...x./...../.....','(':'...x./..x../.x.../.x.../.x.../..x../...x.',')':'.x.../..x../...x./...x./...x./..x../.x...','>':'x..../.x.../..x../...x./..x../.x.../x....','=':'...../...../xxxxx/...../xxxxx/...../.....','_':'...../...../...../...../...../...../xxxxx','?':'.xxx./x...x/....x/...x./..x../...../..x..',',':'...../...../...../...../.xx../..x../.x...','*':'...../..x../x.x.x/.xxx./x.x.x/..x../.....',
+'!':'..x../..x../..x../..x../..x../...../..x..','[':'.xxx./.x.../.x.../.x.../.x.../.x.../.xxx.',']':'.xxx./...x./...x./...x./...x./...x./.xxx.','<':'....x/...x./..x../.x.../..x../...x./....x','%':'xx..x/xx..x/...x./..x../.x.../x..xx/x..xx',"'":'..x../..x../.x.../...../...../...../.....'};
+const GL=Object.fromEntries(Object.entries(F57).map(([k,v])=>[k,v.split('/').map(r=>[...r].map(c=>c==='x'))]));
+const W=640,H=360,CW=6,CH=8,cols=106,rows=45;
+const PAL=['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#fff1e8','#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa'];
+const BG=0,NAVY=1,DIM=5,FG=6,WHITE=7,RED=8,ORA=9,HI=10,GRN=11,BLUE=12,HEAD=13,FILL=14;
+// ---------------- fake SONG.MID (11 voices, so 3 are dropped until the user unticks some) ----------------
+const V=(src,ch,name,voice,notes,prog,rate,base)=>({src,ch,name,voice,notes,prog,rate,base,on:true});
+const voices=[V(1,1,'PIANO','HI',412,0,2,48),V(1,1,'PIANO','LO',287,0,1,36),V(2,2,'BASS','',198,33,2,24),V(3,3,'STRINGS','1',340,48,1,43),V(3,3,'STRINGS','2',221,48,1,40),V(3,3,'STRINGS','3',96,48,1,36),V(4,4,'LEAD','',266,80,2,52),V(5,5,'PAD','',153,89,1,38),V(6,10,'DRUMS','KICK',128,-1,1,12),V(6,10,'DRUMS','SNARE',96,-1,1,30),V(6,10,'DRUMS','HATS',384,-1,4,55)];
+voices.forEach((v,i)=>v.idx=i);
+const INST=['TRIANGLE','TILTED SAW','SAW','SQUARE','PULSE','ORGAN','NOISE','PHASER'];
+const INS3=['TRI','TILT','SAW','SQR','PULS','ORG','NOIS','PHAS'];
+const FX=['----','SLID','VIB','DROP','F.IN','FADE','ARPF','ARPS'];
+const PROGS=[{p:0,name:'ACOUSTIC GRAND',short:'GRAND',fam:'PIANO'},{p:33,name:'FINGER BASS',short:'BASS',fam:'BASS'},{p:48,name:'STRING ENSEMBLE',short:'STRINGS',fam:'ENSEMBLE'},{p:80,name:'SQUARE LEAD',short:'LEAD',fam:'LEAD'},{p:89,name:'WARM PAD',short:'PAD',fam:'PAD'}];
+const FACTORY={prog:{0:1,33:0,48:2,80:3,89:4},drum:[{name:'KICK',gm:'35 36',i:0,p:12,fx:3},{name:'SNARE',gm:'38 40',i:6,p:30,fx:5},{name:'HATS',gm:'42 44 46',i:6,p:55,fx:5},{name:'CYMBALS',gm:'49 51 57',i:6,p:50,fx:5},{name:'TOMS',gm:'41-50',i:0,p:null,fx:3}]};
+const copy=o=>JSON.parse(JSON.stringify(o));
+const SPBS=[2,3,4,6,8],BPM=120;
+// ---------------- state ----------------
+let vk='A',policy='commit';
+let appDefaults=copy(FACTORY);   // what the app remembers between Imports
+let table=copy(appDefaults);     // what this Import will use
+let spb=4,phase='open',sec='voices',page=0,importedWarn=[];
+const sel={voices:0,prog:0,drum:0,warn:0};
+const SECS=['voices','spb','prog','drum','warn'];
+const NOTES=['C-','C#','D-','D#','E-','F-','F#','G-','G#','A-','A#','B-'];
+const hex=(v,n=2)=>v.toString(16).toUpperCase().padStart(n,'0');
+const nn=n=>n==null?'MAT':NOTES[n%12]+Math.floor(n/12);
+const vname=v=>(v.name+(v.voice?' '+v.voice:''));
+// Ticked voices fill Tracks 1-8 in file order; anything past 8 is dropped.
+const trackOf=v=>{if(!v.on)return null;const n=voices.filter(x=>x.on&&x.idx<v.idx).length;return n<8?n:-1};
+const onTracks=()=>voices.filter(v=>v.on&&trackOf(v)>=0);
+const speedFor=s=>Math.max(1,Math.min(255,Math.round(7230/(BPM*s))));
+const stepsPerBar=s=>4*s;
+const barsFor=s=>Math.max(1,Math.floor(32/stepsPerBar(s)));
+const phraseLen=s=>Math.min(32,barsFor(s)*stepsPerBar(s));
+const COLL={2:61,3:38,4:14,6:5,8:2};
+function collisions(s){return Math.round(COLL[s]*Math.max(1,onTracks().length)/8)}
+function warnings(){const out=[];const dropped=voices.filter(v=>trackOf(v)===-1);
+  if(dropped.length)out.push({sev:'WRN',text:`${voices.filter(v=>v.on).length} VOICES, 8 TRACKS: DROPPED ${dropped.map(vname).join(', ')}.`});
+  if(voices[0].on&&trackOf(voices[0])>=0)out.push({sev:'WRN',text:`PIANO HI SPANS 70 SEMITONES: 12 NOTES FOLDED BY AN OCTAVE. (T${trackOf(voices[0])+1})`});
+  const c=collisions(spb);if(c)out.push({sev:'WRN',text:`${c} NOTES LANDED ON A STEP ALREADY TAKEN: THE LATER NOTE WON.`});
+  if(spb<=4)out.push({sev:'WRN',text:'2 TEMPO CHANGES CLOSER THAN ONE STEP: THE LAST ONE WON.'});
+  out.push({sev:'WRN',text:'CC7 AND CC11 (VOLUME, EXPRESSION) IGNORED.'});
+  out.push({sev:'WRN',text:'DROPPED: PITCH BEND, CC1, CC10, CC91.'});
+  out.push({sev:'OK ',text:'NO TARGET CART YET: THE FIRST EXPORT WILL ASK FOR ONE.'});return out}
+const wrnCount=()=>warnings().filter(w=>w.sev==='WRN').length;
+const edited=()=>JSON.stringify(table)!==JSON.stringify(FACTORY);
+const progEdited=p=>table.prog[p]!==FACTORY.prog[p];
+const drumEdited=k=>JSON.stringify(table.drum[k])!==JSON.stringify(FACTORY.drum[k]);
+function touched(){if(policy==='immediate')appDefaults=copy(table)}
+function openDialog(){table=copy(appDefaults);phase='open';page=0;sec=vk==='B'?'voices':'voices'}
+function commit(){importedWarn=warnings();if(policy==='commit'||policy==='immediate')appDefaults=copy(table);phase='done'}
+// ---------------- grid ----------------
+let G;
+function clear(){G=Array.from({length:rows},()=>Array.from({length:cols},()=>({c:' ',f:FG,b:BG})))}
+function put(x,y,s,f=FG,b=BG){s=String(s).toUpperCase();if(y<0||y>=rows)return;for(let i=0;i<s.length;i++){if(x+i>=cols)return;if(x+i>=0)G[y][x+i]={c:s[i],f,b}}}
+function fillRect(x,y,w,h,b){for(let j=y;j<y+h&&j<rows;j++)for(let i=x;i<x+w&&i<cols;i++)G[j][i]={c:' ',f:FG,b}}
+function vline(x,y0,y1){for(let y=y0;y<=Math.min(y1,rows-1);y++)G[y][x]={c:'|',f:NAVY,b:BG,line:1}}
+function wrap(s,w){const out=[];let line='';for(const word of s.split(' ')){if((line+' '+word).trim().length>w){out.push(line);line=word}else line=(line?line+' ':'')+word}if(line)out.push(line);return out}
+const focused=s=>sec===s;
+function title(x,y,w,label,s,right=''){const f=s&&focused(s);fillRect(x,y,w,1,f?BLUE:BG);put(x,y,label,f?BG:BLUE,f?BLUE:BG);if(right)put(x+w-right.length,y,right,f?BG:HEAD,f?BLUE:BG)}
+function rowBg(x,y,w,on){if(on)fillRect(x,y,w,1,NAVY);return on?NAVY:BG}
+// ---------------- shared sections ----------------
+function drawVoices(x,y,w,s='voices'){title(x,y,w,'VOICES',s,`${onTracks().length}/8 TRACKS  ${voices.filter(v=>v.on).length}/${voices.length} TICKED`);
+  put(x,y+1,'ON  SOURCE            CH  NOTES  PROGRAM          TRACK',HEAD);
+  voices.forEach((v,i)=>{const yy=y+2+i,on=focused(s)&&sel.voices===i,b=rowBg(x,yy,w,on),t=trackOf(v);const f=v.on?(on?WHITE:FG):DIM;
+    put(x,yy,v.on?'[X]':'[ ]',v.on?GRN:DIM,b);put(x+4,yy,vname(v).padEnd(17),f,b);put(x+22,yy,String(v.ch).padStart(2),f,b);put(x+26,yy,String(v.notes).padStart(5),f,b);
+    put(x+33,yy,(v.prog<0?'DRUM KIT':PROGS.find(p=>p.p===v.prog).name).slice(0,15).padEnd(15),f,b);
+    put(x+50,yy,t==null?'--':t<0?'DROP':'T'+(t+1),t==null?DIM:t<0?RED:GRN,b)})}
+function spbReadout(s){return `SPEED ${hex(speedFor(s))}  ${phraseLen(s)} STEPS = ${barsFor(s)} BAR${barsFor(s)>1?'S':''} A PHRASE`}
+function drawSpb(x,y,w,s='spb'){title(x,y,w,'STEPS PER BEAT',s);let cx=x;SPBS.forEach(o=>{const on=o===spb;put(cx,y+1,on?`[${o}]`:` ${o} `,on?(focused(s)?BG:HI):FG,on&&focused(s)?HI:BG);cx+=4});put(x,y+2,spbReadout(spb),FG);put(x,y+3,`${collisions(spb)} NOTES WOULD COLLIDE AT THIS GRID`,collisions(spb)>20?ORA:DIM)}
+function drawProg(x,y,w,s='prog'){title(x,y,w,'PROGRAMS IN THIS FILE',s,edited()?'EDITED':'');put(x,y+1,'PRG NAME             INSTRUMENT',HEAD);
+  PROGS.forEach((p,i)=>{const yy=y+2+i,on=focused(s)&&sel.prog===i,b=rowBg(x,yy,w,on),ed=progEdited(p.p);put(x,yy,String(p.p).padStart(3),HEAD,b);put(x+4,yy,p.name.padEnd(16),on?WHITE:FG,b);put(x+21,yy,'< '+hex(table.prog[p.p])+' '+INST[table.prog[p.p]].padEnd(10)+' >',on?HI:FG,b);if(ed)put(x+40,yy,'*',FILL,b)})}
+function drawDrum(x,y,w,s='drum'){title(x,y,w,'DRUM KIT (CHANNEL 10)',s);put(x,y+1,'HIT      GM NOTES  INSTRUMENT    NOTE  EFFECT',HEAD);
+  table.drum.forEach((d,i)=>{const yy=y+2+i,on=focused(s)&&sel.drum===i,b=rowBg(x,yy,w,on);put(x,yy,d.name.padEnd(8),on?WHITE:FG,b);put(x+9,yy,d.gm.padEnd(9),HEAD,b);put(x+19,yy,hex(d.i)+' '+INST[d.i].padEnd(10),on?HI:FG,b);put(x+33,yy,nn(d.p),on?HI:FG,b);put(x+39,yy,FX[d.fx],on?HI:FG,b);if(drumEdited(i))put(x+45,yy,'*',FILL,b)})}
+function warnLines(w){const out=[];warnings().forEach((it,i)=>wrap(it.text,w-4).forEach((l,j)=>out.push({i,tag:j?'    ':it.sev+' ',l,c:it.sev==='WRN'?ORA:GRN})));return out}
+function drawWarn(x,y,w,h,s='warn'){title(x,y,w,'WARNINGS',s,`${wrnCount()} IF YOU IMPORT NOW`);const ls=warnLines(w),n=warnings().length;sel.warn=Math.min(sel.warn,n-1);
+  const first=ls.findIndex(l=>l.i===sel.warn),top=focused(s)?Math.max(0,Math.min(first,ls.length-h+1)):0;
+  ls.slice(top,top+h-1).forEach((l,k)=>{const on=focused(s)&&l.i===sel.warn,b=rowBg(x,y+1+k,w,on);put(x,y+1+k,l.tag,l.c,b);put(x+4,y+1+k,l.l,on?WHITE:FG,b)})}
+function saveNote(x,y){const t={commit:'TABLE EDITS BECOME APP DEFAULTS WHEN YOU IMPORT',immediate:'TABLE EDITS ARE SAVED AS APP DEFAULTS AT ONCE',never:'TABLE EDITS APPLY TO THIS IMPORT ONLY'}[policy];put(x,y,t,edited()?FILL:DIM);put(x,y+1,'R RESET ROW  SHIFT+R RESET ALL TO FACTORY',DIM)}
+function hints(){return {voices:'UP/DOWN PICK  SPACE TICK  S TICK SOURCE',spb:'LEFT/RIGHT CHANGE',prog:'UP/DOWN PICK  LEFT/RIGHT INSTRUMENT  R RESET',drum:'LEFT/RIGHT INSTRUMENT  [ ] NOTE  F EFFECT  R RESET',warn:'UP/DOWN READ'}[sec]}
+function footer(left,right){put(0,rows-1,' '.repeat(cols),FG,BG);put(1,rows-1,left,DIM);put(cols-right.length-1,rows-1,right,WHITE,NAVY)}
+function header(){put(0,0,'PICOTRACKER',HI);put(13,0,'MIDI IMPORT  SONG.MID',WHITE);put(cols-30,0,`${BPM} BPM  4/4  6 MIDI TRACKS`.padStart(30),HEAD)}
+// ---------------- preview panes (variant C, and the screen after Import) ----------------
+function voiceNotes(v,s){const len=phraseLen(s),gap=Math.max(1,Math.round(s/v.rate)),sc=[0,3,5,7,10];return Array.from({length:len},(_,k)=>k%gap===0?v.base+sc[(k/gap+v.idx)%5]:null)}
+function songPreview(x,y,h){put(x,y,'SONG',BLUE);put(x+4,y,'T1 T2 T3 T4 T5 T6 T7 T8',HEAD);const tr=onTracks();for(let r=0;r<h-1;r++){const has=r<6;put(x,y+1+r,hex(r),r%4?HEAD:GRN);for(let t=0;t<8;t++){const v=tr[t];put(x+4+t*3,y+1+r,has&&v?hex(t*8+(r%3)):'--',has&&v?FG:DIM)}}}
+function chainPreview(x,y,h){put(x,y,'CHAIN ROWS',BLUE);put(x+11,y,'SONG ROW 00',HEAD);put(x,y+1,'K T1 T2 T3 T4 T5 T6 T7 T8 TICK',HEAD);const tr=onTracks();for(let k=0;k<4;k++){put(x,y+2+k,hex(k,1),HEAD);for(let t=0;t<8;t++)put(x+2+t*3,y+2+k,tr[t]?hex(t*4+k):'--',tr[t]?GRN:DIM);put(x+27,y+2+k,String(phraseLen(spb)*speedFor(spb)).padStart(4),FG)}
+  put(x,y+8,'TRACKS',BLUE);for(let t=0;t<8;t++){const v=tr[t];put(x,y+9+t,'T'+(t+1),HEAD);put(x+3,y+9+t,v?vname(v):'(EMPTY)',v?FG:DIM);if(v)put(x+21,y+9+t,v.prog<0?'DRUM KIT':INST[table.prog[v.prog]],GRN)}}
+function phrasePreview(x,y,h){const v=(sec==='voices'&&voices[sel.voices].on&&trackOf(voices[sel.voices])>=0)?voices[sel.voices]:onTracks()[0];put(x,y,'PHRASE',BLUE);if(!v){put(x,y+2,'(EMPTY)',DIM);return}put(x+7,y,vname(v).slice(0,12),HI);put(x,y+1,`SPD ${hex(speedFor(spb))} LEN ${hex(phraseLen(spb))}`,FG);put(x,y+2,'   NOT IN V F',HEAD);
+  const ins=v.prog<0?table.drum[Math.min(v.idx-8,2)].i:table.prog[v.prog];voiceNotes(v,spb).slice(0,h-3).forEach((n,k)=>{const yy=y+3+k;put(x,yy,hex(k),k%4?HEAD:GRN);put(x+3,yy,n==null?'---':nn(n),n==null?DIM:FG);put(x+7,yy,n==null?'--':hex(ins),n==null?DIM:FG);put(x+10,yy,n==null?'- -':'5 '+(v.prog<0?table.drum[Math.min(v.idx-8,2)].fx:0),n==null?DIM:FG)})}
+function panes(){const y=2,h=rows-4;songPreview(0,y,h);vline(28,y,y+h-1);chainPreview(29,y,h);vline(62,y,y+h-1);phrasePreview(63,y,h);vline(82,y,y+h-1)}
+// ---------------- variant A: one page ----------------
+function renderA(){header();drawVoices(0,2,54);drawSpb(0,16,54);drawWarn(0,21,54,rows-23);vline(55,2,rows-3);drawProg(57,2,49);saveNote(57,10);drawDrum(57,13,49);
+  title(57,21,49,'WHAT WILL BE BUILT');const tr=onTracks();for(let t=0;t<8;t++){const v=tr[t];put(57,22+t,'T'+(t+1),HEAD);put(61,22+t,v?vname(v):'(EMPTY)',v?FG:DIM);if(v)put(80,22+t,v.prog<0?'DRUM KIT':INST[table.prog[v.prog]],GRN)}
+  put(57,31,spbReadout(spb),DIM);footer('TAB SECTION  '+hints(),'ENTER IMPORT  ESC CANCEL')}
+// ---------------- variant B: wizard ----------------
+const PAGES=['VOICES','STEPS PER BEAT','INSTRUMENTS','REVIEW'];
+function renderB(){header();let x=0;PAGES.forEach((p,i)=>{const s=`${i+1} ${p}`,on=i===page;put(x,2,s,on?BG:i<page?GRN:DIM,on?BLUE:BG);x+=s.length+1;if(i<3){put(x,2,'>',DIM);x+=2}});
+  if(page===0){drawVoices(0,5,56);title(60,5,46,'TRACKS THEY FILL');const tr=onTracks();for(let t=0;t<8;t++){const v=tr[t];put(60,7+t,'T'+(t+1),HEAD);put(64,7+t,v?vname(v):'(EMPTY)',v?GRN:DIM)}const d=voices.filter(v=>trackOf(v)===-1);if(d.length)wrap(`${d.length} VOICES DO NOT FIT AND WILL BE DROPPED. UNTICK OTHERS TO KEEP THEM.`,44).forEach((l,i)=>put(60,17+i,l,ORA))}
+  if(page===1){title(0,5,76,'HOW FINE IS THE GRID?','spb');put(0,7,'STEPS/BEAT  SPEED  PHRASE     BARS  NOTES THAT COLLIDE',HEAD);SPBS.forEach((o,i)=>{const on=o===spb,yy=9+i*2,b=rowBg(0,yy,76,on);put(1,yy,(on?'> ':'  ')+o,on?HI:FG,b);put(12,yy,hex(speedFor(o)),on?WHITE:FG,b);put(19,yy,phraseLen(o)+' STEPS',on?WHITE:FG,b);put(30,yy,String(barsFor(o)),on?WHITE:FG,b);put(36,yy,String(collisions(o)),collisions(o)>20?ORA:GRN,b)});wrap('A FINER GRID KEEPS MORE NOTES APART, BUT EACH PHRASE HOLDS FEWER BARS, SO EXPORT NEEDS MORE SFX.',74).forEach((l,i)=>put(0,21+i,l,DIM))}
+  if(page===2){drawProg(0,5,49);saveNote(0,13);drawDrum(54,5,50)}
+  if(page===3){title(0,5,44,'WHAT WILL BE BUILT');const tr=onTracks();for(let t=0;t<8;t++){const v=tr[t];put(0,7+t,'T'+(t+1),HEAD);put(4,7+t,v?vname(v):'(EMPTY)',v?FG:DIM);if(v)put(24,7+t,v.prog<0?'DRUM KIT':INST[table.prog[v.prog]],GRN)}put(0,16,spbReadout(spb),FG);put(0,18,edited()?'INSTRUMENT TABLE EDITED':'INSTRUMENT TABLE: DEFAULTS',edited()?FILL:DIM);drawWarn(48,5,58,rows-8)}
+  const r=page===3?'ENTER IMPORT  ESC BACK':page===0?'ENTER NEXT  ESC CANCEL':'ENTER NEXT  ESC BACK';footer((page===2?'TAB TABLE  ':'')+hints(),r)}
+// ---------------- variant C: live preview on the grid ----------------
+const CX=83,CWD=23;
+function accordion(){let y=2;const summ={voices:`${onTracks().length}/8 TRACKS`,spb:String(spb),prog:edited()?'EDITED':'DEFAULT',drum:String(table.drum.length)+' HITS',warn:String(wrnCount())};
+  const lab={voices:'VOICES',spb:'STEPS/BEAT',prog:'PROGRAMS',drum:'DRUM KIT',warn:'WARNINGS'};
+  SECS.forEach(s=>{title(CX,y,CWD,lab[s],s,summ[s]);y++;if(s!==sec)return;
+    if(s==='voices')voices.forEach((v,i)=>{const on=sel.voices===i,b=rowBg(CX,y,CWD,on),t=trackOf(v);put(CX,y,v.on?'X':'-',v.on?GRN:DIM,b);put(CX+2,y,vname(v).slice(0,14),v.on?(on?WHITE:FG):DIM,b);put(CX+18,y,t==null?'--':t<0?'DROP':'T'+(t+1),t==null?DIM:t<0?RED:GRN,b);y++});
+    if(s==='spb'){let cx=CX;SPBS.forEach(o=>{put(cx,y,o===spb?`[${o}]`:` ${o} `,o===spb?HI:FG);cx+=4});y++;wrap(spbReadout(spb),CWD).forEach(l=>put(CX,y++,l,DIM))}
+    if(s==='prog')PROGS.forEach((p,i)=>{const on=sel.prog===i,b=rowBg(CX,y,CWD,on);put(CX,y,p.short.padEnd(8),on?WHITE:FG,b);put(CX+9,y,INST[table.prog[p.p]],on?HI:GRN,b);if(progEdited(p.p))put(CX+22,y,'*',FILL,b);y++});
+    if(s==='drum')table.drum.forEach((d,i)=>{const on=sel.drum===i,b=rowBg(CX,y,CWD,on);put(CX,y,d.name.slice(0,6).padEnd(7),on?WHITE:FG,b);put(CX+7,y,INS3[d.i].padEnd(5),on?HI:GRN,b);put(CX+12,y,nn(d.p).padEnd(4),on?HI:FG,b);put(CX+16,y,FX[d.fx],on?HI:FG,b);if(drumEdited(i))put(CX+22,y,'*',FILL,b);y++});
+    if(s==='warn'){const ls=warnLines(CWD),max=rows-3-y;const first=ls.findIndex(l=>l.i===sel.warn),top=Math.max(0,Math.min(first,ls.length-max));ls.slice(top,top+max).forEach(l=>{const on=l.i===sel.warn,b=rowBg(CX,y,CWD,on);put(CX,y,l.tag,l.c,b);put(CX+4,y,l.l,on?WHITE:FG,b);y++})}
+    y++})}
+function renderC(){header();put(0,1,'PREVIEW: NOTHING IS IMPORTED UNTIL YOU PRESS ENTER',ORA);panes();accordion();footer('TAB SECTION  '+hints(),'ENTER IMPORT  ESC CANCEL')}
+// ---------------- after the dialog ----------------
+function renderDone(){put(0,0,'PICOTRACKER  SONG.PTRK  STOP  OCT 2',HI);if(phase==='cancel'){put(2,3,'(THE PROJECT YOU HAD OPEN, UNCHANGED)',DIM);put(0,rows-1,'IMPORT CANCELLED',GRN);put(40,rows-1,'R REOPEN THE DIALOG',DIM);return}
+  panes();put(CX,2,'LOG',BLUE);put(CX+4,2,'IMPORTED',ORA);let y=4;importedWarn.forEach(it=>wrap(it.text,CWD-4).forEach((l,j)=>{if(y<rows-2){put(CX,y,j?'    ':it.sev+' ',it.sev==='WRN'?ORA:GRN);put(CX+4,y,l,FG);y++}}));
+  put(1,rows-1,`! IMPORTED SONG.MID WITH ${importedWarn.filter(w=>w.sev==='WRN').length} WARNINGS  L LOG`,ORA);put(cols-20,rows-1,'R REOPEN THE DIALOG',DIM)}
+// ---------------- draw ----------------
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');const rgb=PAL.map(h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)));
+function draw(){clear();if(phase==='open')({A:renderA,B:renderB,C:renderC})[vk]();else renderDone();cv.width=W;cv.height=H;const img=ctx.createImageData(W,H),d=img.data;
+  const px=(x,y,c)=>{const o=(y*W+x)*4,q=rgb[c];d[o]=q[0];d[o+1]=q[1];d[o+2]=q[2];d[o+3]=255};for(let i=0;i<W*H;i++)d[i*4+3]=255;
+  for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const cell=G[y][x],X=x*CW,Y=y*CH;if(cell.b)for(let j=0;j<CH;j++)for(let i=0;i<CW;i++)px(X+i,Y+j,cell.b);if(cell.line){for(let j=0;j<CH;j++)px(X+3,Y+j,NAVY);continue}const g=GL[cell.c];if(!g)continue;for(let j=0;j<7;j++)for(let i=0;i<5;i++)if(g[j][i])px(X+i,Y+j,cell.f)}
+  ctx.putImageData(img,0,0);fit();state()}
+function fit(){const dpr=devicePixelRatio||1,st=document.getElementById('stage'),r=Math.min(st.clientWidth*dpr/W,st.clientHeight*dpr/H),s=r>=1?Math.floor(r):r;cv.style.width=W*s/dpr+'px';cv.style.height=H*s/dpr+'px'}
+// ---------------- side panel ----------------
+const VD={A:['One page','Everything on one full-screen view, like the Instrument view. Tab moves between sections; Enter imports from anywhere.'],B:['Step by step','Four full-screen pages in order: Voices, Steps per beat, Instruments, Review. Enter goes forward, Esc goes back. Warnings wait for the last page.'],C:['Live preview on the grid','The normal panes show the Project that would be built, updating as you change things. The settings fold up in the right-hand pane, where the LOG lives.']};
+function side(){document.getElementById('side').innerHTML=`<div class="vdesc"><b>${vk}: ${VD[vk][0]}</b><br>${VD[vk][1]}</div>
+ <div><span class=k>Tab</span> section, arrows move/change, <span class=k>Space</span> tick voice, <span class=k>S</span> tick whole source, <span class=k>[</span> <span class=k>]</span> drum note, <span class=k>F</span> drum effect, <span class=k>R</span> reset row, <span class=k>Shift+R</span> reset all, <span class=k>Enter</span> import, <span class=k>Esc</span> cancel, <span class=k>1</span>-<span class=k>3</span> variant.</div>
+ <h3>When are table edits saved?</h3>
+ ${[['commit','When you press Import'],['immediate','As soon as you change them'],['never','Never: this Import only']].map(([k,l])=>`<label><input type=radio name=pol value=${k} ${policy===k?'checked':''}> ${l}</label>`).join('<br>')}
+ <h3>State</h3><pre id="st"></pre>`;
+ document.querySelectorAll('input[name=pol]').forEach(r=>r.onchange=()=>{policy=r.value;r.blur();touched();draw()})}
+function state(){const el=document.getElementById('st');if(!el)return;const t=o=>PROGS.map(p=>`${String(p.p).padStart(2)}:${INS3[o.prog[p.p]]}`).join(' ');const dk=o=>o.drum.map(d=>`${d.name.slice(0,4)}:${INS3[d.i]}/${nn(d.p)}/${FX[d.fx]}`).join('\n  ');
+ el.textContent=`phase: ${phase}\nsection: ${sec}${vk==='B'?'  page: '+(page+1):''}\nsteps/beat: ${spb}  speed: ${hex(speedFor(spb))}\ntracks: ${onTracks().map((v,i)=>'T'+(i+1)+'='+vname(v)).join(', ')}\nwarnings: ${wrnCount()}\n\nthis Import:\n  ${t(table)}\n  ${dk(table)}\n\napp defaults (saved):\n  ${t(appDefaults)}\n  ${dk(appDefaults)}`}
+// ---------------- keys ----------------
+function pageSecs(){return vk==='B'?[['voices'],['spb'],['prog','drum'],['warn']][page]:SECS}
+function goPage(n){page=n;sec=pageSecs()[0]}
+function moveSel(d){if(sec==='voices')sel.voices=(sel.voices+d+voices.length)%voices.length;if(sec==='prog')sel.prog=(sel.prog+d+PROGS.length)%PROGS.length;if(sec==='drum')sel.drum=(sel.drum+d+table.drum.length)%table.drum.length;if(sec==='warn'){const n=warnings().length;sel.warn=(sel.warn+d+n)%n}if(sec==='spb')stepSpb(d)}
+function stepSpb(d){spb=SPBS[Math.max(0,Math.min(4,SPBS.indexOf(spb)+d))]}
+function change(d){if(sec==='spb')stepSpb(d);if(sec==='prog'){const p=PROGS[sel.prog].p;table.prog[p]=(table.prog[p]+d+8)%8;touched()}if(sec==='drum'){const r=table.drum[sel.drum];r.i=(r.i+d+8)%8;touched()}}
+addEventListener('keydown',e=>{const k=e.key;if(/^[1-3]$/.test(k)){setV('ABC'[+k-1]);return}
+ if(phase!=='open'){if(k==='r'||k==='R'){openDialog();draw()}return}
+ if(k==='Tab'){const s=pageSecs(),i=s.indexOf(sec);sec=s[(i+(e.shiftKey?s.length-1:1))%s.length];e.preventDefault();draw();return}
+ if(k==='Enter'){e.preventDefault();if(vk==='B'&&page<3)goPage(page+1);else commit();draw();return}
+ if(k==='Escape'){if(vk==='B'&&page>0)goPage(page-1);else phase='cancel';draw();return}
+ if(k==='ArrowUp'||k==='ArrowDown'){e.preventDefault();moveSel(k==='ArrowUp'?-1:1);draw();return}
+ if(k==='ArrowLeft'||k==='ArrowRight'){e.preventDefault();change(k==='ArrowLeft'?-1:1);draw();return}
+ if(k===' '&&sec==='voices'){e.preventDefault();voices[sel.voices].on=!voices[sel.voices].on;draw();return}
+ if((k==='s'||k==='S')&&sec==='voices'){const src=voices[sel.voices].src,g=voices.filter(v=>v.src===src),on=!g.every(v=>v.on);g.forEach(v=>v.on=on);draw();return}
+ if((k==='['||k===']')&&sec==='drum'){const r=table.drum[sel.drum];if(r.p!=null){r.p=Math.max(0,Math.min(63,r.p+(k==='['?-1:1)));touched();draw()}return}
+ if((k==='f'||k==='F')&&sec==='drum'){const r=table.drum[sel.drum];r.fx=(r.fx+1)%8;touched();draw();return}
+ if(k==='R'){table=copy(FACTORY);touched();draw();return}
+ if(k==='r'){if(sec==='prog'){const p=PROGS[sel.prog].p;table.prog[p]=FACTORY.prog[p]}if(sec==='drum')table.drum[sel.drum]=copy(FACTORY.drum[sel.drum]);touched();draw();return}});
+addEventListener('resize',fit);
+const keys=['A','B','C'];
+function setV(k){vk=k;page=0;sec='voices';if(phase!=='open')phase='open';const u=new URL(location);u.searchParams.set('variant',k);history.replaceState(null,'',u);document.getElementById('lbl').textContent=k+' ('+VD[k][0]+')';side();draw()}
+document.getElementById('prev').onclick=()=>setV(keys[(keys.indexOf(vk)+2)%3]);
+document.getElementById('next').onclick=()=>setV(keys[(keys.indexOf(vk)+1)%3]);
+const q=new URLSearchParams(location.search).get('variant');setV(keys.includes(q)?q:'A');
+</script></body></html>
