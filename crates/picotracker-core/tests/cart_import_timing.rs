@@ -7,7 +7,9 @@ mod support;
 use picotracker_core::cart::Cart;
 use picotracker_core::cart_import::import;
 use picotracker_core::project::{ChainEntry, Phrase, Project};
-use support::{TestCart, TestPattern, TestSfx};
+use support::{
+    TestCart, TestPattern, TestSfx, assert_same_samples, render_notes, render_song, sound_of,
+};
 
 fn imported(cart: &TestCart) -> (Project, Vec<String>) {
     let imported = import(&Cart::read(&cart.p8()).unwrap(), "demo.p8");
@@ -368,6 +370,59 @@ fn a_song_with_more_phrases_than_a_project_holds_warns_and_still_imports() {
             .any(|warning| warning == "SONG NEEDS MORE THAN 256 PHRASES: SOME ENTRIES STAY EMPTY."),
         "{warnings:?}"
     );
+}
+
+/// Gives these notes of an SFX the fast arpeggio effect.
+fn with_arpeggio(mut sfx: TestSfx, notes: std::ops::Range<usize>) -> TestSfx {
+    for note in &mut sfx.notes[notes] {
+        note.effect = 6;
+    }
+    sfx
+}
+
+#[test]
+fn an_arpeggio_reading_notes_past_len_imports_with_the_same_sound() {
+    let mut sfx = with_len(counting(8), 6);
+    sfx = with_arpeggio(sfx, 4..6);
+    sfx.notes[6].pitch = 40;
+    sfx.notes[7].pitch = 44;
+    let cart = one_pattern(vec![sfx]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    let original = Cart::read(&cart.p8()).unwrap();
+    let expected = render_notes(sound_of(&original, 0), &[0, 1, 2, 3, 4, 5]);
+    assert_same_samples(&render_song(project, expected.len()), &expected);
+}
+
+#[test]
+fn an_unrolled_loop_that_moves_an_arpeggio_group_warns() {
+    let looped = with_arpeggio(looping(counting(8), 2, 5), 2..5);
+    let cart = one_pattern(vec![with_len(counting(8), 10), looped]);
+
+    let (_, warnings) = imported(&cart);
+
+    assert_eq!(
+        warnings,
+        ["PATTERN 00 T2 STEP 04 PLAYS A DIFFERENT ARPEGGIO AFTER IMPORT."]
+    );
+}
+
+#[test]
+fn an_arpeggio_in_the_lead_in_of_an_unrolled_loop_keeps_its_sound() {
+    let sfx = with_arpeggio(looping(counting(8), 4, 8), 0..4);
+    let cart = one_pattern(vec![sfx]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+    let played: Vec<usize> = (0..32)
+        .map(|step| if step < 8 { step } else { 4 + (step - 4) % 4 })
+        .collect();
+    let original = Cart::read(&cart.p8()).unwrap();
+    let expected = render_notes(sound_of(&original, 0), &played);
+    assert_same_samples(&render_song(project, expected.len()), &expected);
 }
 
 #[test]
