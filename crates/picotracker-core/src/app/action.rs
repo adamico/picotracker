@@ -82,6 +82,22 @@ pub enum Action {
     TypeChar(char),
     /// Takes the last character off a file name.
     Backspace,
+    /// Ticks or unticks the picked voice of a MIDI file.
+    ToggleVoice,
+    /// Ticks or unticks every voice of the picked voice's source.
+    ToggleSource,
+    /// Moves between the program table and the drum kit.
+    SwitchMidiTable,
+    /// Raises or lowers the note of the picked drum hit.
+    MidiDrumNote {
+        up: bool,
+    },
+    /// Moves the picked drum hit on to the next effect.
+    CycleDrumEffect,
+    /// Puts the picked row of the MIDI table back to the factory table.
+    ResetMidiRow,
+    /// Puts the whole MIDI table back to the factory table.
+    ResetMidiTable,
 }
 
 /// What the cursor is on, which decides what the keys that type characters do.
@@ -97,4 +113,6 @@ pub enum KeyContext {
     ArrangeValue,
     /// A file name: characters are typed as they are.
     FileName,
+    /// The MIDI Import dialog, which has keys of its own.
+    MidiImport,
 }

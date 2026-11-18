@@ -29,7 +29,7 @@ fn voices_of(score: &Score, index: usize, source: &Source) -> Vec<Voice> {
     // Notes struck together go highest first, or in the order of the kit for drums.
     notes.sort_by_key(|note| {
         let order = if source.is_drums() {
-            drum_row(note.key).map_or(usize::MAX, |row| row)
+            drum_row(note.key).unwrap_or(usize::MAX)
         } else {
             usize::from(u8::MAX - note.key)
         };

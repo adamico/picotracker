@@ -55,6 +55,7 @@ pub(super) fn bindings() -> Vec<(Key, Modifiers, Action)> {
         (Key::Char('r'), CTRL, Action::SetSongLoopRow),
         (Key::Char('['), NONE, Action::OctaveDown),
         (Key::Char(']'), NONE, Action::OctaveUp),
+        (Key::Char('r'), SHIFT, Action::ResetMidiTable),
         (Key::Up, SHIFT, nudge(true, false)),
         (Key::Down, SHIFT, nudge(false, false)),
         (Key::Up, CTRL, nudge(true, true)),
@@ -84,7 +85,17 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
                 .zip(HEX_DIGITS.chars())
                 .map(move |(digit, ch)| (context, Key::Char(ch), Action::HexDigit(digit)))
         });
-    piano.chain(digits).collect()
+    let midi_import = [
+        (Key::Space, Action::ToggleVoice),
+        (Key::Char('s'), Action::ToggleSource),
+        (Key::Tab, Action::SwitchMidiTable),
+        (Key::Char('['), Action::MidiDrumNote { up: false }),
+        (Key::Char(']'), Action::MidiDrumNote { up: true }),
+        (Key::Char('f'), Action::CycleDrumEffect),
+        (Key::Char('r'), Action::ResetMidiRow),
+    ]
+    .map(|(key, action)| (KeyContext::MidiImport, key, action));
+    piano.chain(digits).chain(midi_import).collect()
 }
 
 const fn nudge(up: bool, coarse: bool) -> Action {
