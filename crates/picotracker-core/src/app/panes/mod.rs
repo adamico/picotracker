@@ -80,12 +80,8 @@ fn draw_title(grid: &mut Grid, column: usize, row: usize, title: &str, focused: 
     grid.put(column, row, title, style);
 }
 
-/// Draws one editable value. The cursor is drawn in brackets, so it shows in a text dump too.
-fn draw_value(grid: &mut Grid, column: usize, row: usize, text: &str, is_cursor: bool) {
-    draw_styled_value(grid, column, row, text, is_cursor, EMPTY);
-}
-
-/// Draws one editable value in a style of its own when the cursor is not on it.
+/// Draws one editable value in a style of its own when the cursor is not on it. The cursor is
+/// drawn in brackets, so it shows in a text dump too.
 fn draw_styled_value(
     grid: &mut Grid,
     column: usize,

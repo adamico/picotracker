@@ -66,11 +66,11 @@ impl OverviewPane {
         draw_title(grid, area.column, 0, "OVERVIEW", focused);
         grid.put(area.column, 1, "EXPORT TRACKS", HEADING);
 
-        for channel in 0..CHANNELS {
+        for (channel, track) in export_tracks.into_iter().enumerate() {
             let row = FIRST_CHANNEL_ROW + channel;
             grid.put(area.column, row, &format!("CH{channel}"), HEADING);
             let is_cursor = focused && channel == self.channel;
-            let (text, style) = export_tracks[channel].map_or(("--".to_owned(), EMPTY), |track| {
+            let (text, style) = track.map_or(("--".to_owned(), EMPTY), |track| {
                 (format!("T{track}"), VALUE)
             });
             draw_styled_value(

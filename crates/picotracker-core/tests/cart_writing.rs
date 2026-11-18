@@ -192,7 +192,9 @@ fn pixels_of(file: &[u8]) -> Vec<u8> {
 /// The Cart bytes an image's pixels hold.
 fn memory_of(pixels: &[u8]) -> Vec<u8> {
     pixels
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| {
             (pixel[3] & 3) << 6 | (pixel[0] & 3) << 4 | (pixel[1] & 3) << 2 | (pixel[2] & 3)
         })
@@ -240,13 +242,10 @@ fn a_png_cart_keeps_every_other_pixel_and_the_high_bits_of_the_claimed_ones() {
     let (before, after) = (pixels_of(&original), pixels_of(&written));
     assert_eq!(before.len(), after.len());
     let claimed = [0x3100..0x3104, 0x3200..0x3244, 0x8006..0x801A];
-    for (index, (old, new)) in before
-        .chunks_exact(4)
-        .zip(after.chunks_exact(4))
-        .enumerate()
-    {
+    let old_pixels = before.as_chunks::<4>().0.iter();
+    for (index, (old, new)) in old_pixels.zip(after.as_chunks::<4>().0).enumerate() {
         if claimed.iter().any(|range| range.contains(&index)) {
-            let high_bits = |pixel: &[u8]| pixel.iter().map(|bits| bits & 0xFC).collect::<Vec<_>>();
+            let high_bits = |pixel: &[u8; 4]| pixel.map(|bits| bits & 0xFC);
             assert_eq!(high_bits(old), high_bits(new), "pixel {index}");
         } else {
             assert_eq!(old, new, "pixel {index}");
