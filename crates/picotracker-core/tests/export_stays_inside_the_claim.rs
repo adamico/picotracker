@@ -347,10 +347,12 @@ fn assert_new_sections_are_in_canonical_order(
             }
         }
     }
-    if let (false, Some(music)) = (had_music, mark_position(new, b"__music__")) {
-        if let Some(sfx) = mark_position(new, b"__sfx__") {
-            assert!(sfx < music, "case {case}: __music__ comes before __sfx__");
-        }
+    if let (false, Some(music), Some(sfx)) = (
+        had_music,
+        mark_position(new, b"__music__"),
+        mark_position(new, b"__sfx__"),
+    ) {
+        assert!(sfx < music, "case {case}: __music__ comes before __sfx__");
     }
 }
 
@@ -431,7 +433,7 @@ fn decode(file: &[u8]) -> Vec<u8> {
     pixels
 }
 
-fn memory_byte(pixel: &[u8]) -> u8 {
+fn memory_byte(pixel: &[u8; 4]) -> u8 {
     (pixel[3] & 3) << 6 | (pixel[0] & 3) << 4 | (pixel[1] & 3) << 2 | (pixel[2] & 3)
 }
 
@@ -465,8 +467,8 @@ fn a_png_export_changes_no_pixel_outside_the_claim_and_the_sha1() {
         let after = decode(&exported.cart_bytes);
         assert_eq!(pixels.len(), after.len(), "case {case}: image size");
         let may_change = claimed_addresses(&claim);
-        let old_pixels = pixels.chunks_exact(4);
-        for (address, (old, new)) in old_pixels.zip(after.chunks_exact(4)).enumerate() {
+        let old_pixels = pixels.as_chunks::<4>().0.iter();
+        for (address, (old, new)) in old_pixels.zip(after.as_chunks::<4>().0).enumerate() {
             if may_change.contains(&address) {
                 for (old_channel, new_channel) in old.iter().zip(new) {
                     assert_eq!(
@@ -480,12 +482,18 @@ fn a_png_export_changes_no_pixel_outside_the_claim_and_the_sha1() {
             }
         }
 
-        let memory: Vec<u8> = after.chunks_exact(4).map(memory_byte).collect();
+        let memory: Vec<u8> = after.as_chunks::<4>().0.iter().map(memory_byte).collect();
         let digest = Sha1::digest(&memory[..0x8000]);
         assert_eq!(
             memory[SHA1_AT..SHA1_AT + 20],
             *digest.as_slice(),
             "case {case}: SHA-1"
+        );
+        let written = Cart::read(&exported.cart_bytes).unwrap();
+        assert_eq!(
+            written.claimed_bytes_hash(&claim),
+            exported.claimed_bytes_hash,
+            "case {case}: hash"
         );
     }
 }
