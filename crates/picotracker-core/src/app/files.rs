@@ -201,6 +201,7 @@ impl App {
         self.saved_project = project.clone();
         self.project = project;
         self.history.clear();
+        self.speed_entry = None;
         self.selection = None;
         self.clipboard = None;
         self.project_path = path;

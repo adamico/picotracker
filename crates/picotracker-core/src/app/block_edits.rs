@@ -60,7 +60,7 @@ impl App {
     }
 
     /// The cells selected in the focused pane.
-    fn selected_block(&self) -> Option<Block> {
+    pub(super) fn selected_block(&self) -> Option<Block> {
         Some(Block::between(self.selection?, self.cursor_cell()?))
     }
 
