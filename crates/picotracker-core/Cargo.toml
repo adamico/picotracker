@@ -10,3 +10,4 @@ repository.workspace = true
 png = "0.18"
 ron = "0.12.3"
 serde = { version = "1.0.229", features = ["derive"] }
+sha1 = "0.11.0"
