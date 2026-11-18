@@ -1,11 +1,11 @@
 //! New, Open, Save and Save As. The App core never touches the disk: it asks for files with
 //! `FileRequest`s and is given the results as `FileResponse`s.
 
-use super::messages::{LogItem, Report, Severity};
+use super::messages::{Location, LogItem, Report, Severity};
 use super::panes::file_list::{Choice, FileList, Purpose};
 use super::{Action, App, Focus};
 use crate::cart::Cart;
-use crate::cart_import;
+use crate::cart_import::{self, ImportWarning};
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
 use crate::project_file;
@@ -112,8 +112,22 @@ fn folder_of(path: &Path) -> PathBuf {
     }
 }
 
+/// A Log item for an Import warning, which jumps to the place the warning is about.
+fn log_item_of(warning: ImportWarning) -> LogItem {
+    let item = LogItem::new(Severity::Warning, warning.text);
+    match warning.place {
+        Some(place) => item.at(Location {
+            song_row: place.song_row,
+            track: place.track,
+            chain_row: place.chain_row,
+            step: place.step,
+        }),
+        None => item,
+    }
+}
+
 /// The result of an Import: its warnings, if any, go to the Log.
-fn import_report(source: &str, warnings: Vec<String>) -> Report {
+fn import_report(source: &str, warnings: Vec<ImportWarning>) -> Report {
     if warnings.is_empty() {
         return Report::info(format!("IMPORTED {source}"));
     }
@@ -121,7 +135,7 @@ fn import_report(source: &str, warnings: Vec<String>) -> Report {
     let plural = if count == 1 { "" } else { "S" };
     let items = warnings
         .into_iter()
-        .map(|warning| LogItem::new(Severity::Warning, warning))
+        .map(log_item_of)
         .collect();
     Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(items)
 }
