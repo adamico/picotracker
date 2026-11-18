@@ -5,7 +5,9 @@
 //! Fill and no Custom Instruments. Anything else is refused as [`ExportFailure::NotSimple`] rather
 //! than Exported so that it plays differently.
 
-use crate::cart::{Cart, CartError, SLOTS};
+use crate::cart::{
+    Cart, CartError, FILTERS_BYTE, LOOP_START_BYTE, SFX_BYTES, SLOTS, SPEED_BYTE, note_word,
+};
 use crate::project::{
     CHAIN_ENTRIES, ChainEntry, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase,
     Project, SONG_ROWS,
@@ -13,10 +15,6 @@ use crate::project::{
 use std::collections::BTreeSet;
 use std::fmt;
 
-const SFX_BYTES: usize = 68;
-const FILTERS_BYTE: usize = 64;
-const SPEED_BYTE: usize = 65;
-const LOOP_START_BYTE: usize = 66;
 const MAX_PITCH: i32 = 63;
 const FULL_LENGTH: usize = 32;
 
@@ -346,10 +344,13 @@ fn bake_sfx(phrase: &Phrase, transpose: i8) -> [u8; SFX_BYTES] {
         let step = phrase.step(index);
         let pitch = (i32::from(step.pitch()) + i32::from(transpose)).clamp(0, MAX_PITCH) as u16;
         let word = if index < phrase.length() {
-            pitch
-                | u16::from(step.instrument() & 7) << 6
-                | u16::from(step.volume()) << 9
-                | u16::from(step.effect()) << 12
+            note_word(
+                pitch,
+                u16::from(step.instrument() & 7),
+                u16::from(step.volume()),
+                u16::from(step.effect()),
+                0,
+            )
         } else if read[index] {
             pitch
         } else {
