@@ -321,7 +321,7 @@ fn no_phrase_on_show_means_no_speed_to_start_from() {
     app.apply(Action::ChangeSpeed);
 
     assert!(status_line(&app).contains("NO PHRASE HERE"));
-    assert_eq!(app.key_context(), KeyContext::ArrangeValue);
+    assert_eq!(app.key_context(), KeyContext::ReferenceValue);
 }
 
 #[test]

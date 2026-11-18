@@ -142,10 +142,10 @@ pub fn import(cart: &Cart, cart_path: &str) -> ImportedCart {
     let mut claim = Claim::default();
     if let Some(song) = first_song(cart) {
         claim = SongBuilder::new(cart, &mut project, &mut warnings).build(song);
-        let more_music = (song.last..LAST_SLOT).any(|slot| !cart.pattern(slot + 1).is_empty());
-        if more_music {
+        let more_songs = (song.last..LAST_SLOT).any(|slot| !cart.pattern(slot + 1).is_empty());
+        if more_songs {
             warnings.push(ImportWarning::general(
-                "CART HOLDS MORE MUSIC: IMPORTED SONG 1 ONLY",
+                "CART HOLDS MORE SONGS: IMPORTED SONG 1 ONLY",
             ));
         }
     }
