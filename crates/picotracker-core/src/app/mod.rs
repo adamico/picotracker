@@ -1,11 +1,14 @@
 //! The App core: named actions in; the character grid out.
 
 mod action;
+mod block_edits;
 mod files;
 mod focus;
+mod history;
 mod layout;
 mod messages;
 mod panes;
+mod selection;
 mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
@@ -16,8 +19,10 @@ use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, Track
 use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
+use block_edits::Clipboard;
 use files::{Question, Waiting};
 use focus::Focus;
+use history::{History, Merge, Spot};
 use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
@@ -25,6 +30,7 @@ use panes::log::LogPane;
 use panes::overview::OverviewPane;
 use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
+use selection::CellPosition;
 use status_line::StatusLine;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,6 +39,8 @@ use std::time::Duration;
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
 const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
+const NOTHING_TO_UNDO: &str = "NOTHING TO UNDO";
+const NOTHING_TO_REDO: &str = "NOTHING TO REDO";
 const FOLLOW_ON: &str = "FOLLOW ON";
 const FOLLOW_OFF: &str = "FOLLOW OFF";
 const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
@@ -44,6 +52,10 @@ pub struct App {
     project: Project,
     /// The Project as it was last saved or opened.
     saved_project: Project,
+    history: History,
+    /// Where the selection in the focused pane started, while there is one.
+    selection: Option<CellPosition>,
+    clipboard: Option<Clipboard>,
     /// The file the Project was last saved to or opened from.
     project_path: Option<PathBuf>,
     /// The folder the file list starts in.
@@ -106,6 +118,9 @@ impl App {
             scope: [0; SCOPE_COLUMNS],
             previewing: false,
             project,
+            history: History::default(),
+            selection: None,
+            clipboard: None,
             project_path: None,
             directory: PathBuf::from("."),
             focus: Focus::default(),
@@ -195,7 +210,7 @@ impl App {
         let changed = moved || report.scope != self.scope;
         self.playhead = playhead;
         self.scope = report.scope;
-        if moved && self.follow {
+        if moved && self.follow && self.selection.is_none() {
             self.follow_playhead();
         }
         changed
@@ -300,13 +315,61 @@ impl App {
         self.notice.as_ref()?.time_until_change()
     }
 
-    /// Applies one named action.
+    /// Applies one named action. Whatever it changes in the Project becomes one undo step.
     pub fn apply(&mut self, action: Action) {
+        let merge = match action {
+            Action::Nudge { .. } if self.selection.is_none() => Some(Merge::Nudge),
+            Action::HexDigit(_) => Some(Merge::Digit),
+            _ => None,
+        };
+        self.history.begin(&self.project, self.spot());
+        self.perform(action);
+        self.history.finish(&self.project, self.spot(), merge);
+    }
+
+    /// Where the cursor is in every pane.
+    fn spot(&self) -> Spot {
+        Spot {
+            focus: self.focus,
+            song: self.song.spot(),
+            chain: self.chain.spot(),
+            phrase: self.phrase.spot(),
+        }
+    }
+
+    /// Puts the cursor back where a change was made.
+    fn return_to(&mut self, spot: Spot) {
+        self.selection = None;
+        self.stop_following();
+        self.set_focus(spot.focus);
+        self.song.return_to(spot.song);
+        self.chain.return_to(spot.chain);
+        self.phrase.return_to(spot.phrase);
+    }
+
+    fn undo(&mut self) {
+        match self.history.undo(&mut self.project) {
+            Some(spot) => self.return_to(spot),
+            None => self.status = Some(NOTHING_TO_UNDO),
+        }
+    }
+
+    fn redo(&mut self) {
+        match self.history.redo(&mut self.project) {
+            Some(spot) => self.return_to(spot),
+            None => self.status = Some(NOTHING_TO_REDO),
+        }
+    }
+
+    fn perform(&mut self, action: Action) {
         self.status = None;
         if !matches!(action, Action::HexDigit(_)) {
             self.song.finish_typing();
             self.chain.finish_typing();
             self.phrase.finish_typing();
+        }
+        if action == Action::Cancel && self.selection.take().is_some() {
+            return;
         }
         if self.question.is_some() {
             self.answer_question(action);
@@ -323,6 +386,12 @@ impl App {
             Action::Save => self.save(),
             Action::SaveAs => self.save_as(),
             Action::ToggleLog => self.toggle_log(),
+            Action::Undo => self.undo(),
+            Action::Redo => self.redo(),
+            Action::StartSelection => self.start_selection(),
+            Action::Copy => self.copy(),
+            Action::Cut => self.cut(),
+            Action::Paste => self.paste(),
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::Move(direction) => self.move_cursor(direction),
@@ -344,7 +413,7 @@ impl App {
             Action::OctaveDown => self.phrase.change_octave(-1),
             Action::SetSongLoopRow => self.song.toggle_loop_row(&mut self.project),
             Action::ToggleFill if self.focus == Focus::Chain => self.toggle_fill(),
-            Action::Clear => self.clear(),
+            Action::Clear => self.clear_cells(),
             Action::PianoKey(key) if self.focus == Focus::Phrase => {
                 self.edit_phrase(|pane, phrase| pane.enter_note(phrase, key));
             }
@@ -435,19 +504,15 @@ impl App {
     }
 
     fn nudge(&mut self, up: bool, coarse: bool) {
+        if self.selection.is_some() {
+            self.nudge_selection(up, coarse);
+            return;
+        }
         match self.focus {
             Focus::Song => self.song.nudge(&mut self.project, up, coarse),
             Focus::Chain => self.edit_chain(|pane, chain| pane.nudge(chain, up, coarse)),
             Focus::Phrase => self.edit_phrase(|pane, phrase| pane.nudge(phrase, up, coarse)),
             Focus::RightSlot => {}
-        }
-    }
-
-    fn clear(&mut self) {
-        match self.focus {
-            Focus::Song => self.song.clear(&mut self.project),
-            Focus::Chain => self.edit_chain(|pane, chain| pane.clear(chain)),
-            Focus::Phrase | Focus::RightSlot => {}
         }
     }
 
@@ -481,6 +546,9 @@ impl App {
     }
 
     fn set_focus(&mut self, focus: Focus) {
+        if focus != self.focus {
+            self.selection = None;
+        }
         self.focus = focus;
         if focus != Focus::RightSlot {
             self.played_pane = focus;
@@ -566,6 +634,11 @@ impl App {
         match self.focus {
             Focus::Song => self.song.move_cursor(direction),
             Focus::Chain => self.chain.move_cursor(direction),
+            // The Phrase header cannot be selected, so a selection stops at the first Step.
+            Focus::Phrase
+                if self.selection.is_some()
+                    && direction == Direction::Up
+                    && self.phrase.step() == 0 => {}
             Focus::Phrase => {
                 let phrase = self.shown_phrase();
                 self.phrase.move_cursor(direction, &phrase);
@@ -617,6 +690,7 @@ impl App {
                     .and_then(|(playhead, phrase)| playhead.step_in(phrase, self.song.track())),
             },
         );
+        self.draw_selection(&mut grid);
         let right_slot_focused = focus == Some(Focus::RightSlot);
         if let Some(list) = &self.file_list {
             list.draw(&mut grid, layout::RIGHT_SLOT);

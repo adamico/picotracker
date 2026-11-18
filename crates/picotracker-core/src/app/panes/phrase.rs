@@ -1,13 +1,15 @@
 //! The Phrase pane: the header and Steps of the Phrase being edited.
 
 use super::{
-    EMPTY, HEADING, VALUE, draw_out_of_range_flag, draw_row_label, draw_styled_value, draw_title,
-    id_text, stepped,
+    EMPTY, HEADING, SELECTED, VALUE, draw_out_of_range_flag, draw_row_label, draw_styled_value,
+    draw_title, id_text, stepped,
 };
 use crate::app::layout::Area;
+use crate::app::selection::{Block, CellPosition};
 use crate::app::{Direction, KeyContext};
-use crate::project::{MAX_STEPS, Phrase, PhraseId, Step};
+use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase, PhraseId, Step};
 use crate::screen::grid::Grid;
+use std::ops::RangeInclusive;
 
 /// Rows above the first Step: the title, three header rows and the column headings.
 const HEADER_ROWS: usize = 5;
@@ -104,7 +106,31 @@ impl Default for PhrasePane {
     }
 }
 
+/// Where the Phrase pane's cursor is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhraseSpot {
+    step: usize,
+    column: usize,
+    header_row: Option<usize>,
+}
+
 impl PhrasePane {
+    /// Where the cursor is now.
+    pub fn spot(&self) -> PhraseSpot {
+        PhraseSpot {
+            step: self.step,
+            column: self.column,
+            header_row: self.header_row,
+        }
+    }
+
+    /// Puts the cursor back where it was.
+    pub fn return_to(&mut self, spot: PhraseSpot) {
+        self.step = spot.step;
+        self.column = spot.column;
+        self.header_row = spot.header_row;
+    }
+
     /// The Step under the cursor.
     pub fn step(&self) -> usize {
         self.step
@@ -294,6 +320,75 @@ impl PhrasePane {
         }
     }
 
+    /// The cell under the cursor: a column and a Step. The header holds no cells to select.
+    pub fn cell(&self) -> Option<CellPosition> {
+        self.header_row.is_none().then_some(CellPosition {
+            column: self.column,
+            row: self.step,
+        })
+    }
+
+    /// Raises or lowers every cell in a block. Silent Steps show as empty, so they stay as they
+    /// are.
+    pub fn nudge_block(&self, phrase: &mut Phrase, block: Block, up: bool, coarse: bool) {
+        for index in block.rows() {
+            let step = phrase.step_mut(index);
+            if !step.is_silent() {
+                for column in block.columns() {
+                    nudge_step_cell(step, STEP_CELLS[column].0, up, coarse);
+                }
+            }
+        }
+    }
+
+    /// Empties every cell in a block. A Step has no empty pitch or Instrument, so clearing either
+    /// silences the Step and keeps its values.
+    pub fn clear_block(&self, phrase: &mut Phrase, block: Block) {
+        for index in block.rows() {
+            let step = phrase.step_mut(index);
+            for column in block.columns() {
+                match STEP_CELLS[column].0 {
+                    StepCell::Effect => step.set_effect(0),
+                    _ => step.set_volume(0),
+                }
+            }
+        }
+    }
+
+    /// The Steps a block of cells is on.
+    pub fn copy(&self, phrase: &Phrase, block: Block) -> Vec<Step> {
+        block.rows().map(|index| phrase.step(index)).collect()
+    }
+
+    /// Overwrites the copied columns of the Steps from the cursor down, and says how many rows
+    /// fell past LEN.
+    pub fn paste(
+        &self,
+        phrase: &mut Phrase,
+        columns: &RangeInclusive<usize>,
+        rows: &[Step],
+    ) -> usize {
+        let fitting = rows.len().min(phrase.length().saturating_sub(self.step));
+        for (index, source) in (self.step..).zip(&rows[..fitting]) {
+            let step = phrase.step_mut(index);
+            *step = pasted_step(*step, *source, columns);
+        }
+        rows.len() - fitting
+    }
+
+    /// Marks the selected cells, leaving the cursor as it is.
+    pub fn draw_selection(&self, grid: &mut Grid, area: Area, block: Block) {
+        for index in block.rows() {
+            for column in block.columns() {
+                if (index, column) != (self.step, self.column) {
+                    let (_, offset, empty) = STEP_CELLS[column];
+                    let row = HEADER_ROWS + index;
+                    grid.restyle(area.column + offset, row, empty.len(), SELECTED);
+                }
+            }
+        }
+    }
+
     /// Moves the cursor to the Step the Playhead is on.
     pub fn follow(&mut self, step: usize) {
         if self.step != step {
@@ -372,6 +467,62 @@ impl PhrasePane {
             }
         }
     }
+}
+
+/// Raises or lowers one cell of a Step, stopping at its limits. Custom Instruments are left alone,
+/// because nudging only steps through the Built-in Instruments.
+fn nudge_step_cell(step: &mut Step, cell: StepCell, up: bool, coarse: bool) {
+    let amount = if coarse && cell == StepCell::Pitch {
+        SEMITONES_PER_OCTAVE
+    } else {
+        1
+    };
+    let delta = if up { amount } else { -amount };
+    match cell {
+        StepCell::Pitch => step.set_pitch(i32::from(step.pitch()) + delta),
+        StepCell::Instrument if step.instrument() < FIRST_CUSTOM_INSTRUMENT => {
+            step.set_instrument(i32::from(step.instrument()) + delta);
+        }
+        StepCell::Instrument => {}
+        StepCell::Volume => step.set_volume(i32::from(step.volume()) + delta),
+        StepCell::Effect => step.set_effect(i32::from(step.effect()) + delta),
+    }
+}
+
+/// A Step with the copied columns of another written over it. A silent source shows as empty, so
+/// pasting its pitch or Instrument silences the Step, as clearing those cells does.
+fn pasted_step(target: Step, source: Step, columns: &RangeInclusive<usize>) -> Step {
+    let copied = |cell| {
+        STEP_CELLS
+            .iter()
+            .position(|(column, _, _)| *column == cell)
+            .is_some_and(|column| columns.contains(&column))
+    };
+    let pick = |cell, from_source, from_target| {
+        if copied(cell) {
+            from_source
+        } else {
+            from_target
+        }
+    };
+    let empties_note =
+        source.is_silent() && (copied(StepCell::Pitch) || copied(StepCell::Instrument));
+    let volume = if empties_note {
+        0
+    } else {
+        pick(StepCell::Volume, source.volume(), target.volume())
+    };
+    Step::new(
+        pick(StepCell::Pitch, source.pitch(), target.pitch()),
+        pick(
+            StepCell::Instrument,
+            source.instrument(),
+            target.instrument(),
+        ),
+        volume,
+        pick(StepCell::Effect, source.effect(), target.effect()),
+    )
+    .unwrap_or(target)
 }
 
 /// The text of each cell of a Step. A silent Step shows as empty.

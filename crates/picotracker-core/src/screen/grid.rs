@@ -69,6 +69,16 @@ impl Grid {
         }
     }
 
+    /// Recolours a run of cells on one row, keeping their characters.
+    pub fn restyle(&mut self, column: usize, row: usize, width: usize, style: Style) {
+        if row >= GRID_ROWS {
+            return;
+        }
+        for x in column..(column + width).min(GRID_COLUMNS) {
+            self.cells[row * GRID_COLUMNS + x].style = style;
+        }
+    }
+
     /// Blanks a whole row in one background colour.
     pub fn fill_row(&mut self, row: usize, style: Style) {
         self.put(0, row, &" ".repeat(GRID_COLUMNS), style);

@@ -1,13 +1,15 @@
 //! The Chain pane: the entries of the Chain under the Song cursor, and the Chain row strip.
 
 use super::{
-    EMPTY, FILL, HEADING, VALUE, draw_out_of_range_flag, draw_row_label, draw_styled_value,
-    draw_title, id_text, nudged_id, stepped, typed_value,
+    EMPTY, FILL, HEADING, SELECTED, VALUE, draw_out_of_range_flag, draw_row_label,
+    draw_styled_value, draw_title, id_text, nudged_id, stepped, typed_value,
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
+use crate::app::selection::{Block, CellPosition};
 use crate::project::{CHAIN_ENTRIES, Chain, ChainEntry, ChainId, PhraseId, Project, TRACKS};
 use crate::screen::grid::{Grid, Style};
+use std::ops::RangeInclusive;
 
 const COARSE_TRANSPOSE: i32 = 12;
 /// Rows above the first Chain entry: the title and the column headings.
@@ -54,7 +56,28 @@ pub struct ChainPane {
     typing_downwards: bool,
 }
 
+/// Where the Chain pane's cursor is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChainSpot {
+    entry: usize,
+    column: usize,
+}
+
 impl ChainPane {
+    /// Where the cursor is now.
+    pub fn spot(&self) -> ChainSpot {
+        ChainSpot {
+            entry: self.entry,
+            column: self.column,
+        }
+    }
+
+    /// Puts the cursor back where it was.
+    pub fn return_to(&mut self, spot: ChainSpot) {
+        self.entry = spot.entry;
+        self.column = spot.column;
+    }
+
     /// Puts the cursor on a Chain entry.
     pub fn jump_to(&mut self, entry: usize) {
         self.entry = entry.min(CHAIN_ENTRIES - 1);
@@ -110,30 +133,73 @@ impl ChainPane {
 
     /// Raises or lowers the cell under the cursor. Nudging a Fill mark flips it.
     pub fn nudge(&mut self, chain: &mut Chain, up: bool, coarse: bool) {
-        let slot = chain.entry_mut(self.entry);
-        match (self.cell(), slot.as_mut()) {
-            (EntryCell::Phrase, entry) => {
-                let number = entry.map(|entry| entry.phrase().number());
-                set_phrase(slot, PhraseId::new(nudged_id(number, up, coarse)));
-            }
-            (EntryCell::Transpose, Some(entry)) => {
-                let amount = if coarse { COARSE_TRANSPOSE } else { 1 };
-                let delta = if up { amount } else { -amount };
-                entry.set_transpose(i32::from(entry.transpose()) + delta);
-            }
-            (EntryCell::Fill, Some(entry)) => entry.set_fill(!entry.fill()),
-            _ => {}
-        }
+        nudge_cell(chain.entry_mut(self.entry), self.cell(), up, coarse);
     }
 
     /// Clears the cell under the cursor. Clearing the Phrase empties the whole entry.
     pub fn clear(&mut self, chain: &mut Chain) {
-        let slot = chain.entry_mut(self.entry);
-        match (self.cell(), slot.as_mut()) {
-            (EntryCell::Phrase, _) => *slot = None,
-            (EntryCell::Transpose, Some(entry)) => entry.set_transpose(0),
-            (EntryCell::Fill, Some(entry)) => entry.set_fill(false),
-            _ => {}
+        clear_cell(chain.entry_mut(self.entry), self.cell());
+    }
+
+    /// The cell under the cursor: a column and a Chain entry.
+    pub fn position(&self) -> CellPosition {
+        CellPosition {
+            column: self.column,
+            row: self.entry,
+        }
+    }
+
+    /// Raises or lowers every cell in a block. Empty entries stay empty.
+    pub fn nudge_block(&self, chain: &mut Chain, block: Block, up: bool, coarse: bool) {
+        for entry in block.rows() {
+            let slot = chain.entry_mut(entry);
+            if slot.is_some() {
+                for column in block.columns() {
+                    nudge_cell(slot, COLUMNS[column].0, up, coarse);
+                }
+            }
+        }
+    }
+
+    /// Clears every cell in a block.
+    pub fn clear_block(&self, chain: &mut Chain, block: Block) {
+        for entry in block.rows() {
+            for column in block.columns() {
+                clear_cell(chain.entry_mut(entry), COLUMNS[column].0);
+            }
+        }
+    }
+
+    /// The entries a block of cells is on.
+    pub fn copy(&self, chain: &Chain, block: Block) -> Vec<Option<ChainEntry>> {
+        block.rows().map(|entry| chain.entry(entry)).collect()
+    }
+
+    /// Overwrites the copied columns of the entries from the cursor down, and says how many rows
+    /// fell past the last entry.
+    pub fn paste(
+        &self,
+        chain: &mut Chain,
+        columns: &RangeInclusive<usize>,
+        rows: &[Option<ChainEntry>],
+    ) -> usize {
+        let fitting = rows.len().min(CHAIN_ENTRIES - self.entry);
+        for (entry, source) in (self.entry..).zip(&rows[..fitting]) {
+            paste_entry(chain.entry_mut(entry), *source, columns);
+        }
+        rows.len() - fitting
+    }
+
+    /// Marks the selected cells, leaving the cursor as it is.
+    pub fn draw_selection(&self, grid: &mut Grid, area: Area, block: Block) {
+        for entry in block.rows() {
+            for column in block.columns() {
+                if (entry, column) != (self.entry, self.column) {
+                    let (_, offset, empty) = COLUMNS[column];
+                    let row = HEADER_ROWS + entry;
+                    grid.restyle(area.column + offset, row, empty.len(), SELECTED);
+                }
+            }
         }
     }
 
@@ -196,6 +262,62 @@ impl ChainPane {
         }
 
         draw_chain_row_strip(grid, area, project, song_row, playing_entry);
+    }
+}
+
+/// Raises or lowers one cell of an entry. Nudging a Fill mark flips it.
+fn nudge_cell(slot: &mut Option<ChainEntry>, cell: EntryCell, up: bool, coarse: bool) {
+    match (cell, slot.as_mut()) {
+        (EntryCell::Phrase, entry) => {
+            let number = entry.map(|entry| entry.phrase().number());
+            set_phrase(slot, PhraseId::new(nudged_id(number, up, coarse)));
+        }
+        (EntryCell::Transpose, Some(entry)) => {
+            let amount = if coarse { COARSE_TRANSPOSE } else { 1 };
+            let delta = if up { amount } else { -amount };
+            entry.set_transpose(i32::from(entry.transpose()) + delta);
+        }
+        (EntryCell::Fill, Some(entry)) => entry.set_fill(!entry.fill()),
+        _ => {}
+    }
+}
+
+/// Clears one cell of an entry. Clearing the Phrase empties the whole entry.
+fn clear_cell(slot: &mut Option<ChainEntry>, cell: EntryCell) {
+    match (cell, slot.as_mut()) {
+        (EntryCell::Phrase, _) => *slot = None,
+        (EntryCell::Transpose, Some(entry)) => entry.set_transpose(0),
+        (EntryCell::Fill, Some(entry)) => entry.set_fill(false),
+        _ => {}
+    }
+}
+
+/// Overwrites the copied columns of one entry. An empty source empties those columns.
+fn paste_entry(
+    slot: &mut Option<ChainEntry>,
+    source: Option<ChainEntry>,
+    columns: &RangeInclusive<usize>,
+) {
+    let copied = |cell| {
+        COLUMNS
+            .iter()
+            .position(|(column, _, _)| *column == cell)
+            .is_some_and(|column| columns.contains(&column))
+    };
+    if copied(EntryCell::Phrase) {
+        match source {
+            Some(source) => set_phrase(slot, source.phrase()),
+            None => *slot = None,
+        }
+    }
+    let Some(target) = slot.as_mut() else {
+        return;
+    };
+    if copied(EntryCell::Transpose) {
+        target.set_transpose(source.map_or(0, |source| i32::from(source.transpose())));
+    }
+    if copied(EntryCell::Fill) {
+        target.set_fill(source.is_some_and(ChainEntry::fill));
     }
 }
 

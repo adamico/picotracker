@@ -1,11 +1,12 @@
 //! The Song pane: rows of Chains, one column per Track.
 
 use super::{
-    EMPTY, HEADING, VALUE, draw_row_label, draw_styled_value, draw_title, id_text, nudged_id,
-    stepped, typed_value,
+    EMPTY, HEADING, SELECTED, VALUE, draw_row_label, draw_styled_value, draw_title, id_text,
+    nudged_id, stepped, typed_value,
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
+use crate::app::selection::{Block, CellPosition};
 use crate::player::TrackMix;
 use crate::project::{ChainId, Project, SONG_ROWS, TRACKS};
 use crate::screen::grid::{Grid, Style};
@@ -39,7 +40,28 @@ pub struct SongPane {
     typed_digit: Option<u8>,
 }
 
+/// Where the Song pane's cursor is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SongSpot {
+    row: usize,
+    track: usize,
+}
+
 impl SongPane {
+    /// Where the cursor is now.
+    pub fn spot(&self) -> SongSpot {
+        SongSpot {
+            row: self.row,
+            track: self.track,
+        }
+    }
+
+    /// Puts the cursor back where it was.
+    pub fn return_to(&mut self, spot: SongSpot) {
+        self.row = spot.row;
+        self.track = spot.track;
+    }
+
     /// The Song row under the cursor.
     pub fn row(&self) -> usize {
         self.row
@@ -96,6 +118,88 @@ impl SongPane {
         project.set_song_cell(self.row, self.track, chain);
     }
 
+    /// The cell under the cursor: a Track and a Song row.
+    pub fn cell(&self) -> CellPosition {
+        CellPosition {
+            column: self.track,
+            row: self.row,
+        }
+    }
+
+    /// Steps every Chain in a block. Empty cells stay empty.
+    pub fn nudge_block(&self, project: &mut Project, block: Block, up: bool, coarse: bool) {
+        for row in block.rows() {
+            for track in block.columns() {
+                if let Some(chain) = project.song_cell(row, track) {
+                    let number = nudged_id(Some(chain.number()), up, coarse);
+                    project.set_song_cell(row, track, Some(ChainId::new(number)));
+                }
+            }
+        }
+    }
+
+    /// Takes the Chains off a block of cells. The Chains themselves are kept.
+    pub fn clear_block(&self, project: &mut Project, block: Block) {
+        for row in block.rows() {
+            for track in block.columns() {
+                project.set_song_cell(row, track, None);
+            }
+        }
+    }
+
+    /// The Chains in a block of cells, row by row.
+    pub fn copy(&self, project: &Project, block: Block) -> Vec<Vec<Option<ChainId>>> {
+        block
+            .rows()
+            .map(|row| {
+                block
+                    .columns()
+                    .map(|track| project.song_cell(row, track))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Overwrites cells from the cursor, and says how many rows lost cells past the Song's edges.
+    pub fn paste(&self, project: &mut Project, rows: &[Vec<Option<ChainId>>]) -> usize {
+        let fitting_rows = rows.len().min(SONG_ROWS - self.row);
+        for (row, cells) in (self.row..).zip(&rows[..fitting_rows]) {
+            for (track, chain) in (self.track..TRACKS).zip(cells) {
+                project.set_song_cell(row, track, *chain);
+            }
+        }
+        let width = rows.first().map_or(0, Vec::len);
+        if self.track + width > TRACKS {
+            rows.len()
+        } else {
+            rows.len() - fitting_rows
+        }
+    }
+
+    /// The Song row drawn at the top of the pane.
+    fn top_row(&self, visible: usize) -> usize {
+        self.row
+            .saturating_sub(visible / 2)
+            .min(SONG_ROWS - visible)
+    }
+
+    /// Marks the selected cells, leaving the cursor as it is.
+    pub fn draw_selection(&self, grid: &mut Grid, area: Area, block: Block) {
+        let visible = area.rows - HEADER_ROWS;
+        let top = self.top_row(visible);
+        for song_row in block
+            .rows()
+            .filter(|row| (top..top + visible).contains(row))
+        {
+            for track in block.columns() {
+                if (song_row, track) != (self.row, self.track) {
+                    let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
+                    grid.restyle(column, HEADER_ROWS + song_row - top, 2, SELECTED);
+                }
+            }
+        }
+    }
+
     /// Makes the row under the cursor the Song loop row, or turns the loop off if it already is.
     pub fn toggle_loop_row(&self, project: &mut Project) {
         let row = (project.song_loop_row() != Some(self.row)).then_some(self.row);
@@ -123,10 +227,7 @@ impl SongPane {
         }
 
         let visible = area.rows - HEADER_ROWS;
-        let top = self
-            .row
-            .saturating_sub(visible / 2)
-            .min(SONG_ROWS - visible);
+        let top = self.top_row(visible);
         for offset in 0..visible {
             let row = HEADER_ROWS + offset;
             let song_row = top + offset;
