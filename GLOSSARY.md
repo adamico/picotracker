@@ -55,7 +55,7 @@ A Custom Instrument made of a short run of Steps with its own Speed, filters and
 _Avoid_: Macro
 
 **Waveform Instrument**:
-A Custom Instrument made of one 64-sample looping wave.
+A Custom Instrument made of one 64-sample looping wave, with its own DETUNE, REVERB and DAMPEN, and a Bass switch that plays it one octave lower.
 _Avoid_: Sample, wavetable
 
 **Speed**:
