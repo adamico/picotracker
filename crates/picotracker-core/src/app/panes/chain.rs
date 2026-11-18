@@ -45,7 +45,28 @@ pub struct ChainPane {
     typing_downwards: bool,
 }
 
+/// Where the Chain pane's cursor is.
+#[derive(Clone, Copy, Debug)]
+pub struct ChainSpot {
+    entry: usize,
+    column: usize,
+}
+
 impl ChainPane {
+    /// Where the cursor is now.
+    pub fn spot(&self) -> ChainSpot {
+        ChainSpot {
+            entry: self.entry,
+            column: self.column,
+        }
+    }
+
+    /// Puts the cursor back where it was.
+    pub fn return_to(&mut self, spot: ChainSpot) {
+        self.entry = spot.entry;
+        self.column = spot.column;
+    }
+
     /// Puts the cursor on a Chain entry.
     pub fn jump_to(&mut self, entry: usize) {
         self.entry = entry.min(CHAIN_ENTRIES - 1);

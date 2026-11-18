@@ -3,6 +3,7 @@
 mod action;
 mod files;
 mod focus;
+mod history;
 mod layout;
 mod messages;
 mod panes;
@@ -18,6 +19,7 @@ use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
 use crate::screen::grid::Grid;
 use files::{Question, Waiting};
 use focus::Focus;
+use history::{History, Merge, Spot};
 use messages::Notice;
 use panes::chain::ChainPane;
 use panes::file_list::{FileList, Purpose};
@@ -33,6 +35,8 @@ use std::time::Duration;
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
 const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
+const NOTHING_TO_UNDO: &str = "NOTHING TO UNDO";
+const NOTHING_TO_REDO: &str = "NOTHING TO REDO";
 const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 
@@ -42,6 +46,7 @@ pub struct App {
     project: Project,
     /// The Project as it was last saved or opened.
     saved_project: Project,
+    history: History,
     /// The file the Project was last saved to or opened from.
     project_path: Option<PathBuf>,
     /// The folder the file list starts in.
@@ -89,6 +94,7 @@ impl App {
         Self {
             saved_project: project.clone(),
             project,
+            history: History::default(),
             project_path: None,
             directory: PathBuf::from("."),
             focus: Focus::default(),
@@ -199,8 +205,51 @@ impl App {
         self.notice.as_ref()?.time_until_change()
     }
 
-    /// Applies one named action.
+    /// Applies one named action. Whatever it changes in the Project becomes one undo step.
     pub fn apply(&mut self, action: Action) {
+        self.history.begin(&self.project, self.spot());
+        self.perform(action);
+        let merge = match action {
+            Action::Nudge { .. } => Some(Merge::Nudge),
+            Action::HexDigit(_) => Some(Merge::Digit),
+            _ => None,
+        };
+        self.history.finish(&self.project, merge);
+    }
+
+    /// Where the cursor is in every pane.
+    fn spot(&self) -> Spot {
+        Spot {
+            focus: self.focus,
+            song: self.song.spot(),
+            chain: self.chain.spot(),
+            phrase: self.phrase.spot(),
+        }
+    }
+
+    /// Puts the cursor back where a change was made.
+    fn return_to(&mut self, spot: Spot) {
+        self.set_focus(spot.focus);
+        self.song.return_to(spot.song);
+        self.chain.return_to(spot.chain);
+        self.phrase.return_to(spot.phrase);
+    }
+
+    fn undo(&mut self) {
+        match self.history.undo(&mut self.project) {
+            Some(spot) => self.return_to(spot),
+            None => self.status = Some(NOTHING_TO_UNDO),
+        }
+    }
+
+    fn redo(&mut self) {
+        match self.history.redo(&mut self.project) {
+            Some(spot) => self.return_to(spot),
+            None => self.status = Some(NOTHING_TO_REDO),
+        }
+    }
+
+    fn perform(&mut self, action: Action) {
         self.status = None;
         if !matches!(action, Action::HexDigit(_)) {
             self.song.finish_typing();
@@ -221,6 +270,8 @@ impl App {
             Action::Save => self.save(),
             Action::SaveAs => self.save_as(),
             Action::ToggleLog => self.toggle_log(),
+            Action::Undo => self.undo(),
+            Action::Redo => self.redo(),
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::Move(direction) => self.move_cursor(direction),

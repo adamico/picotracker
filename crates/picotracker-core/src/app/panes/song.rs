@@ -22,7 +22,28 @@ pub struct SongPane {
     typed_digit: Option<u8>,
 }
 
+/// Where the Song pane's cursor is.
+#[derive(Clone, Copy, Debug)]
+pub struct SongSpot {
+    row: usize,
+    track: usize,
+}
+
 impl SongPane {
+    /// Where the cursor is now.
+    pub fn spot(&self) -> SongSpot {
+        SongSpot {
+            row: self.row,
+            track: self.track,
+        }
+    }
+
+    /// Puts the cursor back where it was.
+    pub fn return_to(&mut self, spot: SongSpot) {
+        self.row = spot.row;
+        self.track = spot.track;
+    }
+
     /// The Song row under the cursor.
     pub fn row(&self) -> usize {
         self.row
