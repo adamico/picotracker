@@ -42,6 +42,10 @@ const MAX_PITCH: i32 = 63;
 const MAX_BUILT_IN_INSTRUMENT: i32 = 7;
 const MAX_VOLUME: i32 = 7;
 const MAX_EFFECT: i32 = 7;
+const EFFECT_ARPEGGIO_FAST: u8 = 6;
+const EFFECT_ARPEGGIO_SLOW: u8 = 7;
+/// The Steps an arpeggio plays: the group of this many that it falls in.
+pub const ARPEGGIO_GROUP: usize = 4;
 const MIN_SPEED: i32 = 1;
 const MAX_SPEED: i32 = 255;
 /// BPM is about this number divided by the Speed, assuming 4 Steps per beat.
@@ -100,6 +104,11 @@ impl Step {
     /// Whether the Step makes no sound.
     pub const fn is_silent(self) -> bool {
         self.volume == 0
+    }
+
+    /// Whether the Step sounds as an arpeggio, which plays the pitches of its group of 4 Steps.
+    pub const fn plays_arpeggio(self) -> bool {
+        !self.is_silent() && matches!(self.effect, EFFECT_ARPEGGIO_FAST | EFFECT_ARPEGGIO_SLOW)
     }
 
     /// Sets the pitch, stopping at 0 and 63.
@@ -266,6 +275,16 @@ impl Phrase {
         let step = self.steps[index];
         let pitch = i32::from(step.pitch) + i32::from(transpose);
         !step.is_silent() && !(0..=MAX_PITCH).contains(&pitch)
+    }
+
+    /// Which Steps an arpeggio inside LEN takes its pitches from. These can lie past LEN.
+    pub fn steps_read_by_arpeggios(&self) -> [bool; MAX_STEPS] {
+        let mut read = [false; MAX_STEPS];
+        for index in (0..self.length).filter(|&index| self.steps[index].plays_arpeggio()) {
+            let group = index - index % ARPEGGIO_GROUP;
+            read[group..group + ARPEGGIO_GROUP].fill(true);
+        }
+        read
     }
 
     /// Whether any Step inside LEN sounds outside PICO-8's pitch range after this transpose.

@@ -7,7 +7,7 @@ mod support;
 use picotracker_core::cart::Cart;
 use picotracker_core::export::{ExportFailure, export};
 use picotracker_core::project::{Chain, ChainEntry, ChainId, Claim, PhraseId, Project, Step};
-use support::HEADER;
+use support::{HEADER, assert_same_samples, render_notes, render_song, sound_of};
 
 const EMPTY_PATTERN: [u8; 4] = [0x41, 0x42, 0x43, 0x44];
 
@@ -334,6 +334,67 @@ fn a_chain_row_timed_by_an_unexported_track_waits_for_the_full_compile_rules() {
     assert_eq!(
         failures,
         [ExportFailure::NotSimple {
+            song_row: 0,
+            chain_row: 0,
+        }]
+    );
+}
+
+/// One Song row playing a 6-Step Phrase whose last two Steps are a fast arpeggio. Its group runs
+/// on to Steps 6 and 7, which lie past LEN.
+fn arpeggio_past_len() -> Project {
+    let mut project = one_row_project();
+    let phrase = project.phrase_mut(PhraseId::new(0));
+    phrase.set_length(6);
+    phrase.set_speed(8);
+    for index in 0..4 {
+        *phrase.step_mut(index) = Step::new(24, 0, 5, 0).unwrap();
+    }
+    *phrase.step_mut(4) = Step::new(30, 0, 5, 6).unwrap();
+    *phrase.step_mut(5) = Step::new(34, 0, 5, 6).unwrap();
+    *phrase.step_mut(6) = Step::new(40, 0, 0, 0).unwrap();
+    *phrase.step_mut(7) = Step::new(44, 0, 0, 0).unwrap();
+    project
+}
+
+#[test]
+fn an_arpeggio_reading_steps_past_len_sounds_the_same_after_export() {
+    let project = arpeggio_past_len();
+
+    let cart = exported_cart(&project, &claim(&[8], (0, 0)));
+
+    let rendered = render_notes(sound_of(&cart, 8), &[0, 1, 2, 3, 4, 5]);
+    assert_same_samples(&rendered, &render_song(project, 6 * 8 * 183));
+}
+
+#[test]
+fn the_steps_an_arpeggio_reads_past_len_stay_silent_in_the_cart() {
+    let cart = exported_cart(&arpeggio_past_len(), &claim(&[8], (0, 0)));
+
+    // A channel that does not set the Pattern's length plays on past LEN, so they must not sound.
+    assert_eq!(cart.sfx(8).note(6).volume, 0);
+    assert_eq!(cart.sfx(8).note(7).volume, 0);
+}
+
+#[test]
+fn a_pitch_an_arpeggio_reads_past_the_top_of_the_range_is_named() {
+    let mut project = arpeggio_past_len();
+    *project.phrase_mut(PhraseId::new(0)).step_mut(7) = Step::new(60, 0, 0, 0).unwrap();
+    project
+        .chain_mut(ChainId::new(0))
+        .entry_mut(0)
+        .as_mut()
+        .unwrap()
+        .set_transpose(10);
+
+    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+
+    assert_eq!(
+        failures,
+        [ExportFailure::NoteOutOfRange {
+            phrase: 0,
+            step: 7,
+            track: 0,
             song_row: 0,
             chain_row: 0,
         }]
