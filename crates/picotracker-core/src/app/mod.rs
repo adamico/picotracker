@@ -12,7 +12,7 @@ use crate::player::AudioRequest;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
 use crate::screen::grid::Grid;
 use focus::Focus;
-use panes::chain::{ChainPane, ShownChain};
+use panes::chain::ChainPane;
 use panes::overview::OverviewPane;
 use panes::phrase::PhrasePane;
 use panes::song::SongPane;
@@ -41,6 +41,14 @@ impl App {
     /// A new app with the Song pane focused.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A new app editing this Project, with the Song pane focused.
+    pub fn with_project(project: Project) -> Self {
+        Self {
+            project,
+            ..Self::default()
+        }
     }
 
     /// The Project being edited.
@@ -214,17 +222,13 @@ impl App {
             self.focus == Focus::Song,
             &self.project,
         );
-        let chain = self.chain_under_cursor();
         self.chain.draw(
             &mut grid,
             layout::CHAIN,
             self.focus == Focus::Chain,
-            ShownChain {
-                id: chain,
-                chain: chain.map(|id| self.project.chain(id)),
-                row: self.song.row(),
-                track: self.song.track(),
-            },
+            &self.project,
+            self.song.row(),
+            self.song.track(),
         );
         self.phrase.draw(
             &mut grid,
@@ -232,6 +236,7 @@ impl App {
             self.focus == Focus::Phrase,
             self.phrase_under_cursor(),
             &self.shown_phrase(),
+            self.entry_under_cursor().map_or(0, ChainEntry::transpose),
         );
         self.overview.draw(
             &mut grid,

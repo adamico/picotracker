@@ -1,12 +1,12 @@
 //! The Chain pane: the entries of the Chain under the Song cursor, and the Chain row strip.
 
 use super::{
-    EMPTY, FILL, HEADING, VALUE, draw_styled_value, draw_title, id_text, nudged_id, stepped,
-    typed_value,
+    EMPTY, FILL, HEADING, VALUE, draw_out_of_range_flag, draw_styled_value, draw_title, id_text,
+    nudged_id, stepped, typed_value,
 };
 use crate::app::Direction;
 use crate::app::layout::Area;
-use crate::project::{CHAIN_ENTRIES, Chain, ChainEntry, ChainId, PhraseId};
+use crate::project::{CHAIN_ENTRIES, Chain, ChainEntry, ChainId, PhraseId, Project, TRACKS};
 use crate::screen::grid::{Grid, Style};
 
 const COARSE_TRANSPOSE: i32 = 12;
@@ -15,7 +15,6 @@ const HEADER_ROWS: usize = 2;
 const STRIP_TITLE_ROW: usize = 19;
 const STRIP_HEADING_ROW: usize = 20;
 const STRIP_FIRST_ROW: usize = 21;
-const STRIP_TRACKS: usize = 8;
 const STRIP_FIRST_TRACK_COLUMN: usize = 2;
 const STRIP_TRACK_WIDTH: usize = 3;
 const STRIP_TICKS_COLUMN: usize = 27;
@@ -132,16 +131,25 @@ impl ChainPane {
     }
 
     /// Draws the pane for the Song row and Track under the Song cursor.
-    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, shown: ShownChain<'_>) {
-        let number = id_text(shown.id.map(ChainId::number));
-        let title = format!("CHAIN {number}  T{} ROW {:02X}", shown.track + 1, shown.row);
+    pub fn draw(
+        &self,
+        grid: &mut Grid,
+        area: Area,
+        focused: bool,
+        project: &Project,
+        song_row: usize,
+        track: usize,
+    ) {
+        let id = project.song_cell(song_row, track);
+        let number = id_text(id.map(ChainId::number));
+        let title = format!("CHAIN {number}  T{} ROW {song_row:02X}", track + 1);
         draw_title(grid, area.column, 0, &title, focused);
         grid.put(area.column, 1, "K PH TSP FILL", HEADING);
 
         for index in 0..CHAIN_ENTRIES {
             let row = HEADER_ROWS + index;
             grid.put(area.column, row, &format!("{index:X}"), HEADING);
-            let entry = shown.chain.and_then(|chain| chain.entry(index));
+            let entry = project.chain_row_entry(song_row, track, index);
             for (column, (cell, offset, empty)) in COLUMNS.iter().enumerate() {
                 let is_cursor = focused && index == self.entry && column == self.column;
                 let (text, style) = match entry {
@@ -150,19 +158,18 @@ impl ChainPane {
                 };
                 draw_styled_value(grid, area.column + offset, row, &text, is_cursor, style);
             }
+            let out_of_range = entry.is_some_and(|entry| {
+                project
+                    .phrase(entry.phrase())
+                    .is_out_of_range(entry.transpose())
+            });
+            if out_of_range {
+                draw_out_of_range_flag(grid, area.column, row);
+            }
         }
 
-        draw_chain_row_strip(grid, area);
+        draw_chain_row_strip(grid, area, project, song_row);
     }
-}
-
-/// What the Chain pane shows: the Chain under the Song cursor, if any.
-#[derive(Clone, Copy, Debug)]
-pub struct ShownChain<'a> {
-    pub id: Option<ChainId>,
-    pub chain: Option<&'a Chain>,
-    pub row: usize,
-    pub track: usize,
 }
 
 /// Puts a Phrase in an entry, keeping the transpose and Fill mark of one already there.
@@ -187,18 +194,40 @@ fn cell_text(cell: EntryCell, entry: ChainEntry) -> (String, Style) {
     }
 }
 
-fn draw_chain_row_strip(grid: &mut Grid, area: Area) {
+/// Draws the k-th entry of all 8 Tracks on this Song row, and how long each Chain row lasts.
+fn draw_chain_row_strip(grid: &mut Grid, area: Area, project: &Project, song_row: usize) {
     draw_title(grid, area.column, STRIP_TITLE_ROW, "CHAIN ROWS", false);
     let heading = "K T1 T2 T3 T4 T5 T6 T7 T8  TICK";
     grid.put(area.column, STRIP_HEADING_ROW, heading, HEADING);
 
-    for entry in 0..CHAIN_ENTRIES {
-        let row = STRIP_FIRST_ROW + entry;
-        grid.put(area.column, row, &format!("{entry:X}"), HEADING);
-        for track in 0..STRIP_TRACKS {
-            let offset = STRIP_FIRST_TRACK_COLUMN + track * STRIP_TRACK_WIDTH;
-            grid.put(area.column + offset, row, "--", EMPTY);
+    for k in 0..CHAIN_ENTRIES {
+        let row = STRIP_FIRST_ROW + k;
+        grid.put(area.column, row, &format!("{k:X}"), HEADING);
+        for track in 0..TRACKS {
+            let column = area.column + STRIP_FIRST_TRACK_COLUMN + track * STRIP_TRACK_WIDTH;
+            draw_strip_entry(grid, column, row, project.chain_row_entry(song_row, track, k));
         }
-        grid.put(area.column + STRIP_TICKS_COLUMN, row, "   -", EMPTY);
+        let ticks = project.chain_row_ticks(song_row, k);
+        let (text, style) = if ticks > 0 {
+            (format!("{ticks:>4}"), VALUE)
+        } else {
+            ("   -".to_owned(), EMPTY)
+        };
+        grid.put(area.column + STRIP_TICKS_COLUMN, row, &text, style);
+    }
+}
+
+/// Draws one Track's entry in the strip, with an `F` after a Phrase marked Fill.
+fn draw_strip_entry(grid: &mut Grid, column: usize, row: usize, entry: Option<ChainEntry>) {
+    let Some(entry) = entry else {
+        grid.put(column, row, "--", EMPTY);
+        return;
+    };
+    let number = format!("{:02X}", entry.phrase().number());
+    if entry.fill() {
+        grid.put(column, row, &number, FILL);
+        grid.put(column + number.len(), row, "F", FILL);
+    } else {
+        grid.put(column, row, &number, VALUE);
     }
 }
