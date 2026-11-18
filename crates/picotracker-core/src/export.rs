@@ -266,8 +266,8 @@ fn compile_song(
             });
         }
         let mut pattern = [None; EXPORT_CHANNELS];
-        for (channel, track) in project.export_tracks().into_iter().enumerate() {
-            let Some(track) = track.map(|track| usize::from(track) - 1) else {
+        for (channel, track) in project.export_track_indices().into_iter().enumerate() {
+            let Some(track) = track else {
                 continue;
             };
             let Some(entry) = project.chain_row_entry(song_row, track, chain_row) else {
@@ -296,10 +296,10 @@ fn compile_song(
 /// The Exported entries of a Chain row, from channel 0 up.
 fn exported_entries(project: &Project, song_row: usize, chain_row: usize) -> Vec<ChainEntry> {
     project
-        .export_tracks()
+        .export_track_indices()
         .into_iter()
         .flatten()
-        .filter_map(|track| project.chain_row_entry(song_row, usize::from(track) - 1, chain_row))
+        .filter_map(|track| project.chain_row_entry(song_row, track, chain_row))
         .collect()
 }
 
