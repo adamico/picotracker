@@ -33,6 +33,9 @@ pub(super) struct RebuiltChannel {
     pub(super) lost_step: bool,
     /// How many Steps an unroll would need, when it was too many and Fill took its place.
     pub(super) unroll_needed: Option<usize>,
+    /// How many Ticks early the channel's Steps play, because a Phrase can only start where its
+    /// Chain row starts and this Chain row starts partway through one of the channel's Steps.
+    pub(super) early_ticks: u32,
 }
 
 /// What a Pattern becomes: its Chain rows, each with one place per channel.
@@ -190,6 +193,7 @@ fn fill_over(
         entry: Some(entry_of(sfx, (start..end.min(SFX_NOTES)).map(Some), true)),
         lost_step: false,
         unroll_needed,
+        early_ticks: 0,
     }
 }
 
@@ -211,6 +215,7 @@ fn rebuild_channel(sfx: Sfx<'_>, from: u32, to: u32, may_fill: bool) -> RebuiltC
     }
     let speed = speed_of(sfx);
     let first = from.div_ceil(speed) as usize;
+    let early_ticks = first as u32 * speed - from;
     let past = (to / speed) as usize;
     let needed = past.saturating_sub(first);
     let fits = needed <= MAX_STEPS;
@@ -218,7 +223,10 @@ fn rebuild_channel(sfx: Sfx<'_>, from: u32, to: u32, may_fill: bool) -> RebuiltC
         && !fits
         && !silent_from(sfx, playback, first + MAX_STEPS, past)
     {
-        return fill_over(sfx, start, end, Some(needed));
+        return RebuiltChannel {
+            early_ticks,
+            ..fill_over(sfx, start, end, Some(needed))
+        };
     }
     let steps = needed.min(MAX_STEPS);
     let notes = (first..first + steps).map(|step| playback.note_at(step));
@@ -226,6 +234,7 @@ fn rebuild_channel(sfx: Sfx<'_>, from: u32, to: u32, may_fill: bool) -> RebuiltC
         entry: (steps > 0).then(|| entry_of(sfx, notes, false)),
         lost_step: fits && !to.is_multiple_of(speed) && playback.note_at(past).is_some(),
         unroll_needed: None,
+        early_ticks,
     }
 }
 
