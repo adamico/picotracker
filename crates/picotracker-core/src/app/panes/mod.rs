@@ -20,6 +20,7 @@ const CURSOR: Style = Style {
 const CURSOR_BRACKET: Style = Style::fg(Colour::Yellow);
 const FILL: Style = Style::fg(Colour::Pink);
 const OUT_OF_RANGE: Style = Style::fg(Colour::Red);
+const PLAYHEAD: Style = Style::fg(Colour::Green);
 /// Where a Chain entry or a Step is flagged, to the right of its last cell.
 const OUT_OF_RANGE_COLUMN: usize = 14;
 const COARSE_ID: i32 = 16;
@@ -56,6 +57,14 @@ fn stepped(position: usize, delta: isize, positions: usize) -> usize {
 /// Flags a row whose notes a transpose pushes outside PICO-8's pitch range.
 fn draw_out_of_range_flag(grid: &mut Grid, column: usize, row: usize) {
     grid.put(column + OUT_OF_RANGE_COLUMN, row, "!", OUT_OF_RANGE);
+}
+
+/// Draws a row's label. The row the Playhead is on shows a marker over the label's first character.
+fn draw_row_label(grid: &mut Grid, column: usize, row: usize, label: &str, playing: bool) {
+    grid.put(column, row, label, HEADING);
+    if playing {
+        grid.put(column, row, ">", PLAYHEAD);
+    }
 }
 
 /// Draws a pane's title, brighter when the pane has focus.

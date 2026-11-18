@@ -8,20 +8,22 @@ mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
 
-use crate::player::{AudioRequest, TrackMix};
+use crate::player::{AudioRequest, PlaybackReport, Playhead, TrackMix};
 use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
 use crate::screen::grid::Grid;
 use focus::Focus;
-use panes::chain::ChainPane;
+use panes::chain::{ChainPane, ChainView};
 use panes::overview::OverviewPane;
-use panes::phrase::PhrasePane;
+use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
 use std::sync::Arc;
 
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
 const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
+const FOLLOW_ON: &str = "FOLLOW ON";
+const FOLLOW_OFF: &str = "FOLLOW OFF";
 
 /// The whole application, with no window or audio device attached.
 #[derive(Debug, Default)]
@@ -40,6 +42,9 @@ pub struct App {
     /// The Project as the Player last heard it.
     heard: Arc<Project>,
     track_mix: TrackMix,
+    playhead: Option<Playhead>,
+    /// Whether the panes track the Playhead.
+    follow: bool,
     status: Option<&'static str>,
     audio_requests: Vec<AudioRequest>,
 }
@@ -107,6 +112,42 @@ impl App {
         }
     }
 
+    /// Takes in where playback has got to, and says whether the screen needs drawing again.
+    pub fn show_playback(&mut self, report: &PlaybackReport) -> bool {
+        self.playback_finished(report.finished_play);
+        let playhead = report.playhead.filter(|_| self.playing);
+        let changed = playhead != self.playhead;
+        self.playhead = playhead;
+        if changed && self.follow {
+            self.follow_playhead();
+        }
+        changed
+    }
+
+    /// Moves the panes to the Playhead.
+    fn follow_playhead(&mut self) {
+        let Some(playhead) = self.playhead else {
+            return;
+        };
+        if let Some((row, k)) = playhead.chain_row {
+            self.song.follow(row);
+            self.chain.follow(k);
+        }
+        let step = self
+            .phrase_under_cursor()
+            .and_then(|phrase| playhead.step_in(phrase, self.song.track()));
+        if let Some(step) = step {
+            self.phrase.follow(step);
+        }
+        let shown = self.shown_phrase();
+        self.phrase.keep_inside(&shown);
+    }
+
+    fn toggle_follow(&mut self) {
+        self.follow = !self.follow;
+        self.status = Some(if self.follow { FOLLOW_ON } else { FOLLOW_OFF });
+    }
+
     /// Applies one named action.
     pub fn apply(&mut self, action: Action) {
         self.status = None;
@@ -121,6 +162,7 @@ impl App {
             Action::FocusPrevious => self.set_focus(self.focus.previous()),
             Action::PlayFocusedPane => self.play_or_stop(),
             Action::PlaySongFromCursor => self.play_song(),
+            Action::ToggleFollow => self.toggle_follow(),
             Action::Mute(track) => self.change_track_mix(|mix| {
                 mix.toggle_mute(usize::from(track) - 1);
             }),
@@ -233,6 +275,7 @@ impl App {
     fn play_or_stop(&mut self) {
         if self.playing {
             self.playing = false;
+            self.playhead = None;
             self.audio_requests.push(AudioRequest::Stop);
             return;
         }
@@ -301,6 +344,10 @@ impl App {
     }
 
     fn move_cursor(&mut self, direction: Direction) {
+        if self.follow {
+            self.follow = false;
+            self.status = Some(FOLLOW_OFF);
+        }
         match self.focus {
             Focus::Song => self.song.move_cursor(direction),
             Focus::Chain => self.chain.move_cursor(direction),
@@ -315,28 +362,41 @@ impl App {
     /// Draws the current state onto a fresh character grid.
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
+        let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
         self.song.draw(
             &mut grid,
             layout::SONG,
             self.focus == Focus::Song,
             &self.project,
             &self.track_mix,
+            chain_row.map(|(row, _)| row),
         );
         self.chain.draw(
             &mut grid,
             layout::CHAIN,
             self.focus == Focus::Chain,
             &self.project,
-            self.song.row(),
-            self.song.track(),
+            ChainView {
+                song_row: self.song.row(),
+                track: self.song.track(),
+                playing_entry: chain_row
+                    .filter(|(row, _)| *row == self.song.row())
+                    .map(|(_, k)| k),
+            },
         );
+        let phrase = self.phrase_under_cursor();
         self.phrase.draw(
             &mut grid,
             layout::PHRASE,
             self.focus == Focus::Phrase,
-            self.phrase_under_cursor(),
-            &self.shown_phrase(),
-            self.entry_under_cursor().map_or(0, ChainEntry::transpose),
+            PhraseView {
+                id: phrase,
+                phrase: &self.shown_phrase(),
+                transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
+                playing_step: self.playhead.zip(phrase).and_then(|(playhead, phrase)| {
+                    playhead.step_in(phrase, self.song.track())
+                }),
+            },
         );
         self.overview.draw(
             &mut grid,

@@ -1,7 +1,8 @@
 //! The Phrase pane: the header and Steps of the Phrase being edited.
 
 use super::{
-    EMPTY, HEADING, VALUE, draw_out_of_range_flag, draw_styled_value, draw_title, id_text, stepped,
+    EMPTY, HEADING, VALUE, draw_out_of_range_flag, draw_row_label, draw_styled_value, draw_title,
+    id_text, stepped,
 };
 use crate::app::layout::Area;
 use crate::app::{Direction, KeyContext};
@@ -64,6 +65,16 @@ const HEADER_CELLS: [&[(HeaderCell, usize)]; 3] = [
         (HeaderCell::Dampen, 13),
     ],
 ];
+
+/// What the Phrase pane shows.
+#[derive(Clone, Copy, Debug)]
+pub struct PhraseView<'a> {
+    pub id: Option<PhraseId>,
+    pub phrase: &'a Phrase,
+    pub transpose: i8,
+    /// The Step the Playhead is on, when it is in this Phrase.
+    pub playing_step: Option<usize>,
+}
 
 /// The Phrase pane's cursor, and the values that new notes take.
 #[derive(Debug)]
@@ -261,16 +272,22 @@ impl PhrasePane {
         }
     }
 
+    /// Moves the cursor to the Step the Playhead is on.
+    pub fn follow(&mut self, step: usize) {
+        if self.step != step {
+            self.step = step;
+            self.finish_typing();
+        }
+    }
+
     /// Draws a Phrase, or a blank Phrase under the title `--` when there is none to show.
-    pub fn draw(
-        &self,
-        grid: &mut Grid,
-        area: Area,
-        focused: bool,
-        id: Option<PhraseId>,
-        phrase: &Phrase,
-        transpose: i8,
-    ) {
+    pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, view: PhraseView) {
+        let PhraseView {
+            id,
+            phrase,
+            transpose,
+            playing_step,
+        } = view;
         let number = id_text(id.map(PhraseId::number));
         let title = format!("PHRASE {number}   OCT {}", self.octave);
         draw_title(grid, area.column, 0, &title, focused);
@@ -279,7 +296,8 @@ impl PhrasePane {
 
         for index in 0..phrase.length().min(MAX_STEPS) {
             let row = HEADER_ROWS + index;
-            grid.put(area.column, row, &format!("{index:02X}"), HEADING);
+            let label = format!("{index:02X}");
+            draw_row_label(grid, area.column, row, &label, playing_step == Some(index));
             let on_this_step = focused && self.header_row.is_none() && index == self.step;
             let texts = step_texts(phrase.step(index));
             for (cell, ((_, offset, _), text)) in STEP_CELLS.iter().zip(&texts).enumerate() {
