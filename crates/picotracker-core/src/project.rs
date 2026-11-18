@@ -1,6 +1,8 @@
 //! Project model: the Song, Chains, Phrases, Steps, Instruments, Export Tracks, Target Cart and
 //! Claim, plus validated edits.
 
+use std::collections::BTreeMap;
+
 /// The most Steps a Phrase can hold.
 pub const MAX_STEPS: usize = 32;
 /// The vertical lanes of the Song.
@@ -9,6 +11,18 @@ pub const TRACKS: usize = 8;
 pub const CHAIN_ENTRIES: usize = 16;
 /// The rows of the Song, as many as a two-digit hexadecimal row label can name.
 pub const SONG_ROWS: usize = 256;
+/// PICO-8's channels, each of which can carry one Export Track.
+pub const EXPORT_CHANNELS: usize = 4;
+/// The samples of a Waveform Instrument.
+pub const WAVEFORM_SAMPLES: usize = 64;
+/// The lowest number a Custom Instrument can have. Lower numbers are Built-in Instruments.
+pub const FIRST_CUSTOM_INSTRUMENT: u8 = 8;
+/// The longest name a Custom Instrument can have.
+pub const MAX_INSTRUMENT_NAME: usize = 12;
+/// The SFX and the Patterns of a Cart.
+pub const CART_SLOTS: u8 = 64;
+/// The highest DETUNE, REVERB or DAMPEN.
+pub const MAX_FILTER_LEVEL: i32 = 2;
 
 /// The Chains and the Phrases a Project can name with two hexadecimal digits.
 const ID_COUNT: usize = 256;
@@ -22,7 +36,6 @@ const MAX_PITCH: i32 = 63;
 const MAX_BUILT_IN_INSTRUMENT: i32 = 7;
 const MAX_VOLUME: i32 = 7;
 const MAX_EFFECT: i32 = 7;
-const MAX_FILTER_LEVEL: i32 = 2;
 const MIN_SPEED: i32 = 1;
 const MAX_SPEED: i32 = 255;
 /// BPM is about this number divided by the Speed, assuming 4 Steps per beat.
@@ -49,6 +62,19 @@ impl Default for Step {
 }
 
 impl Step {
+    /// A Step holding these values, if each is inside its limits.
+    pub const fn new(pitch: u8, instrument: u8, volume: u8, effect: u8) -> Option<Self> {
+        if pitch as i32 > MAX_PITCH || volume as i32 > MAX_VOLUME || effect as i32 > MAX_EFFECT {
+            return None;
+        }
+        Some(Self {
+            pitch,
+            instrument,
+            volume,
+            effect,
+        })
+    }
+
     pub const fn pitch(self) -> u8 {
         self.pitch
     }
@@ -351,6 +377,57 @@ impl Chain {
     }
 }
 
+/// A Custom Instrument made of a short run of Steps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SfxInstrument {
+    pub steps: Vec<Step>,
+    pub speed: u8,
+    pub filters: Filters,
+    pub loop_start: u8,
+    pub loop_end: u8,
+}
+
+/// A Custom Instrument made of one looping wave.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WaveformInstrument {
+    pub samples: [i8; WAVEFORM_SAMPLES],
+    pub bass: bool,
+    pub detune: u8,
+    pub reverb: u8,
+    pub dampen: u8,
+}
+
+/// What a Custom Instrument sounds like.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstrumentSound {
+    Sfx(SfxInstrument),
+    Waveform(WaveformInstrument),
+}
+
+/// An Instrument defined in the Project, with an optional short name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomInstrument {
+    pub name: Option<String>,
+    pub sound: InstrumentSound,
+}
+
+/// The SFX slots and the inclusive range of Patterns a Project owns in its Target Cart.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Claim {
+    pub sfx: Vec<u8>,
+    pub patterns: Option<(u8, u8)>,
+}
+
+/// The one Cart a Project Exports into.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TargetCart {
+    /// Where the Cart is, relative to the Project file.
+    pub path: String,
+    pub claim: Claim,
+    /// The hash of the claimed bytes at the last Cart Import or Export, if there has been one.
+    pub claimed_bytes_hash: Option<String>,
+}
+
 /// The tracker's saved work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Project {
@@ -358,6 +435,11 @@ pub struct Project {
     chains: Vec<Chain>,
     song: Vec<[Option<ChainId>; TRACKS]>,
     song_loop_row: Option<usize>,
+    default_speed: u8,
+    /// The Track on each of PICO-8's channels, numbered 1 to 8.
+    export_tracks: [Option<u8>; EXPORT_CHANNELS],
+    target_cart: Option<TargetCart>,
+    custom_instruments: BTreeMap<u8, CustomInstrument>,
 }
 
 impl Default for Project {
@@ -367,6 +449,10 @@ impl Default for Project {
             chains: vec![Chain::default(); ID_COUNT],
             song: vec![[None; TRACKS]; SONG_ROWS],
             song_loop_row: Some(0),
+            default_speed: DEFAULT_SPEED,
+            export_tracks: [None; EXPORT_CHANNELS],
+            target_cart: None,
+            custom_instruments: BTreeMap::new(),
         }
     }
 }
@@ -447,5 +533,53 @@ impl Project {
 
     pub fn set_song_loop_row(&mut self, row: Option<usize>) {
         self.song_loop_row = row;
+    }
+
+    /// The Speed that new Phrases take.
+    pub const fn default_speed(&self) -> u8 {
+        self.default_speed
+    }
+
+    /// Sets the Speed that new Phrases take, stopping at 1 and 255.
+    pub fn set_default_speed(&mut self, speed: i32) {
+        self.default_speed = speed.clamp(MIN_SPEED, MAX_SPEED) as u8;
+    }
+
+    /// The Track on each of PICO-8's channels, numbered 1 to 8.
+    pub const fn export_tracks(&self) -> [Option<u8>; EXPORT_CHANNELS] {
+        self.export_tracks
+    }
+
+    /// Puts a Track, numbered 1 to 8, on a channel from 0 to 3, or takes it off.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the channel is 4 or more.
+    pub fn set_export_track(&mut self, channel: usize, track: Option<u8>) {
+        self.export_tracks[channel] = track;
+    }
+
+    /// The Cart this Project Exports into, if any.
+    pub const fn target_cart(&self) -> Option<&TargetCart> {
+        self.target_cart.as_ref()
+    }
+
+    pub fn set_target_cart(&mut self, target_cart: Option<TargetCart>) {
+        self.target_cart = target_cart;
+    }
+
+    /// Every Custom Instrument, in order of its number.
+    pub fn custom_instruments(&self) -> impl Iterator<Item = (u8, &CustomInstrument)> {
+        self.custom_instruments
+            .iter()
+            .map(|(id, instrument)| (*id, instrument))
+    }
+
+    /// Defines the Custom Instrument with this number, or removes it.
+    pub fn set_custom_instrument(&mut self, id: u8, instrument: Option<CustomInstrument>) {
+        match instrument {
+            Some(instrument) => self.custom_instruments.insert(id, instrument),
+            None => self.custom_instruments.remove(&id),
+        };
     }
 }

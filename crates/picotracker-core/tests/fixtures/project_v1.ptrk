@@ -1,0 +1,101 @@
+// Format version 1, written by hand. Every field of the format appears here.
+(
+    version: 1,
+    default_speed: 12,
+    song_loop_row: Some(1),
+    export_tracks: [Some(1), Some(3), None, Some(8)],
+    target_cart: Some((
+        path: "../carts/game.p8",
+        claim: (
+            sfx: [3, 4, 50],
+            patterns: Some((first: 24, last: 29)),
+        ),
+        claimed_bytes_hash: Some("5d41402abc4b2a76b9719d911017c592"),
+    )),
+    song: [
+        (row: 0, tracks: "00 -- -- 01 -- -- -- --"),
+        (row: 2, tracks: "-- -- -- -- -- -- -- FF"),
+    ],
+    chains: [
+        (id: 0, entries: [
+            (index: 0, phrase: 0, transpose: 0, fill: false),
+            (index: 15, phrase: 1, transpose: -12, fill: true),
+        ]),
+        (id: 1, entries: [
+            (index: 3, phrase: 255, transpose: 127, fill: false),
+        ]),
+    ],
+    phrases: [
+        (
+            id: 0,
+            length: 3,
+            speed: 8,
+            noiz: true,
+            buzz: false,
+            detune: 1,
+            reverb: 2,
+            dampen: 0,
+            steps: [
+                "C#2 08 5 3",
+                "C#2 08 0 3",
+                "--- -- - -",
+                "D#5 FF 7 7",
+            ],
+        ),
+        (
+            id: 1,
+            length: 32,
+            speed: 255,
+            noiz: false,
+            buzz: true,
+            detune: 0,
+            reverb: 0,
+            dampen: 2,
+            steps: ["C-0 00 1 0"],
+        ),
+        (
+            id: 255,
+            length: 1,
+            speed: 1,
+            noiz: false,
+            buzz: false,
+            detune: 2,
+            reverb: 1,
+            dampen: 1,
+            steps: [],
+        ),
+    ],
+    instruments: [
+        (
+            id: 8,
+            name: Some("BASS"),
+            sound: Sfx((
+                speed: 4,
+                noiz: true,
+                buzz: true,
+                detune: 2,
+                reverb: 1,
+                dampen: 0,
+                loop_start: 1,
+                loop_end: 2,
+                steps: ["C-2 03 5 0", "G-2 03 4 1"],
+            )),
+        ),
+        (
+            id: 255,
+            name: None,
+            sound: Waveform((
+                bass: true,
+                detune: 1,
+                reverb: 0,
+                dampen: 2,
+                samples: [
+                    -128, 127, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+                    14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                    30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+                    46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
+                ],
+            )),
+        ),
+    ],
+)

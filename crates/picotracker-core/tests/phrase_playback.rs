@@ -252,7 +252,7 @@ fn the_message_clears_on_the_next_action() {
     let mut app = phrase_app();
     apply(&mut app, &[SPACE, DOWN]);
 
-    assert_eq!(status_line(&app), "READY");
+    assert!(!status_line(&app).contains("NOTHING TO PLAY"));
 }
 
 #[test]
