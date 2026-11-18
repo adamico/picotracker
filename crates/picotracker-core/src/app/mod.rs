@@ -330,6 +330,7 @@ impl App {
 
     /// Puts the cursor back where a change was made.
     fn return_to(&mut self, spot: Spot) {
+        self.stop_following();
         self.set_focus(spot.focus);
         self.song.return_to(spot.song);
         self.chain.return_to(spot.chain);
