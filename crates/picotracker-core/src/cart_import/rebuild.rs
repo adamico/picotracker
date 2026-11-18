@@ -2,7 +2,7 @@
 //! plays in that time (ADR 0006).
 
 use crate::cart::{Cart, Pattern, SFX_NOTES, Sfx};
-use crate::project::{EXPORT_CHANNELS, Filters, MAX_STEPS, Phrase, Step};
+use crate::project::{ARPEGGIO_GROUP, EXPORT_CHANNELS, Filters, MAX_STEPS, Phrase, Step};
 use std::collections::BTreeSet;
 
 const BIT_7: u8 = 0x80;
@@ -21,6 +21,8 @@ pub(super) struct RebuiltEntry {
     pub(super) fill: bool,
     /// The SFX slots that the audible Steps play as instruments.
     pub(super) instruments: BTreeSet<u8>,
+    /// The first Step whose arpeggio sounds different from the Cart's.
+    pub(super) arpeggio_changed: Option<usize>,
 }
 
 /// What one channel plays in one Chain row, and what could not be kept.
@@ -108,12 +110,53 @@ fn filters_of(sfx: Sfx<'_>) -> Filters {
     filters
 }
 
+/// Gives a Phrase the pitches its arpeggios read, on silent Steps wherever no note is played, and
+/// says which Step is the first whose arpeggio cannot sound as it does in the Cart. An arpeggio's
+/// timing follows its place in the SFX, so one that has moved keeps its sound only if all 4 of its
+/// pitches are the same.
+fn carry_arpeggio_pitches(
+    sfx: Sfx<'_>,
+    played: &[Option<usize>],
+    phrase: &mut Phrase,
+) -> Option<usize> {
+    let group_of = |index: usize| index - index % ARPEGGIO_GROUP;
+    let mut pitches = [None; MAX_STEPS];
+    for (index, note) in played.iter().enumerate() {
+        pitches[index] = note.map(|note| sfx.note(note).pitch);
+    }
+    let mut changed = None;
+    for (index, note) in played.iter().enumerate() {
+        let Some(note) = *note else { continue };
+        if !phrase.step(index).plays_arpeggio() {
+            continue;
+        }
+        let wanted: [u8; ARPEGGIO_GROUP] =
+            std::array::from_fn(|offset| sfx.note(group_of(note) + offset).pitch);
+        let mut keeps_sound = index == note || wanted.iter().all(|pitch| *pitch == wanted[0]);
+        for (offset, pitch) in wanted.into_iter().enumerate() {
+            let slot = &mut pitches[group_of(index) + offset];
+            keeps_sound &= *slot.get_or_insert(pitch) == pitch;
+        }
+        if !keeps_sound {
+            changed.get_or_insert(index);
+        }
+    }
+    for (index, pitch) in pitches.into_iter().enumerate() {
+        let plays_a_note = played.get(index).is_some_and(Option::is_some);
+        if let Some(pitch) = pitch.filter(|_| !plays_a_note) {
+            *phrase.step_mut(index) = Step::new(pitch, 0, 0, 0).unwrap_or_default();
+        }
+    }
+    changed
+}
+
 /// The entry that plays these stored notes, with silence for `None`.
 fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool) -> RebuiltEntry {
     let mut phrase = Phrase::default();
     let mut instruments = BTreeSet::new();
     let mut length = 0;
-    for (index, played) in notes.enumerate() {
+    let notes: Vec<Option<usize>> = notes.collect();
+    for (index, played) in notes.iter().copied().enumerate() {
         length = index + 1;
         let Some(played) = played else { continue };
         let note = sfx.note(played);
@@ -127,10 +170,12 @@ fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool
     phrase.set_length(length as i32);
     phrase.set_speed(speed_of(sfx) as i32);
     *phrase.filters_mut() = filters_of(sfx);
+    let arpeggio_changed = carry_arpeggio_pitches(sfx, &notes, &mut phrase);
     RebuiltEntry {
         phrase,
         fill,
         instruments,
+        arpeggio_changed,
     }
 }
 

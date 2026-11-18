@@ -309,6 +309,17 @@ impl<'a> SongBuilder<'a> {
                 step: 0,
             };
             let phrase = self.place_entry(&mut chain, k, played, channel);
+            let arpeggio_changed = channel.entry.as_ref().and_then(|e| e.arpeggio_changed);
+            if let Some(step) = arpeggio_changed {
+                self.warnings.push(ImportWarning::at(
+                    SongPlace { step, ..place },
+                    format!(
+                        "PATTERN {slot:02X} T{} STEP {step:02X} PLAYS A DIFFERENT ARPEGGIO AFTER \
+                         IMPORT.",
+                        track + 1
+                    ),
+                ));
+            }
             if channel.lost_step {
                 let warning = lost_step_warning(slot, k == last_row, place, phrase);
                 self.warnings.push(warning);
