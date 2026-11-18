@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+cpal = "0.18"
 picotracker-core = { path = "../picotracker-core" }
 pixels = "0.17"
+rtrb = "0.4.1"
 winit = "0.30"

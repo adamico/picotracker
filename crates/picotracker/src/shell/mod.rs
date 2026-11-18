@@ -1,10 +1,12 @@
-//! The Window shell: runs the App core in a native window.
+//! The Window shell: runs the App core in a native window and starts the audio stream.
 //!
 //! `pixels` scales the frame by the largest whole number that fits, never below ×1, and clears
 //! the rest of the window to black. This module holds no application logic.
 
+mod audio;
 mod keys;
 
+use audio::AudioOutput;
 use picotracker_core::app::App;
 use picotracker_core::keymap::Keymap;
 use picotracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
@@ -72,6 +74,8 @@ struct Shell {
     keymap: Keymap,
     modifiers: ModifiersState,
     surface: Option<Surface>,
+    /// The sound output. The app still runs without one.
+    audio: Option<AudioOutput>,
     failure: Option<Box<dyn Error>>,
 }
 
@@ -82,6 +86,9 @@ impl Default for Shell {
             keymap: Keymap::pc_tracker(),
             modifiers: ModifiersState::empty(),
             surface: None,
+            audio: AudioOutput::start()
+                .inspect_err(|error| eprintln!("picotracker: no sound: {error}"))
+                .ok(),
             failure: None,
         }
     }
@@ -128,10 +135,16 @@ impl ApplicationHandler for Shell {
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                let context = self.app.key_context();
                 let action = keys::key_press(&event, self.modifiers)
-                    .and_then(|press| self.keymap.action_for(press));
+                    .and_then(|press| self.keymap.action_in(press, context));
                 if let Some(action) = action {
                     self.app.apply(action);
+                    for request in self.app.take_audio_requests() {
+                        if let Some(audio) = self.audio.as_mut() {
+                            audio.send(request);
+                        }
+                    }
                     surface.window.request_redraw();
                 }
             }
