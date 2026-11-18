@@ -1,0 +1,176 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway decision aid for adamico/picotracker#19. Never merge.
+     Three layouts for the Target Cart, the Claim and the song picker on the 106×45 grid
+     (640×360, 6×8 cells, 5×7 font, PICO-8 palette).
+     Switch with ?variant=A|B|C, the bottom bar, or keys 1–3. The Carts are fake; all text is draft copy.
+       A  Cart view: one full-screen view with both slot maps always visible.
+       B  Cart pane: stays in the right-hand pane beside Song, Chain and Phrase; the Claim is typed.
+       C  Step by step: one big map per page, like the MIDI Import dialog. -->
+<html><head><meta charset="utf-8"><title>Target Cart prototype</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px sans-serif}
+#stage{position:fixed;left:0;top:0;bottom:0;right:300px;display:flex;align-items:center;justify-content:center;background:#0b0b0b}
+canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block;background:#000}
+#side{position:fixed;top:0;right:0;bottom:0;width:300px;background:#f4f4f4;color:#000;overflow:auto;padding:10px 10px 60px;box-sizing:border-box;font-size:12px}
+#side h3{margin:10px 0 4px;font-size:13px}#side .vdesc{background:#fff;border:1px solid #ccc;border-radius:6px;padding:6px;margin-bottom:6px}
+#side .k{font-family:monospace;background:#ddd;padding:0 3px;border-radius:3px}#side pre{font-size:10.5px;white-space:pre-wrap;background:#fff;border:1px solid #ccc;border-radius:6px;padding:6px;margin:0}
+#side button{display:block;width:100%;text-align:left;margin:3px 0;padding:5px 6px;border:1px solid #bbb;border-radius:5px;background:#fff;cursor:pointer;font-size:12px}#side button.on{background:#000;color:#fff}
+#bar{position:fixed;bottom:12px;left:calc(50% - 150px);transform:translateX(-50%);background:#fff;color:#000;border-radius:20px;padding:6px 14px;box-shadow:0 2px 12px #000a;font:bold 13px sans-serif;display:flex;gap:12px;align-items:center;z-index:9}
+#bar button{border:0;background:#000;color:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer}
+</style></head><body>
+<div id="stage"><canvas id="c" tabindex="0"></canvas></div>
+<div id="side"></div>
+<div id="bar"><button id="prev">◀</button><span id="lbl"></span><button id="next">▶</button></div>
+<script>
+const F57={0:'.xxx./x...x/x..xx/x.x.x/xx..x/x...x/.xxx.',1:'..x../.xx../..x../..x../..x../..x../.xxx.',2:'.xxx./x...x/....x/...x./..x../.x.../xxxxx',3:'xxxxx/...x./..x../...x./....x/x...x/.xxx.',4:'...x./..xx./.x.x./x..x./xxxxx/...x./...x.',5:'xxxxx/x..../xxxx./....x/....x/x...x/.xxx.',6:'..xx./.x.../x..../xxxx./x...x/x...x/.xxx.',7:'xxxxx/....x/...x./..x../.x.../.x.../.x...',8:'.xxx./x...x/x...x/.xxx./x...x/x...x/.xxx.',9:'.xxx./x...x/x...x/.xxxx/....x/...x./.xx..',
+A:'.xxx./x...x/x...x/xxxxx/x...x/x...x/x...x',B:'xxxx./x...x/x...x/xxxx./x...x/x...x/xxxx.',C:'.xxx./x...x/x..../x..../x..../x...x/.xxx.',D:'xxx../x..x./x...x/x...x/x...x/x..x./xxx..',E:'xxxxx/x..../x..../xxxx./x..../x..../xxxxx',F:'xxxxx/x..../x..../xxxx./x..../x..../x....',G:'.xxx./x...x/x..../x.xxx/x...x/x...x/.xxxx',H:'x...x/x...x/x...x/xxxxx/x...x/x...x/x...x',I:'.xxx./..x../..x../..x../..x../..x../.xxx.',J:'..xxx/...x./...x./...x./...x./x..x./.xx..',K:'x...x/x..x./x.x../xx.../x.x../x..x./x...x',L:'x..../x..../x..../x..../x..../x..../xxxxx',M:'x...x/xx.xx/x.x.x/x.x.x/x...x/x...x/x...x',N:'x...x/x...x/xx..x/x.x.x/x..xx/x...x/x...x',O:'.xxx./x...x/x...x/x...x/x...x/x...x/.xxx.',P:'xxxx./x...x/x...x/xxxx./x..../x..../x....',Q:'.xxx./x...x/x...x/x...x/x.x.x/x..x./.xx.x',R:'xxxx./x...x/x...x/xxxx./x.x../x..x./x...x',S:'.xxxx/x..../x..../.xxx./....x/....x/xxxx.',T:'xxxxx/..x../..x../..x../..x../..x../..x..',U:'x...x/x...x/x...x/x...x/x...x/x...x/.xxx.',V:'x...x/x...x/x...x/x...x/x...x/.x.x./..x..',W:'x...x/x...x/x...x/x.x.x/x.x.x/x.x.x/.x.x.',X:'x...x/x...x/.x.x./..x../.x.x./x...x/x...x',Y:'x...x/x...x/x...x/.x.x./..x../..x../..x..',Z:'xxxxx/....x/...x./..x../.x.../x..../xxxxx',
+'-':'...../...../...../xxxxx/...../...../.....','+':'...../..x../..x../xxxxx/..x../..x../.....','#':'.x.x./.x.x./xxxxx/.x.x./xxxxx/.x.x./.x.x.','.':'...../...../...../...../...../.xx../.xx..',':':'...../.xx../.xx../...../.xx../.xx../.....','/':'...../....x/...x./..x../.x.../x..../.....','|':'..x../..x../..x../..x../..x../..x../..x..','~':'...../...../.x.../x.x.x/...x./...../.....','(':'...x./..x../.x.../.x.../.x.../..x../...x.',')':'.x.../..x../...x./...x./...x./..x../.x...','>':'x..../.x.../..x../...x./..x../.x.../x....','=':'...../...../xxxxx/...../xxxxx/...../.....','_':'...../...../...../...../...../...../xxxxx','?':'.xxx./x...x/....x/...x./..x../...../..x..',',':'...../...../...../...../.xx../..x../.x...','*':'...../..x../x.x.x/.xxx./x.x.x/..x../.....',
+'!':'..x../..x../..x../..x../..x../...../..x..','[':'.xxx./.x.../.x.../.x.../.x.../.x.../.xxx.',']':'.xxx./...x./...x./...x./...x./...x./.xxx.','<':'....x/...x./..x../.x.../..x../...x./....x','%':'xx..x/xx..x/...x./..x../.x.../x..xx/x..xx',"'":'..x../..x../.x.../...../...../...../.....'};
+const GL=Object.fromEntries(Object.entries(F57).map(([k,v])=>[k,v.split('/').map(r=>[...r].map(c=>c==='x'))]));
+const W=640,H=360,CW=6,CH=8,cols=106,rows=45;
+const PAL=['#000000','#1d2b53','#7e2553','#008751','#ab5236','#5f574f','#c2c3c7','#fff1e8','#ff004d','#ffa300','#ffec27','#00e436','#29adff','#83769c','#ff77a8','#ffccaa'];
+const BG=0,NAVY=1,DIM=5,FG=6,WHITE=7,RED=8,ORA=9,HI=10,GRN=11,BLUE=12,HEAD=13;
+const hex=(v,n=2)=>v.toString(16).toUpperCase().padStart(n,'0');
+const R=(a,b)=>Array.from({length:b-a+1},(_,i)=>a+i);
+// ---------------- fake Carts ----------------
+function mk(songs,loose){const sfx=Array(64).fill(null),pat=Array(64).fill(null);songs.forEach(s=>{s.sfx.forEach(i=>sfx[i]=sfx[i]?'S+':'S'+s.n);R(s.pat[0],s.pat[1]).forEach(i=>pat[i]='S'+s.n)});loose.forEach(i=>sfx[i]='FX');return{songs,loose,sfx,pat}}
+const CARTS={
+ 'GAME.P8':mk([{n:1,pat:[0,5],sfx:[0,1,...R(8,19)],inst:2,flow:'LOOPS',secs:38},{n:2,pat:[7,14],sfx:[0,2,...R(20,31)],inst:2,flow:'LOOPS',secs:62},{n:3,pat:[16,18],sfx:R(32,37),inst:0,flow:'STOPS',secs:11}],R(40,49)),
+ 'JINGLE.P8.PNG':mk([{n:1,pat:[0,3],sfx:R(0,9),inst:0,flow:'STOPS',secs:14}],[]),
+ 'BLIPS.P8':mk([],R(0,17)),
+ 'BLANK.P8':mk([],[])};
+const FILES=['../','JAM/','BLANK.P8','BLIPS.P8','GAME.P8','JINGLE.P8.PNG'];
+const NEED={sfx:14,inst:2,pat:6};
+const pathOf=t=>'../CARTS/'+t;
+// ---------------- state ----------------
+let vk='A',scene='project',mode='main',target=null,importing=false,fileSel=4,pick=0,area='sfx',anchor=null,cpage='sfx',ipage='song',field='sfx',buf={sfx:'',pat:''},status=null,suggested=false,songName='SONG.PTRK';
+let claim={sfx:new Set(),p:null},ours={sfx:new Set(),pat:new Set()},snap=null;const cur={sfx:0,pat:0};
+const cart=()=>target?CARTS[target]:null;
+const fileCart=()=>CARTS[FILES[fileSel]]||null;
+const prevCart=()=>mode==='files'?fileCart():cart();
+const patRange=()=>anchor!=null?[Math.min(anchor,cur.pat),Math.max(anchor,cur.pat)]:claim.p;
+const isClaimed=(k,i)=>{if(k==='sfx')return claim.sfx.has(i);const p=patRange();return !!p&&i>=p[0]&&i<=p[1]};
+const songHas=(k,i)=>{const c=cart();if(mode!=='songs'||!c||!c.songs[pick])return false;const s=c.songs[pick];return k==='sfx'?s.sfx.includes(i):i>=s.pat[0]&&i<=s.pat[1]};
+function slot(k,i,c=prevCart()){const u=c?c[k][i]:null,claimed=isClaimed(k,i),own=ours[k].has(i);return{u,claimed,own,hl:songHas(k,i),over:claimed&&!!u&&!own}}
+function slotCol(s){if(s.hl)return[BG,HI];if(s.over)return[WHITE,RED];if(s.claimed)return[BG,GRN];if(s.u)return[FG,NAVY];return[DIM,BG]}
+function fmtSet(a){a=[...a].sort((x,y)=>x-y);const o=[];for(let i=0;i<a.length;){let j=i;while(a[j+1]===a[j]+1)j++;o.push(j>i?hex(a[i])+'-'+hex(a[j]):hex(a[i]));i=j+1}return o.join(' ')}
+const fmtPat=p=>p?(p[0]===p[1]?hex(p[0]):hex(p[0])+'-'+hex(p[1])):'';
+const patLen=p=>p?p[1]-p[0]+1:0;
+function checks(){const o=[],n=claim.sfx.size,p=patRange(),c=cart();if(!c)return[{sev:'ERR',text:'NO TARGET CART: NOWHERE TO EXPORT.'}];
+ o.push(n<NEED.sfx?{sev:'ERR',text:`NEEDS ${NEED.sfx} SFX, THE CLAIM HAS ${n}.`}:{sev:'OK ',text:`NEEDS ${NEED.sfx} SFX, THE CLAIM HAS ${n}.`});
+ const low=[...claim.sfx].filter(i=>i<8).length;o.push(low<NEED.inst?{sev:'ERR',text:`${NEED.inst} CUSTOM INSTRUMENTS NEED SLOTS IN 00-07, THE CLAIM HAS ${low} THERE.`}:{sev:'OK ',text:`${NEED.inst} CUSTOM INSTRUMENTS FIT IN 00-07.`});
+ o.push(patLen(p)<NEED.pat?{sev:'ERR',text:`NEEDS ${NEED.pat} PATTERNS, THE CLAIM HAS ${patLen(p)}.`}:{sev:'OK ',text:`NEEDS ${NEED.pat} PATTERNS, THE CLAIM HAS ${patLen(p)}.`});
+ const os=[...claim.sfx].filter(i=>slot('sfx',i,c).over),op=p?R(p[0],p[1]).filter(i=>slot('pat',i,c).over):[];
+ if(os.length)o.push({sev:'WRN',text:`EXPORT WILL OVERWRITE SFX ${fmtSet(os)}, WHICH HOLD OTHER SOUNDS.`});if(op.length)o.push({sev:'WRN',text:`EXPORT WILL OVERWRITE PATTERNS ${fmtSet(op)}.`});return o}
+const errs=()=>checks().filter(c=>c.sev==='ERR').length;
+function auto(){const c=cart();if(!c)return;const free=i=>!c.sfx[i]||ours.sfx.has(i),s=new Set(R(0,7).filter(free).slice(0,NEED.inst));for(let i=0;i<64&&s.size<NEED.sfx;i++)if(free(i))s.add(i);claim.sfx=s;
+ let p=null;for(let i=0;i<=64-NEED.pat;i++)if(R(i,i+NEED.pat-1).every(j=>!c.pat[j]||ours.pat.has(j))){p=[i,i+NEED.pat-1];break}claim.p=p;anchor=null;syncBuf()}
+function syncBuf(){buf={sfx:fmtSet(claim.sfx),pat:fmtPat(claim.p)}}
+function parseSfx(t){const s=new Set();for(const tok of t.trim().split(/[ ,]+/).filter(Boolean)){const m=tok.match(/^([0-9A-F]{1,2})(?:-([0-9A-F]{1,2}))?$/i);if(!m)return null;const a=parseInt(m[1],16),b=m[2]?parseInt(m[2],16):a;if(a>63||b>63||b<a)return null;R(a,b).forEach(i=>s.add(i))}return s}
+function parsePat(t){t=t.trim();if(!t)return[null];const m=t.match(/^([0-9A-F]{1,2})(?:-([0-9A-F]{1,2}))?$/i);if(!m)return null;const a=parseInt(m[1],16),b=m[2]?parseInt(m[2],16):a;if(a>63||b>63||b<a)return null;return[[a,b]]}
+function liveParse(){const s=parseSfx(buf.sfx);if(s)claim.sfx=s;const p=parsePat(buf.pat);if(p)claim.p=p[0]}
+const takeSnap=()=>({target,sfx:[...claim.sfx],p:claim.p});
+function restore(){if(!snap)return;target=snap.target;claim.sfx=new Set(snap.sfx);claim.p=snap.p;anchor=null;syncBuf()}
+function setScene(s){scene=s;mode='main';status=null;importing=false;target=null;claim={sfx:new Set(),p:null};ours={sfx:new Set(),pat:new Set()};anchor=null;pick=0;fileSel=4;cpage='sfx';ipage='song';suggested=false;songName='SONG.PTRK';
+ if(s==='project'){target='GAME.P8';claim.sfx=new Set([3,4,...R(50,61)]);claim.p=[24,29];syncBuf();status={c:'hint',t:'PRESS C TO OPEN THE CART AND CLAIM'}}
+ if(s==='none'){songName='SONG.PTRK';syncBuf();status={c:'q',t:'NO TARGET CART: CHOOSE ONE TO EXPORT INTO?  ENTER CHOOSE  ESC CANCEL'}}
+ if(s==='import'){importing=true;songName='UNTITLED';mode='files'}}
+function openCart(){snap=takeSnap();anchor=null;status=null;if(!target){mode='files'}else{mode='claim';cpage='sfx';field='sfx';area='sfx';syncBuf()}}
+function closeWith(st){mode='main';anchor=null;status=st}
+function applyClaim(){const n=errs();closeWith(n?{c:'warn',t:`CLAIM SAVED WITH ${n} PROBLEM${n>1?'S':''}: EXPORT WILL FAIL UNTIL THEY ARE FIXED`}:{c:'ok',t:`CLAIM SAVED: ${claim.sfx.size} SFX, PATTERNS ${fmtPat(claim.p)} IN ${target}`})}
+function cancelCart(){restore();closeWith({c:'hint',t:'NOTHING CHANGED'})}
+function doImport(i){const c=cart();const s=c.songs[i];ours={sfx:new Set(s?s.sfx:[]),pat:new Set(s?R(s.pat[0],s.pat[1]):[])};claim.sfx=new Set(ours.sfx);claim.p=s?[s.pat[0],s.pat[1]]:null;importing=false;songName=target.split('.')[0]+'.PTRK';syncBuf();
+ const lo=c.loose.length;closeWith({c:'warn',t:s?`IMPORTED SONG ${s.n} OF ${c.songs.length} FROM ${target}${lo?` WITH ${lo} LOOSE PHRASES`:''}  L LOG`:`${target} HAS NO MUSIC: ${lo} LOOSE PHRASES, NO SONG, EMPTY CLAIM  L LOG`})}
+function pickFile(){const f=FILES[fileSel];if(f.endsWith('/')){status={c:'hint',t:'(FOLDERS ARE NOT WIRED UP IN THIS PROTOTYPE)'};return}status=null;target=f;
+ if(importing){const c=cart();if(c.songs.length>1){pick=0;ipage='song';mode='songs'}else doImport(0);return}
+ if(!claim.sfx.size&&!claim.p){auto();suggested=true}mode='claim';cpage='sfx';field='sfx';area='sfx';syncBuf()}
+// ---------------- grid ----------------
+let G;
+function clear(){G=Array.from({length:rows},()=>Array.from({length:cols},()=>({c:' ',f:FG,b:BG})))}
+function put(x,y,s,f=FG,b=BG){s=String(s).toUpperCase();if(y<0||y>=rows)return;for(let i=0;i<s.length;i++){if(x+i>=cols)return;if(x+i>=0)G[y][x+i]={c:s[i],f,b}}}
+function fillRect(x,y,w,h,b){for(let j=y;j<y+h&&j<rows;j++)for(let i=x;i<x+w&&i<cols;i++)G[j][i]={c:' ',f:FG,b}}
+function vline(x,y0,y1){for(let y=y0;y<=Math.min(y1,rows-1);y++)G[y][x]={c:'|',f:NAVY,b:BG,line:1}}
+function wrap(s,w){const out=[];let line='';for(const word of s.split(' ')){if((line+' '+word).trim().length>w){out.push(line);line=word}else line=(line?line+' ':'')+word}if(line)out.push(line);return out}
+function title(x,y,w,label,f,right=''){fillRect(x,y,w,1,f?BLUE:BG);put(x,y,label,f?BG:BLUE,f?BLUE:BG);if(right)put(x+w-right.length,y,right,f?BG:HEAD,f?BLUE:BG)}
+function rowBg(x,y,w,on){if(on)fillRect(x,y,w,1,NAVY);return on?NAVY:BG}
+function footer(hint,right=''){const y=rows-1;fillRect(0,y,cols,1,BG);if(status&&status.c!=='hint'){const m={ok:[BG,GRN],warn:[BG,ORA],err:[WHITE,RED],q:[WHITE,BLUE]}[status.c];fillRect(0,y,cols,1,m[1]);put(1,y,status.t,m[0],m[1]);return}put(1,y,status?status.t:hint,DIM);if(right)put(cols-right.length-1,y,right,WHITE,NAVY)}
+function header(extra){put(0,0,'PICOTRACKER',HI);put(13,0,songName+'  STOP  OCT 2',FG);if(extra)put(cols-extra.length,0,extra,HEAD)}
+// ---------------- shared pieces ----------------
+function drawMap(x,y,k,cw,step,focus,tags){const lab=k==='sfx'?'SFX':'PATTERNS',n=k==='sfx'?claim.sfx.size:patLen(patRange()),need=k==='sfx'?NEED.sfx:NEED.pat;title(x,y,cw*8-1,lab,focus,mode==='claim'?`${n}/${need} CLAIMED`:'');
+ for(let i=0;i<64;i++){const c=i%8,r=i>>3,X=x+c*cw,Y=y+2+r*step,s=slot(k,i),on=focus&&cur[k]===i;let[f,b]=slotCol(s);if(on){f=BG;b=WHITE}fillRect(X,Y,cw-1,1,b);put(X+(tags?0:Math.floor((cw-3)/2)),Y,hex(i),f,b);if(tags&&s.u)put(X+3,Y,s.u,f,b);else if(i<8&&k==='sfx'&&!tags)put(X+2,Y,'',f,b)}}
+function legend(x,y){const L=[['--',DIM,BG,'EMPTY'],['--',FG,NAVY,'IN THE CART'],['--',BG,GRN,'CLAIMED'],['--',WHITE,RED,'OVERWRITES']];let X=x;L.forEach(([a,f,b,t])=>{put(X,y,a,f,b);put(X+3,y,t,FG);X+=t.length+6})}
+function inspect(k,i){const s=slot(k,i),o=[`${k==='sfx'?'SFX':'PATTERN'} ${hex(i)} IS ${k==='sfx'?'SFX':'MUSIC'}(${i}) IN PICO-8`],w={S1:'SONG 1',S2:'SONG 2',S3:'SONG 3','S+':'SONGS 1 AND 2'};o.push(!s.u?'EMPTY IN THE CART':s.u==='FX'?'HOLDS A LOOSE SOUND EFFECT':'PLAYED BY '+w[s.u]);if(s.over)o.push('CLAIMED: EXPORT WILL OVERWRITE IT');else if(s.claimed)o.push('CLAIMED BY THIS PROJECT');if(k==='sfx'&&i<8)o.push('CAN HOLD A CUSTOM INSTRUMENT');return o}
+function drawChecks(x,y,w,maxY){title(x,y,w,'CHECKS',false,errs()?errs()+' TO FIX':'READY');y++;checks().forEach(it=>wrap(it.text,w-4).forEach((l,j)=>{if(y>maxY)return;put(x,y,j?'    ':it.sev,it.sev==='ERR'?RED:it.sev==='WRN'?ORA:GRN);put(x+4,y,l,FG);y++}));return y}
+function cartFacts(c){if(!c)return['FOLDER'];const fs=c.sfx.filter(v=>!v).length,fp=c.pat.filter(v=>!v).length;return[`${c.songs.length} SONG${c.songs.length===1?'':'S'}, ${c.loose.length} LOOSE SFX`,`FREE: ${fs} SFX, ${fp} PATTERNS`]}
+function drawFiles(x,y,w,h){put(x,y,'../CARTS/',HEAD);FILES.forEach((f,i)=>{const yy=y+1+i,on=i===fileSel,b=rowBg(x,yy,w,on);put(x+1,yy,f,f.endsWith('/')?BLUE:(on?WHITE:FG),b)});let yy=y+FILES.length+2;cartFacts(fileCart()).forEach(l=>wrap(l,w).forEach(t=>put(x,yy++,t,GRN)));return yy}
+const mmss=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+function songLine(s){return `PATTERNS ${fmtPat(s.pat)}  ${s.sfx.length} SFX`}
+function drawSongs(x,y,w,compact){cart().songs.forEach((s,i)=>{const on=i===pick,b=rowBg(x,y,w,on);put(x,y,(on?'> ':'  ')+'SONG '+s.n,on?HI:WHITE,b);put(x+w-mmss(s.secs).length,y,mmss(s.secs),on?WHITE:FG,b);y++;const b2=rowBg(x,y,w,on);put(x+2,y,compact?`PAT ${fmtPat(s.pat)} ${s.sfx.length} SFX`:songLine(s),FG,b2);y++;const b3=rowBg(x,y,w,on);put(x+2,y,s.flow+(s.inst?`, ${s.inst} INSTR`:''),HEAD,b3);y+=2});return y}
+function panes(prev){const y=2,h=rows-4,c=cart(),s=prev&&c?c.songs[pick]:null,nr=s?patLen(s.pat):6;put(0,y,'SONG',s?ORA:BLUE);put(5,y,s?'PREVIEW':'T1 T2 T3 T4 T5 T6 T7 T8',s?ORA:HEAD);for(let r=0;r<Math.min(h-1,16);r++){put(0,y+1+r,hex(r),HEAD);for(let t=0;t<8;t++){const has=r<nr&&(t<4||!s);put(4+t*3,y+1+r,has?hex((t*7+r*3+(s?s.n*5:0))&63):'--',has?FG:DIM)}}vline(28,y,y+h-1);
+ put(29,y,'CHAIN',BLUE);put(35,y,'SONG ROW 00',HEAD);for(let k=0;k<8;k++){put(29,y+1+k,hex(k,1),HEAD);put(31,y+1+k,k<4?hex(k*5+2)+' +00':'-- ---',k<4?FG:DIM)}vline(62,y,y+h-1);
+ put(63,y,'PHRASE',BLUE);put(70,y,'SPD 0F LEN10',HEAD);for(let k=0;k<16;k++){put(63,y+1+k,hex(k),k%4?HEAD:GRN);put(66,y+1+k,k%2?'--- -- - -':'C-2 03 5 0',k%2?DIM:FG)}vline(82,y,y+h-1)}
+function tracksStrip(x,y){put(x,y,'TRACKS',BLUE);for(let t=0;t<8;t++){put(x,y+1+t,'T'+(t+1),HEAD);put(x+3,y+1+t,t<4?'EXPORT '+(t+1):'--',t<4?GRN:DIM)}}
+// ---------------- variant A: Cart view ----------------
+function renderA(){if(mode==='main')return renderMain();const f=mode==='claim';header('CART VIEW');title(0,2,70,'TARGET CART',mode==='files',mode==='claim'?'F CHANGE':'');put(13,2,mode==='files'?(FILES[fileSel]):pathOf(target),WHITE,mode==='files'?BLUE:BG);
+ drawMap(0,4,'sfx',4,2,f&&area==='sfx');drawMap(36,4,'pat',4,2,f&&area==='pat');legend(0,23);vline(71,2,rows-3);
+ if(f){inspect(area,cur[area]).forEach((l,i)=>put(0,25+i,l,i?FG:WHITE));if(anchor!=null)put(36,25,`RANGE ${fmtPat(patRange())}: SPACE TO SET IT`,HI);if(suggested)put(36,26,'SUGGESTED: THE LOWEST FREE SLOTS',HI);
+  title(73,2,33,'CLAIM');put(73,3,'SFX',HEAD);let y=3;wrap(fmtSet(claim.sfx)||'NONE',28).forEach(l=>put(78,y++,l,GRN));put(73,y,'PAT',HEAD);put(78,y,fmtPat(patRange())||'NONE',GRN);drawChecks(73,y+2,33,rows-3);footer((area==='sfx'?'SPACE TOGGLE':'SPACE START/END RANGE')+'  TAB MAP  A AUTO  X CLEAR  F CART','ENTER SAVE  ESC CANCEL')}
+ if(mode==='files'){title(73,2,33,importing?'IMPORT A CART':'CHOOSE A CART',true);drawFiles(73,3,33);put(0,25,'THE MAPS SHOW THE HIGHLIGHTED CART',DIM);footer('UP/DOWN PICK','ENTER CHOOSE  ESC '+(importing?'CANCEL':'BACK'))}
+ if(mode==='songs'){title(73,2,33,'PICK ONE SONG',true,cart().songs.length+' IN THIS CART');drawSongs(73,4,33);put(0,25,'YELLOW SLOTS ARE WHAT THIS SONG USES. THEY BECOME THE CLAIM.',HI);footer('UP/DOWN PICK  P LISTEN','ENTER IMPORT  ESC BACK')}}
+// ---------------- variant B: Cart pane ----------------
+function miniMap(x,y,k){for(let i=0;i<64;i++){const s=slot(k,i),[f,b]=slotCol(s);const ch=s.hl?'#':s.over?'!':s.claimed?'#':s.u?'O':'.';put(x+(i%16),y+(i>>4),ch,f===BG?b:f,BG)}}
+function bField(x,y,w,name,val,on){const lines=wrap(val||'-',w-1);put(x,y,name,on?HI:HEAD);y++;lines.forEach((l,i)=>{fillRect(x,y,w,1,on?NAVY:BG);put(x,y,l+(on&&i===lines.length-1?'_':''),on?WHITE:GRN,on?NAVY:BG);y++});return y}
+function renderB(){const x=83,w=23;panes(mode==='songs');header(target?pathOf(target):'NO TARGET CART');const f=mode!=='main';title(x,2,w,mode==='songs'?'PICK ONE SONG':mode==='files'?(importing?'IMPORT':'CHOOSE A CART'):'CART',f);let y=3;
+ if(mode==='files'){drawFiles(x,y,w);footer('UP/DOWN PICK','ENTER CHOOSE  ESC '+(importing?'CANCEL':'BACK'));return}
+ if(mode==='songs'){drawSongs(x,y+1,w,true);footer('UP/DOWN PICK  P LISTEN  THE PANES PREVIEW THE SONG','ENTER IMPORT  ESC BACK');return}
+ if(!target){put(x,y+1,'NO TARGET CART',DIM);put(x,y+3,'C CHOOSE ONE',FG);footer('C CART  SPACE PLAY');return}
+ const on=mode==='claim';y=bField(x,y,w,'CART',pathOf(target),on&&field==='cart');y++;y=bField(x,y,w,'SFX '+claim.sfx.size+'/'+NEED.sfx,on?buf.sfx:fmtSet(claim.sfx),on&&field==='sfx');y++;y=bField(x,y,w,'PATTERNS '+patLen(claim.p)+'/'+NEED.pat,on?buf.pat:fmtPat(claim.p),on&&field==='pat');y++;
+ put(x,y++,'SFX MAP',HEAD);miniMap(x,y,'sfx');y+=5;put(x,y++,'PATTERN MAP',HEAD);miniMap(x,y,'pat');y+=5;put(x,y++,'. FREE O USED # MINE',DIM);put(x,y++,'! OVERWRITES',RED);y++;drawChecks(x,y,w,rows-3);
+ if(on)footer('TYPE HEX, E.G. 03 04 32-3D  TAB FIELD  = AUTO'+(field==='cart'?'  ENTER CHANGE CART':''),field==='pat'?'ENTER SAVE  ESC CANCEL':'ENTER NEXT  ESC CANCEL');else footer('C EDIT CART AND CLAIM  SPACE PLAY')}
+// ---------------- variant C: step by step ----------------
+function steps(labels,idx){let x=0;labels.forEach((p,i)=>{const s=`${i+1} ${p}`,on=i===idx;put(x,2,s,on?BG:i<idx?GRN:DIM,on?BLUE:BG);x+=s.length+1;if(i<labels.length-1){put(x,2,'>',DIM);x+=2}})}
+function timeline(x,y,c){put(x,y,'WHERE EACH SONG SITS IN THE 64 PATTERNS',HEAD);for(let i=0;i<64;i++){const u=c.pat[i],sel=c.songs[pick]&&i>=c.songs[pick].pat[0]&&i<=c.songs[pick].pat[1];put(x+i,y+1,u?u[1]:'.',sel?BG:u?FG:DIM,sel?HI:u?NAVY:BG)}}
+function renderC(){if(mode==='main')return renderMain();header(target||'');const L=importing?['CART','SONG','REVIEW']:['CART','SFX','PATTERNS','REVIEW'];
+ if(mode==='files'){steps(L,0);title(0,5,46,importing?'WHICH CART DO YOU WANT TO IMPORT?':'WHICH CART DOES THIS PROJECT EXPORT INTO?',true);drawFiles(0,7,46);footer('UP/DOWN PICK','ENTER NEXT  ESC '+(importing?'CANCEL':'BACK'));return}
+ if(mode==='songs'){const c=cart();if(ipage==='song'){steps(L,1);title(0,5,90,`${target} HOLDS ${c.songs.length} SONGS. PICK ONE.`,true);put(2,7,'SONG  PATTERNS  LENGTH  ENDS   SFX  INSTRUMENTS',HEAD);c.songs.forEach((s,i)=>{const on=i===pick,yy=9+i*2,b=rowBg(0,yy,90,on);put(0,yy,(on?'> ':'  ')+s.n,on?HI:FG,b);put(8,yy,fmtPat(s.pat),on?WHITE:FG,b);put(18,yy,mmss(s.secs),on?WHITE:FG,b);put(26,yy,s.flow,on?WHITE:FG,b);put(33,yy,String(s.sfx.length),on?WHITE:FG,b);put(38,yy,String(s.inst),on?WHITE:FG,b)});timeline(0,17,c);footer('UP/DOWN PICK  P LISTEN','ENTER NEXT  ESC BACK')}
+  else{const s=c.songs[pick];steps(L,2);title(0,5,70,'WHAT WILL BE BUILT');[`SONG ${s.n}: ${patLen(s.pat)} SONG ROWS, ${mmss(s.secs)}`,`CLAIM: SFX ${fmtSet(s.sfx)}`,`CLAIM: PATTERNS ${fmtPat(s.pat)}`,`${c.loose.length} OTHER SFX BECOME LOOSE PHRASES, NOT CLAIMED`,`THE OTHER ${c.songs.length-1} SONGS ARE LEFT ALONE`].forEach((l,i)=>wrap(l,70).forEach((t,j)=>put(0,7+i*2+j,t,FG)));footer('','ENTER IMPORT  ESC BACK')}return}
+ const idx={sfx:1,pat:2,review:3}[cpage];steps(L,idx);
+ if(cpage==='review'){title(0,5,50,'THE CLAIM');put(0,7,'TARGET CART',HEAD);put(14,7,pathOf(target),WHITE);put(0,9,'SFX',HEAD);wrap(fmtSet(claim.sfx)||'NONE',36).forEach((l,i)=>put(14,9+i,l,GRN));put(0,12,'PATTERNS',HEAD);put(14,12,fmtPat(claim.p)||'NONE',GRN);drawChecks(54,5,52,rows-3);footer('','ENTER SAVE  ESC BACK');return}
+ const k=cpage;area=k;drawMap(0,5,k,6,2,true,true);legend(0,24);title(52,5,54,k==='sfx'?'WHICH SFX SLOTS MAY THIS PROJECT WRITE?':'WHICH PATTERNS MAY THIS PROJECT WRITE?');let y=7;wrap(k==='sfx'?`THIS PROJECT NEEDS ${NEED.sfx} SFX. ${NEED.inst} OF THEM ARE CUSTOM INSTRUMENTS AND MUST BE IN 00-07.`:`THIS PROJECT NEEDS ${NEED.pat} PATTERNS IN ONE UNBROKEN RUN. THE SONG STARTS AT THE FIRST ONE, SO MUSIC(N) STAYS THE SAME.`,54).forEach(l=>put(52,y++,l,FG));y++;inspect(k,cur[k]).forEach((l,i)=>put(52,y++,l,i?FG:WHITE));y++;if(suggested){put(52,y++,'SUGGESTED: THE LOWEST FREE SLOTS',HI);y++}drawChecks(52,y,54,rows-3);footer((k==='sfx'?'SPACE TOGGLE':'SPACE START/END RANGE')+'  A AUTO  X CLEAR  F CART','ENTER NEXT  ESC BACK')}
+// ---------------- the normal screen (A and C) ----------------
+function renderMain(){const ex=vk==='A'?(target?`CART ${target}  ${claim.sfx.size} SFX  PAT ${fmtPat(claim.p)||'--'}`:'NO TARGET CART'):(target?target:'NO TARGET CART');header(ex);panes(false);tracksStrip(83,2);footer('C CART AND CLAIM  SPACE PLAY')}
+// ---------------- draw ----------------
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');const rgb=PAL.map(h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)));
+function draw(){clear();({A:renderA,B:renderB,C:renderC})[vk]();cv.width=W;cv.height=H;const img=ctx.createImageData(W,H),d=img.data;
+ const px=(x,y,c)=>{const o=(y*W+x)*4,q=rgb[c];d[o]=q[0];d[o+1]=q[1];d[o+2]=q[2];d[o+3]=255};for(let i=0;i<W*H;i++)d[i*4+3]=255;
+ for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){const cell=G[y][x],X=x*CW,Y=y*CH;if(cell.b)for(let j=0;j<CH;j++)for(let i=0;i<CW;i++)px(X+i,Y+j,cell.b);if(cell.line){for(let j=0;j<CH;j++)px(X+3,Y+j,NAVY);continue}const g=GL[cell.c];if(!g)continue;for(let j=0;j<7;j++)for(let i=0;i<5;i++)if(g[j][i])px(X+i,Y+j,cell.f)}
+ ctx.putImageData(img,0,0);fit();showState()}
+function fit(){const dpr=devicePixelRatio||1,st=document.getElementById('stage'),r=Math.min(st.clientWidth*dpr/W,st.clientHeight*dpr/H),s=r>=1?Math.floor(r):r;cv.style.width=W*s/dpr+'px';cv.style.height=H*s/dpr+'px'}
+// ---------------- side panel ----------------
+const VD={A:['Cart view','One full-screen view, opened with C. Both 64-slot maps are always visible; the right column changes between file list, song list and Claim. You toggle slots with the cursor.'],B:['Cart pane','Stays in the right-hand pane, so Song, Chain and Phrase remain on screen. The Claim is typed as hex ranges, with small maps to check it. The panes preview the song you are picking.'],C:['Step by step','Pages in order, like the MIDI Import dialog: Cart, SFX, Patterns, Review. One large map per page, with each slot labelled by what uses it.']};
+const SC=[['project','Project with a Target Cart','Open with C, then change the Claim.'],['none','First Export, no Target Cart','After a MIDI Import. Press Enter to choose a Cart.'],['import','Cart Import, several songs','Choose GAME.P8 to reach the song picker.']];
+function side(){document.getElementById('side').innerHTML=`<div class="vdesc"><b>${vk}: ${VD[vk][0]}</b><br>${VD[vk][1]}</div>
+ <h3>Try each situation</h3>${SC.map(([k,t,d])=>`<button data-s="${k}" class="${scene===k?'on':''}"><b>${t}</b><br>${d}</button>`).join('')}
+ <h3>Keys</h3><div>Click the screen first. <span class=k>1</span>-<span class=k>3</span> variant, <span class=k>C</span> open, arrows move, <span class=k>Enter</span> confirm, <span class=k>Esc</span> back. The bottom row of the screen shows the rest.</div>
+ <h3>Fake data</h3><div>The Project needs 14 SFX (2 are Custom Instruments, which must sit in 00–07) and 6 Patterns. GAME.P8 has 3 songs and 10 loose sound effects.</div>
+ <h3>State</h3><pre id="st"></pre>`;document.querySelectorAll('#side button').forEach(b=>b.onclick=()=>{setScene(b.dataset.s);side();draw();cv.focus()})}
+function showState(){const el=document.getElementById('st');if(!el)return;el.textContent=`scene: ${scene}\nmode: ${mode}${vk==='C'&&mode==='claim'?' / '+cpage:''}\ntarget: ${target?pathOf(target):'none'}\nclaim sfx: ${fmtSet(claim.sfx)||'none'}\nclaim patterns: ${fmtPat(claim.p)||'none'}\nsong picked: ${mode==='songs'?pick+1:'-'}\nchecks: ${checks().map(c=>c.sev.trim()).join(' ')}`}
+// ---------------- keys ----------------
+function move(dx,dy){const k=area;let c=cur[k]%8+dx,r=(cur[k]>>3)+dy;c=(c+8)%8;r=(r+8)%8;cur[k]=r*8+c}
+function slotKeys(k,e){if(k===' '){e.preventDefault();suggested=false;if(area==='sfx'){const i=cur.sfx;claim.sfx.has(i)?claim.sfx.delete(i):claim.sfx.add(i)}else if(anchor==null)anchor=cur.pat;else{claim.p=patRange();anchor=null}syncBuf();return true}
+ if(k==='a'||k==='A'){auto();suggested=true;return true}if(k==='x'||k==='X'){claim.sfx=new Set();claim.p=null;anchor=null;suggested=false;syncBuf();return true}if(k==='f'||k==='F'){mode='files';fileSel=Math.max(0,FILES.indexOf(target));return true}
+ const d={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]}[k];if(d){e.preventDefault();move(...d);return true}return false}
+addEventListener('keydown',e=>{const k=e.key;if(/^[1-3]$/.test(k)&&!(vk==='B'&&mode==='claim')){setV('ABC'[+k-1]);return}if(k==='Tab')e.preventDefault();
+ if(mode==='main'){if(scene==='none'&&!target&&k==='Enter'){openCart();draw();return}if(scene==='none'&&!target&&k==='Escape'){status={c:'hint',t:'EXPORT CANCELLED'};draw();return}if(k==='c'||k==='C'){openCart();draw()}return}
+ if(mode==='files'){if(k==='ArrowUp'||k==='ArrowDown'){e.preventDefault();fileSel=(fileSel+(k==='ArrowUp'?-1:1)+FILES.length)%FILES.length}else if(k==='Enter')pickFile();else if(k==='Escape'){if(importing){setScene('project');side()}else if(snap&&snap.target){target=snap.target;mode='claim'}else cancelCart()}draw();return}
+ if(mode==='songs'){const n=cart().songs.length;if(k==='ArrowUp'||k==='ArrowDown'){e.preventDefault();if(!(vk==='C'&&ipage!=='song'))pick=(pick+(k==='ArrowUp'?-1:1)+n)%n}else if(k==='p'||k==='P'){status={c:'ok',t:`PLAYING SONG ${pick+1} OF THE CART (FAKE)`}}else if(k==='Enter'){status=null;if(vk==='C'&&ipage==='song')ipage='review';else doImport(pick)}else if(k==='Escape'){status=null;if(vk==='C'&&ipage!=='song')ipage='song';else{mode='files'}}draw();return}
+ if(vk==='A'){if(k==='Tab'){area=area==='sfx'?'pat':'sfx';anchor=null}else if(k==='Enter')applyClaim();else if(k==='Escape')cancelCart();else slotKeys(k,e);draw();return}
+ if(vk==='C'){if(k==='Enter'){anchor=null;if(cpage==='sfx'){cpage='pat';area='pat'}else if(cpage==='pat')cpage='review';else applyClaim()}else if(k==='Escape'){anchor=null;if(cpage==='review'){cpage='pat';area='pat'}else if(cpage==='pat'){cpage='sfx';area='sfx'}else cancelCart()}else if(cpage!=='review')slotKeys(k,e);draw();return}
+ if(vk==='B'){const F=['cart','sfx','pat'];if(k==='Tab'){field=F[(F.indexOf(field)+(e.shiftKey?2:1))%3]}else if(k==='Escape')cancelCart();else if(k==='Enter'){if(field==='cart'){mode='files';fileSel=Math.max(0,FILES.indexOf(target))}else if(field==='sfx')field='pat';else applyClaim()}else if(k==='='){auto()}else if(field!=='cart'){if(k==='Backspace'){e.preventDefault();buf[field]=buf[field].slice(0,-1);liveParse()}else if(/^[0-9a-fA-F \-,]$/.test(k)){e.preventDefault();buf[field]+=k.toUpperCase();liveParse()}}draw()}});
+addEventListener('resize',fit);
+const keys=['A','B','C'];
+function setV(k){vk=k;setScene(scene);const u=new URL(location);u.searchParams.set('variant',k);history.replaceState(null,'',u);document.getElementById('lbl').textContent=k+' ('+VD[k][0]+')';side();draw();cv.focus()}
+document.getElementById('prev').onclick=()=>setV(keys[(keys.indexOf(vk)+2)%3]);
+document.getElementById('next').onclick=()=>setV(keys[(keys.indexOf(vk)+1)%3]);
+const q=new URLSearchParams(location.search).get('variant');setV(keys.includes(q)?q:'A');
+</script></body></html>
