@@ -9,6 +9,7 @@ mod status_line;
 pub use action::{Action, Direction, KeyContext};
 
 use crate::player::AudioRequest;
+use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
 use crate::screen::grid::Grid;
 use focus::Focus;
@@ -16,6 +17,7 @@ use panes::chain::ChainPane;
 use panes::overview::OverviewPane;
 use panes::phrase::PhrasePane;
 use panes::song::SongPane;
+use std::sync::Arc;
 
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
@@ -33,6 +35,8 @@ pub struct App {
     /// The last focused of the Song, Chain and Phrase panes, which Space plays.
     played_pane: Focus,
     playing: bool,
+    /// How many plays have been asked for, which numbers the latest one.
+    plays: u64,
     status: Option<&'static str>,
     audio_requests: Vec<AudioRequest>,
 }
@@ -92,6 +96,14 @@ impl App {
         std::mem::take(&mut self.audio_requests)
     }
 
+    /// Tells the app that a play has ended by itself, by the number the Player gave it. A report
+    /// about any play but the latest changes nothing.
+    pub fn playback_finished(&mut self, play: u64) {
+        if play == self.plays {
+            self.playing = false;
+        }
+    }
+
     /// Applies one named action.
     pub fn apply(&mut self, action: Action) {
         self.status = None;
@@ -105,6 +117,7 @@ impl App {
             Action::FocusNext => self.set_focus(self.focus.next()),
             Action::FocusPrevious => self.set_focus(self.focus.previous()),
             Action::PlayFocusedPane => self.play_or_stop(),
+            Action::PlaySongFromCursor => self.play_song(),
             Action::OctaveUp => self.phrase.change_octave(1),
             Action::OctaveDown => self.phrase.change_octave(-1),
             Action::SetSongLoopRow => self.song.toggle_loop_row(&mut self.project),
@@ -148,6 +161,10 @@ impl App {
     }
 
     fn toggle_fill(&mut self) {
+        if self.chain_under_cursor().is_some() && self.entry_under_cursor().is_none() {
+            self.status = Some(NO_PHRASE_HERE);
+            return;
+        }
         self.edit_chain(|pane, chain| pane.toggle_fill(chain));
     }
 
@@ -183,9 +200,54 @@ impl App {
         if self.playing {
             self.playing = false;
             self.audio_requests.push(AudioRequest::Stop);
-        } else if self.played_pane == Focus::Phrase {
-            self.play_phrase();
+            return;
         }
+        match self.played_pane {
+            Focus::Song | Focus::RightSlot => self.play_song(),
+            Focus::Chain => self.play_chain(),
+            Focus::Phrase => self.play_phrase(),
+        }
+    }
+
+    fn start_playing(&mut self, request: AudioRequest) {
+        self.playing = true;
+        self.plays += 1;
+        self.audio_requests.push(request);
+    }
+
+    fn play_song(&mut self) {
+        let from_row = self.song.row();
+        if self.project.song_row_is_empty(from_row) {
+            self.status = Some(NOTHING_TO_PLAY);
+            return;
+        }
+        self.start_playing(AudioRequest::PlaySong {
+            project: Arc::new(self.project.clone()),
+            from_row,
+        });
+    }
+
+    fn play_chain(&mut self) {
+        if !self.chain_under_cursor_sounds() {
+            self.status = Some(NOTHING_TO_PLAY);
+            return;
+        }
+        self.start_playing(AudioRequest::PlayChain {
+            project: Arc::new(self.project.clone()),
+            song_row: self.song.row(),
+            track: self.song.track(),
+            from_entry: self.chain.entry(),
+        });
+    }
+
+    /// Whether any entry of the Chain under the Song cursor holds a Phrase with a note in it.
+    fn chain_under_cursor_sounds(&self) -> bool {
+        self.chain_under_cursor().is_some_and(|id| {
+            let chain = self.project.chain(id);
+            (0..CHAIN_ENTRIES)
+                .filter_map(|index| chain.entry(index))
+                .any(|entry| !self.project.phrase(entry.phrase()).is_silent())
+        })
     }
 
     fn play_phrase(&mut self) {
@@ -194,9 +256,9 @@ impl App {
             self.status = Some(NOTHING_TO_PLAY);
             return;
         }
-        self.playing = true;
-        self.audio_requests.push(AudioRequest::PlayPhrase {
+        self.start_playing(AudioRequest::PlayPhrase {
             phrase,
+            transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
             from_step: self.phrase.step(),
         });
     }

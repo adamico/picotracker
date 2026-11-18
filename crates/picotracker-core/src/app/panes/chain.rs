@@ -205,7 +205,12 @@ fn draw_chain_row_strip(grid: &mut Grid, area: Area, project: &Project, song_row
         grid.put(area.column, row, &format!("{k:X}"), HEADING);
         for track in 0..TRACKS {
             let column = area.column + STRIP_FIRST_TRACK_COLUMN + track * STRIP_TRACK_WIDTH;
-            draw_strip_entry(grid, column, row, project.chain_row_entry(song_row, track, k));
+            draw_strip_entry(
+                grid,
+                column,
+                row,
+                project.chain_row_entry(song_row, track, k),
+            );
         }
         let ticks = project.chain_row_ticks(song_row, k);
         let (text, style) = if ticks > 0 {

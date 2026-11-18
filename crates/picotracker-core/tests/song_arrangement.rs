@@ -83,7 +83,10 @@ fn two_hex_digits_place_a_chain_on_a_song_row() {
     let app = app_after(&[&[DOWN, RIGHT][..], &id(0x3A)].concat());
 
     assert_eq!(app.project().song_cell(1, 1), Some(ChainId::new(0x3A)));
-    assert_eq!(song_text(&app, FIRST_ROW_LINE + 1), "01  --[3A]-- -- -- -- -- --");
+    assert_eq!(
+        song_text(&app, FIRST_ROW_LINE + 1),
+        "01  --[3A]-- -- -- -- -- --"
+    );
 }
 
 #[test]
@@ -202,11 +205,33 @@ fn toggle_fill_marks_and_unmarks_the_entry_under_the_cursor() {
     apply(&mut app, &id(1));
 
     app.apply(Action::ToggleFill);
-    assert!(app.project().chain(ChainId::new(3)).entry(0).unwrap().fill());
+    assert!(
+        app.project()
+            .chain(ChainId::new(3))
+            .entry(0)
+            .unwrap()
+            .fill()
+    );
     assert_eq!(chain_text(&app, FIRST_ROW_LINE), "0[01]+00 FILL");
 
     app.apply(Action::ToggleFill);
-    assert!(!app.project().chain(ChainId::new(3)).entry(0).unwrap().fill());
+    assert!(
+        !app.project()
+            .chain(ChainId::new(3))
+            .entry(0)
+            .unwrap()
+            .fill()
+    );
+}
+
+#[test]
+fn toggle_fill_on_an_empty_entry_says_there_is_no_phrase() {
+    let mut app = chain_app();
+
+    app.apply(Action::ToggleFill);
+
+    assert_eq!(status_line(&app), "NO PHRASE HERE");
+    assert!(app.project().chain(ChainId::new(3)).entry(0).is_none());
 }
 
 #[test]
@@ -223,7 +248,10 @@ fn clear_on_the_phrase_column_empties_the_whole_entry() {
 fn clear_on_the_transpose_or_fill_column_resets_only_that_value() {
     let mut app = chain_app();
     apply(&mut app, &id(1));
-    apply(&mut app, &[Action::ToggleFill, RIGHT, NUDGE_UP, Action::Clear]);
+    apply(
+        &mut app,
+        &[Action::ToggleFill, RIGHT, NUDGE_UP, Action::Clear],
+    );
 
     let entry = app.project().chain(ChainId::new(3)).entry(0).unwrap();
     assert_eq!(entry.transpose(), 0);
@@ -320,7 +348,10 @@ fn the_phrase_cursor_stays_inside_a_shorter_phrase_it_follows_to() {
     app.apply(DOWN);
     apply(&mut app, &id(2));
     // Phrase 02 gets LEN 2, then the cursor goes to Step 0F of Phrase 01 and back.
-    apply(&mut app, &[TAB, UP, UP, Action::HexDigit(0), Action::HexDigit(2)]);
+    apply(
+        &mut app,
+        &[TAB, UP, UP, Action::HexDigit(0), Action::HexDigit(2)],
+    );
     apply(&mut app, &[DOWN, DOWN, BACK, UP, TAB]);
     apply(&mut app, &[DOWN; 15]);
     apply(&mut app, &[BACK, DOWN, TAB]);
