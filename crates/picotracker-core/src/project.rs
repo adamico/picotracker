@@ -523,17 +523,22 @@ impl Project {
     }
 
     /// The k-th entry of a Track's Chain on a Song row.
-    pub fn chain_row_entry(&self, row: usize, track: usize, k: usize) -> Option<ChainEntry> {
-        self.chain(self.song_cell(row, track)?).entry(k)
+    pub fn chain_row_entry(
+        &self,
+        row: usize,
+        track: usize,
+        chain_row: usize,
+    ) -> Option<ChainEntry> {
+        self.chain(self.song_cell(row, track)?).entry(chain_row)
     }
 
     /// How long a Chain row lasts: its longest Phrase not marked Fill, or its longest entry when
     /// every entry is marked Fill. A Chain row with no entries lasts no time.
-    pub fn chain_row_ticks(&self, row: usize, k: usize) -> u32 {
+    pub fn chain_row_ticks(&self, row: usize, chain_row: usize) -> u32 {
         let mut longest = 0;
         let mut longest_fill = 0;
         for track in 0..TRACKS {
-            if let Some(entry) = self.chain_row_entry(row, track, k) {
+            if let Some(entry) = self.chain_row_entry(row, track, chain_row) {
                 let ticks = self.phrase(entry.phrase()).ticks();
                 let slot = if entry.fill() {
                     &mut longest_fill
@@ -548,7 +553,7 @@ impl Project {
 
     /// Whether a Song row has nothing to play, which ends the Song.
     pub fn song_row_is_empty(&self, row: usize) -> bool {
-        (0..CHAIN_ENTRIES).all(|k| self.chain_row_ticks(row, k) == 0)
+        (0..CHAIN_ENTRIES).all(|chain_row| self.chain_row_ticks(row, chain_row) == 0)
     }
 
     /// The row the Song jumps to when it ends, if it loops at all.

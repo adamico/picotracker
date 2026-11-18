@@ -96,12 +96,12 @@ fn first_song(cart: &Cart) -> Option<SongRange> {
 
 /// Gives equal Phrases and equal Chains one id each.
 #[derive(Default)]
-struct Shared {
+struct SharedItems {
     phrases: Vec<Phrase>,
     chains: Vec<Chain>,
 }
 
-impl Shared {
+impl SharedItems {
     /// The id of this Phrase, unless the Project has no id left for it.
     fn phrase(&mut self, project: &mut Project, phrase: Phrase) -> Option<PhraseId> {
         let known = self.phrases.iter().position(|known| *known == phrase);
@@ -186,7 +186,7 @@ struct SongBuilder<'a> {
     cart: &'a Cart,
     project: &'a mut Project,
     warnings: &'a mut Vec<ImportWarning>,
-    shared: Shared,
+    shared: SharedItems,
     /// The SFX the Patterns play directly.
     played: BTreeSet<u8>,
     /// The SFX that played notes use as instruments.
@@ -204,7 +204,7 @@ impl<'a> SongBuilder<'a> {
             cart,
             project,
             warnings,
-            shared: Shared::default(),
+            shared: SharedItems::default(),
             played: BTreeSet::new(),
             instruments: BTreeSet::new(),
             with_instruments: BTreeSet::new(),
