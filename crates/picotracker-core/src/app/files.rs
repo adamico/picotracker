@@ -6,7 +6,7 @@ use super::panes::file_list::{Choice, FileList, Purpose};
 use super::panes::midi_dialog::{MidiDialog, Outcome};
 use super::{Action, App, Focus};
 use crate::cart::Cart;
-use crate::cart_import;
+use crate::cart_import::{self, ImportWarning};
 use crate::midi_import::{self, Warning};
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
@@ -129,6 +129,20 @@ fn folder_of(path: &Path) -> PathBuf {
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
         _ => PathBuf::from("."),
+    }
+}
+
+/// A Cart Import warning as a Log item, which jumps to the place it is about.
+fn cart_log_item(warning: ImportWarning) -> LogItem {
+    let item = LogItem::new(Severity::Warning, warning.text);
+    match warning.place {
+        Some(place) => item.at(Location {
+            song_row: place.song_row,
+            track: place.track,
+            chain_row: place.chain_row,
+            step: place.step,
+        }),
+        None => item,
     }
 }
 
@@ -276,11 +290,7 @@ impl App {
         };
         self.directory = folder_of(&path);
         self.replace_project(imported.project, None);
-        let items = imported
-            .warnings
-            .into_iter()
-            .map(|warning| LogItem::new(Severity::Warning, warning))
-            .collect();
+        let items = imported.warnings.into_iter().map(cart_log_item).collect();
         self.report(import_report(&source, items));
     }
 
