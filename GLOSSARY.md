@@ -74,6 +74,21 @@ _Avoid_: Duplicate
 A Clone of a Chain that also gets its own copy of each distinct Phrase it uses.
 _Avoid_: Full copy
 
+**Playhead**:
+The position currently being played. It is separate from the cursor, which is where the user is editing.
+_Avoid_: Play cursor
+
+**Follow**:
+A mode in which the panes track the Playhead. Moving the cursor by hand turns it off.
+_Avoid_: Auto-scroll
+
+**Mute**:
+Silencing a Track without changing timing. A muted Track can still set the length of a Chain row.
+_Avoid_: Disable
+
+**Solo**:
+Hearing only the marked Tracks, whatever is muted. Several Tracks can be soloed at once, and timing does not change.
+
 ### PICO-8 side
 
 **Cart**:
