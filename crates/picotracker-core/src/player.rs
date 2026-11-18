@@ -31,8 +31,48 @@ pub enum AudioRequest {
     /// Swaps in the edited Project. What is playing carries on and hears each change the next time
     /// the Playhead reaches it.
     UpdateProject(Arc<Project>),
+    /// Changes which Tracks are heard when the Song plays.
+    SetTrackMix(TrackMix),
     /// Cuts the sound at once.
     Stop,
+}
+
+/// Which Tracks are muted and soloed. Neither changes any timing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrackMix {
+    muted: [bool; TRACKS],
+    soloed: [bool; TRACKS],
+}
+
+impl TrackMix {
+    /// Mutes a Track, counted from 0, or brings it back.
+    pub fn toggle_mute(&mut self, track: usize) {
+        self.muted[track] = !self.muted[track];
+    }
+
+    /// Solos a Track, counted from 0, or takes the Solo away.
+    pub fn toggle_solo(&mut self, track: usize) {
+        self.soloed[track] = !self.soloed[track];
+    }
+
+    /// Whether a Track is marked as muted.
+    pub fn is_muted(&self, track: usize) -> bool {
+        self.muted[track]
+    }
+
+    /// Whether a Track is marked as soloed.
+    pub fn is_soloed(&self, track: usize) -> bool {
+        self.soloed[track]
+    }
+
+    /// Whether a Track is heard: Solo overrides Mute.
+    pub fn is_heard(&self, track: usize) -> bool {
+        if self.soloed.contains(&true) {
+            self.soloed[track]
+        } else {
+            !self.muted[track]
+        }
+    }
 }
 
 /// Which Chain rows play, and in what order.
@@ -207,6 +247,7 @@ fn first_chain_row(project: &Project, row: usize, from: usize) -> Option<usize> 
 pub struct Player {
     voices: Vec<Voice>,
     sequence: Option<Sequence>,
+    track_mix: TrackMix,
     plays: u64,
     finished_play: u64,
 }
@@ -216,6 +257,7 @@ impl Default for Player {
         Self {
             voices: vec![Voice::new(); TRACKS],
             sequence: None,
+            track_mix: TrackMix::default(),
             plays: 0,
             finished_play: 0,
         }
@@ -255,6 +297,7 @@ impl Player {
                 self.start(project, Route::Song, from_row, k, 0);
             }
             AudioRequest::UpdateProject(project) => self.update_project(project),
+            AudioRequest::SetTrackMix(track_mix) => self.track_mix = track_mix,
             AudioRequest::Stop => self.cut(),
         }
     }
@@ -392,7 +435,18 @@ impl Player {
     /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level.
     pub fn next_sample(&mut self) -> f32 {
         self.advance();
-        let mix: f32 = self.voices.iter_mut().map(Voice::next_sample).sum();
+        let respects_mix = self
+            .sequence
+            .as_ref()
+            .is_some_and(|sequence| sequence.route == Route::Song);
+        let mut mix = 0.0;
+        for (track, voice) in self.voices.iter_mut().enumerate() {
+            // A silenced voice keeps running, so that bringing it back finds it in time.
+            let sample = voice.next_sample();
+            if !respects_mix || self.track_mix.is_heard(track) {
+                mix += sample;
+            }
+        }
         mix.clamp(-1.0, 1.0)
     }
 
