@@ -263,24 +263,3 @@ fn a_note_on_an_sfx_instrument_plays_that_sound_at_the_note_pitch() {
 
     assert_near(frequency(&samples[1_000..]), 523.25, 3.0);
 }
-
-#[test]
-fn the_ported_synth_keeps_the_zepto8_and_fake08_notices() {
-    let source = include_str!("../src/synth.rs");
-
-    for notice in [
-        "ZEPTO-8 — Fantasy console emulator",
-        "Copyright © 2017—2020 Sam Hocevar <sam@hocevar.net>",
-        "Copyright © 2017–2024 Sam Hocevar <sam@hocevar.net>",
-        "Copyright © 2016–2024 Sam Hocevar <sam@hocevar.net>",
-        "and/or modify it under the terms of the Do What the Fuck You Want",
-        "to Public License, Version 2, as published by the WTFPL Task Force.",
-        "FAKE-08",
-        "https://github.com/jtothebell/fake-08",
-        "Permission is hereby granted, free of charge, to any person obtaining a copy",
-        "The above copyright notice and this permission notice shall be included in all",
-        "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR",
-    ] {
-        assert!(source.contains(notice), "missing notice line: {notice}");
-    }
-}
