@@ -1,2 +1,395 @@
 //! Cart codec: reads `.p8` or `.p8.png` bytes into Cart data and writes claimed SFX and Patterns
 //! back into the original bytes.
+//!
+//! Only the read side exists so far. [`Cart`] holds the music data exactly as Cart memory lays it
+//! out, so that writing can put the same bytes back.
+
+use crate::project::Claim;
+use std::fmt;
+use std::fmt::Write as _;
+use std::io::Cursor;
+
+/// The SFX and the Patterns of a Cart.
+pub const SLOTS: usize = 64;
+/// The notes of one SFX.
+pub const SFX_NOTES: usize = 32;
+const SFX_BYTES: usize = 68;
+const PATTERN_BYTES: usize = 4;
+
+const PATTERNS_AT: usize = 0x3100;
+const SFX_AT: usize = 0x3200;
+const MUSIC_END: usize = SFX_AT + SLOTS * SFX_BYTES;
+
+const FILTERS_BYTE: usize = 64;
+const SPEED_BYTE: usize = 65;
+const LOOP_START_BYTE: usize = 66;
+const LOOP_END_BYTE: usize = 67;
+
+const CHANNELS: usize = 4;
+const CHANNEL_DISABLED: u8 = 0x40;
+const SFX_MASK: u8 = 0x3f;
+const FLAG: u8 = 0x80;
+const EMPTY_PATTERN: [u8; PATTERN_BYTES] = [0x41, 0x42, 0x43, 0x44];
+/// A row PICO-8 leaves out of a `.p8` file holds nothing but this Speed.
+const DEFAULT_SPEED: u8 = 16;
+
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+const PNG_WIDTH: u32 = 160;
+const PNG_HEIGHT: u32 = 205;
+const PNG_CHANNELS: usize = 4;
+
+const BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
+const TEXT_HEADER: &[u8] = b"pico-8 cartridge";
+const SFX_SECTION: &[u8] = b"__sfx__";
+const MUSIC_SECTION: &[u8] = b"__music__";
+const SECTION_MARK: &[u8] = b"__";
+const SFX_HEADER_DIGITS: usize = 8;
+const NOTE_DIGITS: usize = 5;
+const SFX_LINE_DIGITS: usize = SFX_HEADER_DIGITS + SFX_NOTES * NOTE_DIGITS;
+const MUSIC_LINE_LENGTH: usize = 11;
+const MUSIC_FLAGS_DIGITS: usize = 2;
+
+const FNV_OFFSET: u32 = 0x811C_9DC5;
+const FNV_PRIME: u32 = 0x0100_0193;
+
+/// Why some bytes could not be read as a Cart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CartError {
+    /// The bytes are neither `.p8` text nor a 160×205 RGBA `.p8.png` image.
+    NotACart,
+    /// A line of a `__sfx__` or `__music__` section is damaged.
+    BadLine { line: usize },
+}
+
+impl fmt::Display for CartError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotACart => write!(formatter, "NOT A PICO-8 CART"),
+            Self::BadLine { line } => write!(formatter, "LINE {line} IS DAMAGED"),
+        }
+    }
+}
+
+impl std::error::Error for CartError {}
+
+/// One note of an SFX.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CartNote {
+    pub pitch: u8,
+    pub instrument: u8,
+    pub volume: u8,
+    pub effect: u8,
+    /// Plays the SFX in the `instrument` slot instead of a Built-in Instrument.
+    pub custom: bool,
+}
+
+/// One of a Cart's SFX, read from its bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sfx<'a> {
+    bytes: &'a [u8; SFX_BYTES],
+}
+
+impl Sfx<'_> {
+    /// The note at an index from 0 to 31.
+    pub fn note(self, index: usize) -> CartNote {
+        let word = u16::from_le_bytes([self.bytes[index * 2], self.bytes[index * 2 + 1]]);
+        CartNote {
+            pitch: (word & 0x3f) as u8,
+            instrument: (word >> 6 & 7) as u8,
+            volume: (word >> 9 & 7) as u8,
+            effect: (word >> 12 & 7) as u8,
+            custom: word & 0x8000 != 0,
+        }
+    }
+
+    /// The editor mode bit, NOIZ, BUZZ, DETUNE, REVERB and DAMPEN, packed into one byte.
+    pub const fn filters(self) -> u8 {
+        self.bytes[FILTERS_BYTE]
+    }
+
+    pub const fn speed(self) -> u8 {
+        self.bytes[SPEED_BYTE]
+    }
+
+    pub const fn loop_start(self) -> u8 {
+        self.bytes[LOOP_START_BYTE]
+    }
+
+    pub const fn loop_end(self) -> u8 {
+        self.bytes[LOOP_END_BYTE]
+    }
+}
+
+/// One of a Cart's Patterns, read from its bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pattern {
+    bytes: [u8; PATTERN_BYTES],
+}
+
+impl Pattern {
+    /// The SFX a channel from 0 to 3 plays, unless the channel is disabled.
+    pub const fn channel(self, channel: usize) -> Option<u8> {
+        let byte = self.bytes[channel];
+        if byte & CHANNEL_DISABLED == 0 {
+            Some(byte & SFX_MASK)
+        } else {
+            None
+        }
+    }
+
+    /// Whether every channel is disabled.
+    pub fn is_empty(self) -> bool {
+        (0..CHANNELS).all(|channel| self.channel(channel).is_none())
+    }
+
+    pub const fn loop_start(self) -> bool {
+        self.bytes[0] & FLAG != 0
+    }
+
+    pub const fn loop_back(self) -> bool {
+        self.bytes[1] & FLAG != 0
+    }
+
+    pub const fn stop(self) -> bool {
+        self.bytes[2] & FLAG != 0
+    }
+}
+
+/// The music data of a Cart.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cart {
+    patterns: [[u8; PATTERN_BYTES]; SLOTS],
+    sfx: [[u8; SFX_BYTES]; SLOTS],
+}
+
+impl Default for Cart {
+    /// A Cart whose every row is at its default.
+    fn default() -> Self {
+        let mut blank = [0; SFX_BYTES];
+        blank[SPEED_BYTE] = DEFAULT_SPEED;
+        Self {
+            patterns: [EMPTY_PATTERN; SLOTS],
+            sfx: [blank; SLOTS],
+        }
+    }
+}
+
+impl Cart {
+    /// Reads the bytes of a `.p8` or `.p8.png` file, telling the two apart by their contents.
+    pub fn read(bytes: &[u8]) -> Result<Self, CartError> {
+        if bytes.starts_with(&PNG_SIGNATURE) {
+            read_png(bytes)
+        } else {
+            read_text(bytes)
+        }
+    }
+
+    /// The 68 bytes of an SFX, as Cart memory holds them.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slot is 64 or more.
+    pub fn sfx_bytes(&self, slot: u8) -> &[u8; 68] {
+        &self.sfx[usize::from(slot)]
+    }
+
+    /// The 4 bytes of a Pattern, as Cart memory holds them.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slot is 64 or more.
+    pub fn pattern_bytes(&self, slot: u8) -> [u8; 4] {
+        self.patterns[usize::from(slot)]
+    }
+
+    /// An SFX, read from its bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slot is 64 or more.
+    pub fn sfx(&self, slot: u8) -> Sfx<'_> {
+        Sfx {
+            bytes: self.sfx_bytes(slot),
+        }
+    }
+
+    /// A Pattern, read from its bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the slot is 64 or more.
+    pub fn pattern(&self, slot: u8) -> Pattern {
+        Pattern {
+            bytes: self.pattern_bytes(slot),
+        }
+    }
+
+    /// The hash of the bytes a Claim covers: one FNV-1a checksum per claimed slot, each named by
+    /// its slot, so that a later comparison can say which SFX and Patterns have changed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the Claim names a slot of 64 or more.
+    pub fn claimed_bytes_hash(&self, claim: &Claim) -> String {
+        let mut hash = String::new();
+        for &slot in &claim.sfx {
+            push_slot_hash(&mut hash, 'S', slot, self.sfx_bytes(slot));
+        }
+        if let Some((first, last)) = claim.patterns {
+            for slot in first..=last {
+                push_slot_hash(&mut hash, 'P', slot, &self.pattern_bytes(slot));
+            }
+        }
+        hash
+    }
+}
+
+fn push_slot_hash(hash: &mut String, kind: char, slot: u8, bytes: &[u8]) {
+    if !hash.is_empty() {
+        hash.push(' ');
+    }
+    let checksum = bytes.iter().fold(FNV_OFFSET, |checksum, byte| {
+        (checksum ^ u32::from(*byte)).wrapping_mul(FNV_PRIME)
+    });
+    // Writing to a String cannot fail.
+    let _ = write!(hash, "{kind}{slot:02X}={checksum:08x}");
+}
+
+fn read_png(bytes: &[u8]) -> Result<Cart, CartError> {
+    let memory = decode_png(bytes).ok_or(CartError::NotACart)?;
+    let mut cart = Cart::default();
+    for (slot, pattern) in cart.patterns.iter_mut().enumerate() {
+        let at = PATTERNS_AT + slot * PATTERN_BYTES;
+        pattern.copy_from_slice(&memory[at..at + PATTERN_BYTES]);
+    }
+    for (slot, sfx) in cart.sfx.iter_mut().enumerate() {
+        let at = SFX_AT + slot * SFX_BYTES;
+        sfx.copy_from_slice(&memory[at..at + SFX_BYTES]);
+    }
+    Ok(cart)
+}
+
+/// The Cart bytes held in the low 2 bits of each pixel's channels, up to the end of the music.
+/// The alpha bits are data, so the pixels are taken exactly as stored.
+fn decode_png(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut reader = png::Decoder::new(Cursor::new(bytes)).read_info().ok()?;
+    let info = reader.info();
+    let is_cart = info.width == PNG_WIDTH
+        && info.height == PNG_HEIGHT
+        && info.color_type == png::ColorType::Rgba
+        && info.bit_depth == png::BitDepth::Eight;
+    if !is_cart {
+        return None;
+    }
+    let mut pixels = vec![0; reader.output_buffer_size()?];
+    reader.next_frame(&mut pixels).ok()?;
+    Some(
+        pixels
+            .chunks_exact(PNG_CHANNELS)
+            .take(MUSIC_END)
+            .map(|pixel| {
+                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]].map(|bits| bits & 3);
+                a << 6 | r << 4 | g << 2 | b
+            })
+            .collect(),
+    )
+}
+
+/// Which section of a `.p8` file a line belongs to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Sfx,
+    Music,
+    Other,
+}
+
+fn read_text(bytes: &[u8]) -> Result<Cart, CartError> {
+    let text = bytes.strip_prefix(BOM).unwrap_or(bytes);
+    if !text.starts_with(TEXT_HEADER) {
+        return Err(CartError::NotACart);
+    }
+    let mut cart = Cart::default();
+    let mut section = Section::Other;
+    let (mut sfx_rows, mut music_rows) = (0, 0);
+    for (index, line) in text.split(|byte| *byte == b'\n').enumerate() {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if is_section_mark(line) {
+            section = match line {
+                SFX_SECTION => Section::Sfx,
+                MUSIC_SECTION => Section::Music,
+                _ => Section::Other,
+            };
+            continue;
+        }
+        if line.is_empty() {
+            continue;
+        }
+        let bad_line = CartError::BadLine { line: index + 1 };
+        match section {
+            Section::Sfx if sfx_rows < SLOTS => {
+                cart.sfx[sfx_rows] = parse_sfx_line(line).ok_or(bad_line)?;
+                sfx_rows += 1;
+            }
+            Section::Music if music_rows < SLOTS => {
+                cart.patterns[music_rows] = parse_music_line(line).ok_or(bad_line)?;
+                music_rows += 1;
+            }
+            _ => {}
+        }
+    }
+    Ok(cart)
+}
+
+fn is_section_mark(line: &[u8]) -> bool {
+    line.len() > 2 * SECTION_MARK.len()
+        && line.starts_with(SECTION_MARK)
+        && line.ends_with(SECTION_MARK)
+}
+
+fn hex_digits(text: &[u8]) -> Option<Vec<u8>> {
+    text.iter()
+        .map(|byte| char::from(*byte).to_digit(16).map(|digit| digit as u8))
+        .collect()
+}
+
+/// A `__sfx__` line: the 4 header bytes as they are, then 32 notes of 5 digits `PPIVE`, where an
+/// instrument digit of 8 or more sets the custom bit.
+fn parse_sfx_line(line: &[u8]) -> Option<[u8; SFX_BYTES]> {
+    if line.len() != SFX_LINE_DIGITS {
+        return None;
+    }
+    let digits = hex_digits(line)?;
+    let mut sfx = [0; SFX_BYTES];
+    for (index, byte) in sfx[FILTERS_BYTE..].iter_mut().enumerate() {
+        *byte = digits[index * 2] << 4 | digits[index * 2 + 1];
+    }
+    for (index, note) in digits[SFX_HEADER_DIGITS..]
+        .chunks_exact(NOTE_DIGITS)
+        .enumerate()
+    {
+        let pitch = u16::from(note[0] << 4 | note[1]) & 0x3f;
+        let instrument = u16::from(note[2] & 7);
+        let custom = u16::from(note[2] >> 3);
+        let volume = u16::from(note[3] & 7);
+        let effect = u16::from(note[4] & 7);
+        let word = pitch | instrument << 6 | volume << 9 | effect << 12 | custom << 15;
+        sfx[index * 2..index * 2 + 2].copy_from_slice(&word.to_le_bytes());
+    }
+    Some(sfx)
+}
+
+/// A `__music__` line, `FF CCCCCCCC`: bit n of the flags becomes bit 7 of channel byte n.
+fn parse_music_line(line: &[u8]) -> Option<[u8; PATTERN_BYTES]> {
+    if line.len() != MUSIC_LINE_LENGTH || line[MUSIC_FLAGS_DIGITS] != b' ' {
+        return None;
+    }
+    let flag_digits = hex_digits(&line[..MUSIC_FLAGS_DIGITS])?;
+    let flags = flag_digits[0] << 4 | flag_digits[1];
+    let digits = hex_digits(&line[MUSIC_FLAGS_DIGITS + 1..])?;
+    let mut pattern = [0; PATTERN_BYTES];
+    for (channel, byte) in pattern.iter_mut().enumerate() {
+        let value = digits[channel * 2] << 4 | digits[channel * 2 + 1];
+        *byte = value & !FLAG | (flags >> channel & 1) << 7;
+    }
+    Some(pattern)
+}
