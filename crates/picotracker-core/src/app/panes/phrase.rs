@@ -7,17 +7,13 @@ use super::{
 use crate::app::layout::Area;
 use crate::app::selection::{CellPosition, CellRange};
 use crate::app::{Direction, KeyContext};
-use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase, PhraseId, Step};
+use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, NOTE_NAMES, Phrase, PhraseId, Step};
 use crate::screen::grid::Grid;
 use std::ops::RangeInclusive;
 
 /// Rows above the first Step: the title, three header rows and the column headings.
 const HEADER_ROWS: usize = 5;
 const FIRST_HEADER_ROW: usize = 1;
-
-const NOTE_NAMES: [&str; 12] = [
-    "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
-];
 
 const MAX_OCTAVE: u8 = 4;
 const SEMITONES_PER_OCTAVE: i32 = 12;

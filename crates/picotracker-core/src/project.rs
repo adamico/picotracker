@@ -30,6 +30,11 @@ pub const CART_SLOTS: u8 = 64;
 /// The highest DETUNE, REVERB or DAMPEN.
 pub const MAX_FILTER_LEVEL: i32 = 2;
 
+/// The names of the 12 semitones, as a Step's pitch shows them.
+pub const NOTE_NAMES: [&str; 12] = [
+    "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
+];
+
 /// The Chains and the Phrases a Project can name with two hexadecimal digits.
 const ID_COUNT: usize = 256;
 const MIN_TRANSPOSE: i32 = i8::MIN as i32;
