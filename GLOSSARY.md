@@ -66,6 +66,14 @@ _Avoid_: Tempo, BPM (when meaning the stored value)
 PICO-8's unit of sound time, about 1/120 of a second.
 _Avoid_: Frame
 
+**Clone**:
+A new, unused copy of a Chain or Phrase. A cloned Chain still points to the same Phrases.
+_Avoid_: Duplicate
+
+**Deep clone**:
+A Clone of a Chain that also gets its own copy of each distinct Phrase it uses.
+_Avoid_: Full copy
+
 ### PICO-8 side
 
 **Cart**:
