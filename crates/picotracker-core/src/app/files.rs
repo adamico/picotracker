@@ -133,10 +133,7 @@ fn import_report(source: &str, warnings: Vec<ImportWarning>) -> Report {
     }
     let count = warnings.len();
     let plural = if count == 1 { "" } else { "S" };
-    let items = warnings
-        .into_iter()
-        .map(log_item_of)
-        .collect();
+    let items = warnings.into_iter().map(log_item_of).collect();
     Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(items)
 }
 

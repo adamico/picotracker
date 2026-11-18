@@ -99,10 +99,7 @@ fn a_channel_too_slow_for_one_whole_step_becomes_an_empty_entry_with_a_warning()
     let (project, warnings) = imported(&cart);
 
     assert_eq!(project.chain_row_entry(0, 1, 0), None);
-    assert_eq!(
-        warnings,
-        ["PATTERN 00 ENDS INSIDE A STEP: T2 LOST ITS ONLY STEP."]
-    );
+    assert_eq!(warnings, ["PATTERN 00 ENDS INSIDE A STEP: T2 LOST A STEP."]);
 }
 
 #[test]
@@ -272,6 +269,104 @@ fn a_pattern_holding_only_bit_7_sfx_stays_as_a_32_step_chain_row_with_a_warning(
             BIT_7_WARNING,
             "SFX 01 HAS BIT 7 SET: IMPORTED AS A PLAIN PHRASE THAT NEVER SETS THE PATTERN LENGTH.",
         ]
+    );
+}
+
+#[test]
+fn len_above_32_splits_the_pattern_into_chain_rows_of_one_song_row() {
+    let cart = one_pattern(vec![
+        with_len(counting(8), 40),
+        counting(8),
+        looping(counting(8), 0, 4),
+    ]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 256);
+    assert_eq!(project.chain_row_ticks(0, 1), 64);
+    assert_eq!(project.chain_row_ticks(0, 2), 0);
+    assert!(project.song_row_is_empty(1));
+    // Steps past 32 are silent on the channel that sets the length.
+    assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..42));
+    assert_eq!(pitches(phrase(&project, 0, 1)), [None; 8]);
+    // A channel with nothing left to play has no entry in the later Chain row.
+    assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..42));
+    assert_eq!(project.chain_row_entry(0, 1, 1), None);
+    // A channel still sounding is unrolled into plain Phrases.
+    assert!(!entry(&project, 2, 0).fill());
+    assert!(!entry(&project, 2, 1).fill());
+    assert_eq!(phrase(&project, 2, 0).length(), 32);
+    let unrolled = [10, 11, 12, 13, 10, 11, 12, 13].map(Some);
+    assert_eq!(pitches(phrase(&project, 2, 1)), unrolled);
+    assert_eq!(
+        warnings,
+        [
+            "SONG NEEDS 2 PATTERNS AND 4 SFX BUT THE CLAIM HOLDS 1 AND 3: WIDEN THE CLAIM BEFORE \
+          EXPORT."
+        ]
+    );
+}
+
+#[test]
+fn len_64_lasts_exactly_two_chain_rows() {
+    let cart = one_pattern(vec![with_len(counting(4), 64)]);
+
+    let (project, _) = imported(&cart);
+
+    assert_eq!(project.chain_row_ticks(0, 0), 128);
+    assert_eq!(project.chain_row_ticks(0, 1), 128);
+    assert_eq!(project.chain_row_ticks(0, 2), 0);
+}
+
+#[test]
+fn a_step_straddling_a_split_is_dropped_with_a_warning() {
+    // The split falls on Tick 96, inside the 20th Step at Speed 5. The Pattern ends on Tick 120.
+    let cart = one_pattern(vec![with_len(counting(3), 40), looping(counting(5), 0, 4)]);
+
+    let (project, warnings) = imported(&cart);
+
+    assert_eq!(phrase(&project, 1, 0).length(), 19);
+    assert_eq!(pitches(phrase(&project, 1, 1)), [10, 11, 12, 13].map(Some));
+    assert_eq!(
+        warnings[0],
+        "PATTERN 00 SPLITS INSIDE A STEP: T2 PHRASE 02 LOST ITS LAST STEP."
+    );
+}
+
+#[test]
+fn a_song_that_still_fits_its_claim_gets_no_claim_warning() {
+    let cart = one_pattern(vec![counting(8), counting(4)]);
+
+    let (_, warnings) = imported(&cart);
+
+    assert_eq!(warnings, Vec::<String>::new());
+}
+
+#[test]
+fn a_song_with_more_phrases_than_a_project_holds_warns_and_still_imports() {
+    // Four different LENs give every placement of a loop its own last Chain row.
+    let mut sfx: Vec<TestSfx> = (0..60)
+        .map(|slot: u8| {
+            let notes: Vec<u8> = (0..7).map(|note| (slot + note) % 64).collect();
+            looping(TestSfx::with_pitches(1, &notes), 0, 7)
+        })
+        .collect();
+    sfx.extend((0..4).map(|len| with_len(counting(1), 97 + len)));
+    let patterns = (0..64)
+        .map(|at: u8| {
+            let loop_at = |offset: u8| Some((at + offset) % 60);
+            TestPattern::playing([Some(60 + at % 4), loop_at(0), loop_at(21), loop_at(42)])
+        })
+        .collect();
+
+    let (project, warnings) = imported(&TestCart { sfx, patterns });
+
+    assert!(!project.song_row_is_empty(63));
+    assert!(
+        warnings
+            .iter()
+            .any(|warning| warning == "SONG NEEDS MORE THAN 256 PHRASES: SOME ENTRIES STAY EMPTY."),
+        "{warnings:?}"
     );
 }
 
