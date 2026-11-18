@@ -37,6 +37,8 @@ pub struct App {
     playing: bool,
     /// How many plays have been asked for, which numbers the latest one.
     plays: u64,
+    /// The Project as the Player last heard it.
+    heard: Arc<Project>,
     status: Option<&'static str>,
     audio_requests: Vec<AudioRequest>,
 }
@@ -132,6 +134,22 @@ impl App {
         }
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
+        self.send_edits_to_the_player();
+    }
+
+    /// Passes the Project to the Player when an action has changed what is playing.
+    fn send_edits_to_the_player(&mut self) {
+        if self.playing && *self.heard != self.project {
+            let project = self.project_for_player();
+            self.audio_requests
+                .push(AudioRequest::UpdateProject(project));
+        }
+    }
+
+    /// A copy of the Project for the Player, remembered as what it has heard.
+    fn project_for_player(&mut self) -> Arc<Project> {
+        self.heard = Arc::new(self.project.clone());
+        Arc::clone(&self.heard)
     }
 
     fn type_digit(&mut self, digit: u8) {
@@ -221,10 +239,8 @@ impl App {
             self.status = Some(NOTHING_TO_PLAY);
             return;
         }
-        self.start_playing(AudioRequest::PlaySong {
-            project: Arc::new(self.project.clone()),
-            from_row,
-        });
+        let project = self.project_for_player();
+        self.start_playing(AudioRequest::PlaySong { project, from_row });
     }
 
     fn play_chain(&mut self) {
@@ -232,8 +248,9 @@ impl App {
             self.status = Some(NOTHING_TO_PLAY);
             return;
         }
+        let project = self.project_for_player();
         self.start_playing(AudioRequest::PlayChain {
-            project: Arc::new(self.project.clone()),
+            project,
             song_row: self.song.row(),
             track: self.song.track(),
             from_entry: self.chain.entry(),
@@ -251,12 +268,16 @@ impl App {
     }
 
     fn play_phrase(&mut self) {
-        let phrase = self.shown_phrase();
-        if phrase.is_silent() {
+        let Some(phrase) = self
+            .phrase_under_cursor()
+            .filter(|id| !self.project.phrase(*id).is_silent())
+        else {
             self.status = Some(NOTHING_TO_PLAY);
             return;
-        }
+        };
+        let project = self.project_for_player();
         self.start_playing(AudioRequest::PlayPhrase {
+            project,
             phrase,
             transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
             from_step: self.phrase.step(),

@@ -459,6 +459,17 @@ impl Voice {
         self.last_main_key = NO_KEY;
     }
 
+    /// Moves on to one note of a sound as the next Step of what is already playing, so that a
+    /// slide carries over from the note just played and nothing retriggers.
+    pub fn continue_at(&mut self, sound: Sound, note: usize) {
+        let played = self.sound.notes[(self.state.offset as usize).min(NOTES - 1)];
+        self.sound = sound;
+        self.state.playing = true;
+        self.state.offset = note.min(NOTES - 1) as f64;
+        self.state.previous_key = f32::from(played.pitch);
+        self.state.previous_volume = f32::from(played.volume) / 7.0;
+    }
+
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
     pub fn stop(&mut self) {
         let sfx_instruments = self.sfx_instruments;
