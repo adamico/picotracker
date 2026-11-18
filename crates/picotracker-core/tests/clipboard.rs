@@ -1,9 +1,12 @@
 //! Copy, cut and paste, which stay within one kind of pane.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
 use picotracker_core::project_file;
 use std::path::PathBuf;
+use support::{apply, status_line};
 
 const UP: Action = Action::Move(Direction::Up);
 const DOWN: Action = Action::Move(Direction::Down);
@@ -11,16 +14,6 @@ const RIGHT: Action = Action::Move(Direction::Right);
 const TAB: Action = Action::FocusNext;
 const BACK: Action = Action::FocusPrevious;
 const SELECT: Action = Action::StartSelection;
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
-}
 
 fn song_cell(app: &App, row: usize, track: usize) -> Option<u8> {
     app.project().song_cell(row, track).map(ChainId::number)

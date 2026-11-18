@@ -1,9 +1,12 @@
 //! Hearing a Song: actions in, audio requests out, and offline-rendered samples from the Player.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::player::{AudioRequest, Player};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::synth::{SAMPLE_RATE, SAMPLES_PER_TICK};
+use support::status_line;
 
 const DOWN: Action = Action::Move(Direction::Down);
 const SPACE: Action = Action::PlayFocusedPane;
@@ -123,10 +126,6 @@ fn assert_steps(samples: &[f32], expected: &[f32]) {
             );
         }
     }
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 #[test]

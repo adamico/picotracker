@@ -11,6 +11,7 @@ use picotracker_core::player::AudioRequest;
 use picotracker_core::project::{Claim, Project, TargetCart};
 use picotracker_core::project_file;
 use std::path::{Path, PathBuf};
+use support::status_line;
 use support::{HEADER, TestCart, TestPattern, TestSfx};
 
 const DOWN: Action = Action::Move(Direction::Down);
@@ -23,10 +24,6 @@ fn line(app: &App, index: usize) -> String {
         .nth(index)
         .unwrap()
         .to_owned()
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 fn right_slot(app: &App, index: usize) -> String {

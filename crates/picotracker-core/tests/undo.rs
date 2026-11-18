@@ -1,5 +1,7 @@
 //! One linear undo history for the whole Project, driven through named actions.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
 use picotracker_core::player::Player;
 use picotracker_core::project::{
@@ -9,6 +11,7 @@ use picotracker_core::project::{
 use picotracker_core::project_file;
 use picotracker_core::synth::SAMPLES_PER_TICK;
 use std::path::PathBuf;
+use support::{apply, status_line};
 
 const DOWN: Action = Action::Move(Direction::Down);
 const UP: Action = Action::Move(Direction::Up);
@@ -23,18 +26,8 @@ const NUDGE_DOWN: Action = Action::Nudge {
 const NOTHING_TO_UNDO: &str = "NOTHING TO UNDO";
 const NOTHING_TO_REDO: &str = "NOTHING TO REDO";
 
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
-
 fn song_cell(app: &App, row: usize, track: usize) -> Option<u8> {
     app.project().song_cell(row, track).map(ChainId::number)
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
 /// A Project with Chain 00 on the first Song row, holding Phrase 00.

@@ -1,8 +1,11 @@
 //! One rectangular selection per pane, and what Nudge and Clear do to it.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
 use picotracker_core::screen::palette::Colour;
+use support::apply;
 
 const UP: Action = Action::Move(Direction::Up);
 const DOWN: Action = Action::Move(Direction::Down);
@@ -28,12 +31,6 @@ const SELECTED: Colour = Colour::Lavender;
 const SONG_FIRST_LINE: usize = 2;
 const SONG_FIRST_COLUMN: usize = 4;
 const SONG_TRACK_WIDTH: usize = 3;
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
 
 fn song_cell(app: &App, row: usize, track: usize) -> Option<u8> {
     app.project().song_cell(row, track).map(ChainId::number)

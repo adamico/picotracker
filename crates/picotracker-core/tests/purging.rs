@@ -1,20 +1,13 @@
 //! Purge unused: removing the Chains and Phrases nothing refers to, after a confirmation.
 
+mod support;
+
 use picotracker_core::app::{Action, App, Direction};
 use picotracker_core::player::AudioRequest;
 use picotracker_core::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
+use support::{apply, status_line};
 
 const RIGHT: Action = Action::Move(Direction::Right);
-
-fn apply(app: &mut App, actions: &[Action]) {
-    for action in actions {
-        app.apply(*action);
-    }
-}
-
-fn status_line(app: &App) -> String {
-    app.grid().text_dump().lines().last().unwrap().to_owned()
-}
 
 fn put_entry(project: &mut Project, chain: u8, index: usize, phrase: u8) {
     *project.chain_mut(ChainId::new(chain)).entry_mut(index) =
