@@ -2,7 +2,10 @@
 
 use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
 use picotracker_core::player::Player;
-use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
+use picotracker_core::project::{
+    ChainEntry, ChainId, Claim, CustomInstrument, InstrumentSound, PhraseId, Project, TargetCart,
+    WAVEFORM_SAMPLES, WaveformInstrument,
+};
 use picotracker_core::project_file;
 use picotracker_core::synth::SAMPLES_PER_TICK;
 use std::path::PathBuf;
@@ -84,6 +87,38 @@ fn open(app: &mut App, project: &Project) {
         path,
         contents: project_file::write(project),
     });
+}
+
+#[test]
+fn undoing_an_edit_keeps_the_claim_and_the_custom_instruments_of_an_opened_project() {
+    let mut project = project_with_a_song();
+    project.set_target_cart(Some(TargetCart {
+        path: "game.p8".to_owned(),
+        claim: Claim {
+            sfx: vec![1, 2],
+            patterns: Some((0, 3)),
+        },
+        claimed_bytes_hash: Some("aa".to_owned()),
+    }));
+    project.set_custom_instrument(
+        8,
+        Some(CustomInstrument {
+            name: Some("BASS".to_owned()),
+            sound: InstrumentSound::Waveform(WaveformInstrument {
+                samples: [0; WAVEFORM_SAMPLES],
+                bass: false,
+                detune: 0,
+                reverb: 0,
+                dampen: 0,
+            }),
+        }),
+    );
+    let mut app = App::new();
+    open(&mut app, &project);
+
+    apply(&mut app, &[Action::HexDigit(1), Action::Undo]);
+
+    assert!(*app.project() == project);
 }
 
 #[test]
