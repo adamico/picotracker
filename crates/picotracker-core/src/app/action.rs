@@ -97,4 +97,6 @@ pub enum KeyContext {
     ArrangeValue,
     /// A file name: characters are typed as they are.
     FileName,
+    /// The new Speed that Change Speed is asking for: hexadecimal digits are typed directly.
+    SpeedEntry,
 }

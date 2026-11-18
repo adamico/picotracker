@@ -354,8 +354,8 @@ fn a_clone_of_a_whole_selection_is_one_undo_step() {
 #[test]
 fn the_song_is_as_wide_and_as_long_as_the_cursor_can_reach() {
     let mut app = App::with_project(arranged());
-    apply(&mut app, &vec![RIGHT; TRACKS - 1]);
-    apply(&mut app, &vec![DOWN; SONG_ROWS - 1]);
+    apply(&mut app, &[RIGHT; TRACKS - 1]);
+    apply(&mut app, &[DOWN; SONG_ROWS - 1]);
     app.apply(Action::NewUnused);
 
     assert_eq!(song_cell(&app, SONG_ROWS - 1, TRACKS - 1), Some(1));
