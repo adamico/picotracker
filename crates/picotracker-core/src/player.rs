@@ -33,8 +33,102 @@ pub enum AudioRequest {
     UpdateProject(Arc<Project>),
     /// Changes which Tracks are heard when the Song plays.
     SetTrackMix(TrackMix),
+    /// Sounds one Step while nothing plays, with its Phrase's Speed and filters, until
+    /// [`AudioRequest::EndPreview`] and for at least one Step.
+    PreviewStep {
+        phrase: Phrase,
+        step: usize,
+        transpose: i8,
+    },
+    /// Lets the note being previewed end.
+    EndPreview,
     /// Cuts the sound at once.
     Stop,
+}
+
+/// The note being previewed.
+#[derive(Clone, Copy, Debug)]
+struct Preview {
+    /// The samples still owed to the note's shortest length of one Step.
+    samples_left: u64,
+    released: bool,
+}
+
+/// Holds the mix inside the output range. The gain drops at once to just what the loudest sample
+/// needs, so a mix that would not clip passes through unchanged, and then recovers.
+#[derive(Clone, Copy, Debug)]
+struct Limiter {
+    gain: f32,
+}
+
+impl Limiter {
+    /// The share of the remaining distance back to full gain recovered per sample: about 50 ms.
+    const RELEASE: f32 = 1.0 / (0.05 * SAMPLE_RATE as f32);
+    /// How close to full gain counts as full gain.
+    const FULL_GAIN: f32 = 0.9999;
+
+    const fn new() -> Self {
+        Self { gain: 1.0 }
+    }
+
+    fn run(&mut self, mix: f32) -> f32 {
+        if mix.abs() * self.gain > 1.0 {
+            self.gain = 1.0 / mix.abs();
+        }
+        let limited = (mix * self.gain).clamp(-1.0, 1.0);
+        self.gain += (1.0 - self.gain) * Self::RELEASE;
+        if self.gain > Self::FULL_GAIN {
+            self.gain = 1.0;
+        }
+        limited
+    }
+}
+
+/// The columns of the scope, as wide as the right-hand slot.
+pub const SCOPE_COLUMNS: usize = 23;
+/// The value a scope column holds for a sample at the top of the range.
+pub const SCOPE_RANGE: i8 = 100;
+const SAMPLES_PER_SCOPE_COLUMN: usize = 8;
+const SCOPE_SAMPLES: usize = SCOPE_COLUMNS * SAMPLES_PER_SCOPE_COLUMN;
+
+/// The latest samples of the mix being heard.
+#[derive(Clone, Copy, Debug)]
+struct ScopeTrace {
+    samples: [f32; SCOPE_SAMPLES],
+    next: usize,
+}
+
+impl ScopeTrace {
+    const fn new() -> Self {
+        Self {
+            samples: [0.0; SCOPE_SAMPLES],
+            next: 0,
+        }
+    }
+
+    fn push(&mut self, sample: f32) {
+        self.samples[self.next] = sample;
+        self.next = (self.next + 1) % SCOPE_SAMPLES;
+    }
+
+    /// The loudest sample of each column, oldest first.
+    fn columns(&self) -> [i8; SCOPE_COLUMNS] {
+        let mut columns = [0; SCOPE_COLUMNS];
+        for (column, value) in columns.iter_mut().enumerate() {
+            let start = self.next + column * SAMPLES_PER_SCOPE_COLUMN;
+            let loudest = (start..start + SAMPLES_PER_SCOPE_COLUMN)
+                .map(|index| self.samples[index % SCOPE_SAMPLES])
+                .fold(0.0_f32, |loudest, sample| {
+                    if sample.abs() > loudest.abs() {
+                        sample
+                    } else {
+                        loudest
+                    }
+                });
+            *value = (loudest * f32::from(SCOPE_RANGE)).round() as i8;
+        }
+        columns
+    }
 }
 
 /// Which Tracks are muted and soloed. Neither changes any timing.
@@ -98,6 +192,8 @@ impl Playhead {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlaybackReport {
     pub playhead: Option<Playhead>,
+    /// The mix being heard, oldest column first, from `-SCOPE_RANGE` to `SCOPE_RANGE`.
+    pub scope: [i8; SCOPE_COLUMNS],
     /// The number of the latest play that ended by itself.
     pub finished_play: u64,
 }
@@ -291,6 +387,9 @@ pub struct Player {
     voices: Vec<Voice>,
     sequence: Option<Sequence>,
     track_mix: TrackMix,
+    preview: Option<Preview>,
+    limiter: Limiter,
+    scope: ScopeTrace,
     plays: u64,
     finished_play: u64,
 }
@@ -301,6 +400,9 @@ impl Default for Player {
             voices: vec![Voice::new(); TRACKS],
             sequence: None,
             track_mix: TrackMix::default(),
+            preview: None,
+            limiter: Limiter::new(),
+            scope: ScopeTrace::new(),
             plays: 0,
             finished_play: 0,
         }
@@ -341,6 +443,16 @@ impl Player {
             }
             AudioRequest::UpdateProject(project) => self.update_project(project),
             AudioRequest::SetTrackMix(track_mix) => self.track_mix = track_mix,
+            AudioRequest::PreviewStep {
+                phrase,
+                step,
+                transpose,
+            } => self.start_preview(&phrase, step, transpose),
+            AudioRequest::EndPreview => {
+                if let Some(preview) = self.preview.as_mut() {
+                    preview.released = true;
+                }
+            }
             AudioRequest::Stop => self.cut(),
         }
     }
@@ -355,14 +467,42 @@ impl Player {
     pub fn report(&self) -> PlaybackReport {
         PlaybackReport {
             playhead: self.sequence.as_ref().map(Sequence::playhead),
+            scope: self.scope.columns(),
             finished_play: self.finished_play,
         }
     }
 
     fn cut(&mut self) {
         self.sequence = None;
+        self.preview = None;
+        self.limiter = Limiter::new();
+        self.scope = ScopeTrace::new();
         for voice in &mut self.voices {
             voice.stop();
+        }
+    }
+
+    /// Holds one Step on the first voice, repeating it until the preview ends.
+    fn start_preview(&mut self, phrase: &Phrase, step: usize, transpose: i8) {
+        self.cut();
+        let mut held = sound(phrase, transpose, 0, 1);
+        held.notes[0] = held.notes[step];
+        self.voices[0].play(held, 0);
+        self.preview = Some(Preview {
+            samples_left: step_samples(phrase),
+            released: false,
+        });
+    }
+
+    /// Ends a released preview once it has sounded for a whole Step.
+    fn advance_preview(&mut self) {
+        let Some(preview) = self.preview.as_mut() else {
+            return;
+        };
+        preview.samples_left = preview.samples_left.saturating_sub(1);
+        if preview.released && preview.samples_left == 0 {
+            self.preview = None;
+            self.voices[0].play(Sound::default(), 0);
         }
     }
 
@@ -483,9 +623,11 @@ impl Player {
         }
     }
 
-    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level.
+    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level, limited only
+    /// when the mix would clip.
     pub fn next_sample(&mut self) -> f32 {
         self.advance();
+        self.advance_preview();
         let respects_mix = self
             .sequence
             .as_ref()
@@ -498,7 +640,9 @@ impl Player {
                 mix += sample;
             }
         }
-        mix.clamp(-1.0, 1.0)
+        let limited = self.limiter.run(mix);
+        self.scope.push(limited);
+        limited
     }
 
     /// Renders a run of samples at 22,050 Hz.

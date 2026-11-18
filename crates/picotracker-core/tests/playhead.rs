@@ -113,7 +113,10 @@ fn the_phrase_pane_marks_the_step_being_played() {
 
 #[test]
 fn the_marker_is_separate_from_the_cursor() {
-    let (app, _) = played(&[DOWN, TAB, TAB, DOWN, Action::Move(Direction::Up), PLAY_SONG], 0);
+    let (app, _) = played(
+        &[DOWN, TAB, TAB, DOWN, Action::Move(Direction::Up), PLAY_SONG],
+        0,
+    );
 
     // The cursor sits on Song row 01 and the Song plays from there.
     assert_eq!(pane_text(&app, 0, FIRST_SONG_ROW + 1), ">1");

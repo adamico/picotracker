@@ -8,9 +8,9 @@ mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
 
-use crate::player::{AudioRequest, PlaybackReport, Playhead, TrackMix};
+use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::CHAIN_ENTRIES;
-use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project};
+use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
 use focus::Focus;
 use panes::chain::{ChainPane, ChainView};
@@ -45,6 +45,9 @@ pub struct App {
     playhead: Option<Playhead>,
     /// Whether the panes track the Playhead.
     follow: bool,
+    scope: [i8; SCOPE_COLUMNS],
+    /// Whether a note is sounding until its key is released.
+    previewing: bool,
     status: Option<&'static str>,
     audio_requests: Vec<AudioRequest>,
 }
@@ -116,12 +119,52 @@ impl App {
     pub fn show_playback(&mut self, report: &PlaybackReport) -> bool {
         self.playback_finished(report.finished_play);
         let playhead = report.playhead.filter(|_| self.playing);
-        let changed = playhead != self.playhead;
+        let moved = playhead != self.playhead;
+        let changed = moved || report.scope != self.scope;
         self.playhead = playhead;
-        if changed && self.follow {
+        self.scope = report.scope;
+        if moved && self.follow {
             self.follow_playhead();
         }
         changed
+    }
+
+    /// Tells the app that the held key has gone up, which ends a note preview.
+    pub fn key_released(&mut self) {
+        if self.previewing {
+            self.previewing = false;
+            self.audio_requests.push(AudioRequest::EndPreview);
+        }
+    }
+
+    /// The Step about to be edited, if the action can change a note that a preview would play.
+    fn step_before_edit(&self, action: Action) -> Option<(usize, Step)> {
+        let edits_note = matches!(
+            action,
+            Action::PianoKey(_) | Action::HexDigit(_) | Action::Nudge { .. }
+        );
+        if !edits_note || self.focus != Focus::Phrase {
+            return None;
+        }
+        let index = self.phrase.note_step()?;
+        Some((index, self.shown_phrase().step(index)))
+    }
+
+    /// Previews an entered or changed note while nothing is playing.
+    fn preview_edit(&mut self, action: Action, index: usize, before: Step) {
+        let phrase = self.shown_phrase();
+        let step = phrase.step(index);
+        let changed = step.pitch() != before.pitch() || step.instrument() != before.instrument();
+        let entered = matches!(action, Action::PianoKey(_));
+        if self.playing || step.is_silent() || !(entered || changed) {
+            return;
+        }
+        self.previewing = true;
+        self.audio_requests.push(AudioRequest::PreviewStep {
+            phrase,
+            step: index,
+            transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
+        });
     }
 
     /// Moves the panes to the Playhead.
@@ -156,6 +199,7 @@ impl App {
             self.chain.finish_typing();
             self.phrase.finish_typing();
         }
+        let before_edit = self.step_before_edit(action);
         match action {
             Action::Move(direction) => self.move_cursor(direction),
             Action::FocusNext => self.set_focus(self.focus.next()),
@@ -183,6 +227,9 @@ impl App {
             Action::HexDigit(digit) => self.type_digit(digit),
             Action::Nudge { up, coarse } => self.nudge(up, coarse),
             _ => {}
+        }
+        if let Some((index, before)) = before_edit {
+            self.preview_edit(action, index, before);
         }
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
@@ -288,6 +335,7 @@ impl App {
 
     fn start_playing(&mut self, request: AudioRequest) {
         self.playing = true;
+        self.previewing = false;
         self.plays += 1;
         self.audio_requests.push(request);
     }
@@ -393,15 +441,17 @@ impl App {
                 id: phrase,
                 phrase: &self.shown_phrase(),
                 transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
-                playing_step: self.playhead.zip(phrase).and_then(|(playhead, phrase)| {
-                    playhead.step_in(phrase, self.song.track())
-                }),
+                playing_step: self
+                    .playhead
+                    .zip(phrase)
+                    .and_then(|(playhead, phrase)| playhead.step_in(phrase, self.song.track())),
             },
         );
         self.overview.draw(
             &mut grid,
             layout::RIGHT_SLOT,
             self.focus == Focus::RightSlot,
+            &self.scope,
         );
         layout::draw_separators(&mut grid);
         status_line::draw(&mut grid, self.status);

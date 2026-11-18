@@ -110,6 +110,15 @@ impl PhrasePane {
         self.step
     }
 
+    /// The Step under the cursor, when the cursor is on its pitch or Instrument.
+    pub fn note_step(&self) -> Option<usize> {
+        matches!(
+            self.step_cell(),
+            Some(StepCell::Pitch | StepCell::Instrument)
+        )
+        .then_some(self.step)
+    }
+
     /// Keeps the cursor inside a Phrase the pane has just moved to.
     pub fn keep_inside(&mut self, phrase: &Phrase) {
         self.step = self.step.min(phrase.length() - 1);
