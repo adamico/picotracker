@@ -2,15 +2,15 @@
 //! `FileRequest`s and is given the results as `FileResponse`s.
 
 use super::exporting::FinishedExport;
-use super::messages::{Location, LogItem, Report, Severity};
+use super::messages::{LogItem, Report, Severity};
 use super::panes::file_list::{Choice, FileList, Purpose};
 use super::panes::midi_dialog::{MidiDialog, Outcome};
 use super::{Action, App, Focus};
 use crate::cart::Cart;
-use crate::cart_import::{self, ImportWarning};
-use crate::midi_import::{self, Warning};
+use crate::cart_import;
+use crate::midi_import;
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
-use crate::project::Project;
+use crate::project::{Project, SongPlace};
 use crate::project_file;
 use std::path::{Path, PathBuf};
 
@@ -139,16 +139,11 @@ fn folder_of(path: &Path) -> PathBuf {
     }
 }
 
-/// A Cart Import warning as a Log item, which jumps to the place it is about.
-fn cart_log_item(warning: ImportWarning) -> LogItem {
-    let item = LogItem::new(Severity::Warning, warning.text);
-    match warning.place {
-        Some(place) => item.at(Location {
-            song_row: place.song_row,
-            track: place.track,
-            chain_row: place.chain_row,
-            step: place.step,
-        }),
+/// An Import warning as a Log item, which jumps to the place it is about.
+fn warning_item(text: String, place: Option<SongPlace>) -> LogItem {
+    let item = LogItem::new(Severity::Warning, text);
+    match place {
+        Some(place) => item.at(place),
         None => item,
     }
 }
@@ -161,20 +156,6 @@ fn import_report(source: &str, warnings: Vec<LogItem>) -> Report {
     let count = warnings.len();
     let plural = if count == 1 { "" } else { "S" };
     Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(warnings)
-}
-
-/// A MIDI Import warning as a Log item, which jumps to the place it is about.
-fn midi_log_item(warning: Warning) -> LogItem {
-    let item = LogItem::new(Severity::Warning, warning.text);
-    match warning.spot {
-        Some(spot) => item.at(Location {
-            song_row: spot.song_row,
-            track: spot.track,
-            chain_row: spot.chain_row,
-            step: spot.step,
-        }),
-        None => item,
-    }
 }
 
 impl App {
@@ -286,7 +267,8 @@ impl App {
                     let (name, folder, imported) = dialog.finish();
                     self.directory = folder;
                     self.replace_project(imported.project, None);
-                    let items = imported.warnings.into_iter().map(midi_log_item).collect();
+                    let warnings = imported.warnings.into_iter();
+                    let items = warnings.map(|w| warning_item(w.text, w.place)).collect();
                     self.report(import_report(&name, items));
                 }
             }
@@ -315,7 +297,8 @@ impl App {
         };
         self.directory = folder_of(&path);
         self.replace_project(imported.project, None);
-        let items = imported.warnings.into_iter().map(cart_log_item).collect();
+        let warnings = imported.warnings.into_iter();
+        let items = warnings.map(|w| warning_item(w.text, w.place)).collect();
         self.report(import_report(&source, items));
     }
 

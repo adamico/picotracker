@@ -3,9 +3,9 @@
 
 use super::App;
 use super::files::{Waiting, shown_name};
-use super::messages::{Location, LogItem, Report, Severity};
+use super::messages::{LogItem, Report, Severity};
 use crate::export::{self, ExportFailure, Exported};
-use crate::project::{EXPORT_CHANNELS, Project};
+use crate::project::{EXPORT_CHANNELS, Project, SongPlace};
 use std::path::{Component, Path, PathBuf};
 
 const NO_TARGET_CART: &str = "EXPORT FAILED: NO TARGET CART";
@@ -66,7 +66,7 @@ fn tracks_text(tracks: [Option<u8>; EXPORT_CHANNELS]) -> String {
 }
 
 /// Where a failure can be fixed, if it has one place.
-fn failure_location(failure: ExportFailure) -> Option<Location> {
+fn failure_location(failure: ExportFailure) -> Option<SongPlace> {
     match failure {
         ExportFailure::NoteOutOfRange {
             step,
@@ -74,7 +74,7 @@ fn failure_location(failure: ExportFailure) -> Option<Location> {
             song_row,
             chain_row,
             ..
-        } => Some(Location {
+        } => Some(SongPlace {
             song_row,
             track,
             chain_row,
@@ -83,7 +83,7 @@ fn failure_location(failure: ExportFailure) -> Option<Location> {
         ExportFailure::NotSimple {
             song_row,
             chain_row,
-        } => Some(Location {
+        } => Some(SongPlace {
             song_row,
             track: 0,
             chain_row,

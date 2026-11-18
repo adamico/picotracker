@@ -7,7 +7,8 @@ mod rebuild;
 
 use crate::cart::{Cart, SLOTS};
 use crate::project::{
-    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, TargetCart,
+    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, SongPlace,
+    TargetCart,
 };
 use rebuild::{RebuiltChannel, RebuiltPattern, has_bit_7, rebuild_pattern};
 use std::collections::BTreeSet;
@@ -45,15 +46,6 @@ impl ImportWarning {
             place: Some(place),
         }
     }
-}
-
-/// A place in the imported Song.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SongPlace {
-    pub song_row: usize,
-    pub track: usize,
-    pub chain_row: usize,
-    pub step: usize,
 }
 
 /// The Patterns of one song.

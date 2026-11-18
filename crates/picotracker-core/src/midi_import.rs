@@ -6,7 +6,7 @@ mod read;
 mod table;
 mod voices;
 
-pub use build::{GridOption, Imported, Warning, WarningSpot, build, compare_grids};
+pub use build::{GridOption, Imported, Warning, build, compare_grids};
 pub use table::{DRUM_ROWS, DrumHit, MidiTable, PROGRAMS, family_name};
 
 use read::{Note, Score};

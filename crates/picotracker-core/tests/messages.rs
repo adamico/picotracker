@@ -2,7 +2,8 @@
 
 mod support;
 
-use picotracker_core::app::{Action, App, Direction, Location, LogItem, Report, Severity};
+use picotracker_core::app::{Action, App, Direction, LogItem, Report, Severity};
+use picotracker_core::project::SongPlace;
 use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 use picotracker_core::screen::palette::Colour;
 use std::time::Duration;
@@ -257,7 +258,7 @@ fn project_with_a_located_phrase() -> Project {
 #[test]
 fn enter_on_an_item_jumps_to_its_location_and_the_panes_stay_usable() {
     let mut app = App::with_project(project_with_a_located_phrase());
-    let location = Location {
+    let location = SongPlace {
         song_row: 1,
         track: 2,
         chain_row: 2,
