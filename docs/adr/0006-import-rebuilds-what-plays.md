@@ -6,6 +6,7 @@ Cart Import works out how long PICO-8 plays each Pattern, in Ticks and by PICO-8
 
 - A longer channel cut off by the left-most one gets a shortened Phrase. A Pattern that ends partway through a Step drops that Step.
 - A loop over the whole SFX becomes a Phrase marked Fill. A loop with a lead-in is unrolled. If unrolling needs more than 32 Steps, it becomes Fill over the loop body only, and Import warns. Notes after a loop's end are dropped, since music never plays them.
+- Import stays silent when it shortens a Phrase or drops notes after a loop's end. Both change the stored data but not the sound, and Import warns only about results that sound different.
 - LEN only cuts playback on the channel that sets the Pattern's length. On other channels, the notes after LEN are kept, because PICO-8 plays them.
 - When every channel loops, PICO-8 plays 32 × the slowest Speed, so Import unrolls that channel without Fill.
 - SPD 0 becomes Speed 1, and the timing follows PICO-8's quirk. Import warns.
