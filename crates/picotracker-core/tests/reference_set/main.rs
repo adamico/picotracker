@@ -362,9 +362,8 @@ fn plain_noise_matches_real_pico8_level_on_average() {
     let reference = committed_fingerprint(&case);
     let ours = fingerprint::measure(&rendered(&case), reference.tick_levels_db.len());
     let ticks: Vec<usize> = PLAIN_NOISE_TICKS.into_iter().flatten().collect();
-    let average = |levels: &[f32]| {
-        ticks.iter().map(|&tick| levels[tick]).sum::<f32>() / ticks.len() as f32
-    };
+    let average =
+        |levels: &[f32]| ticks.iter().map(|&tick| levels[tick]).sum::<f32>() / ticks.len() as f32;
     let (expected, actual) = (
         average(&reference.tick_levels_db),
         average(&ours.tick_levels_db),
