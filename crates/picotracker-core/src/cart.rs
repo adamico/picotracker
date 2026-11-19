@@ -11,9 +11,7 @@ use std::fmt;
 use std::fmt::Write as _;
 use std::io::Cursor;
 
-/// The SFX and the Patterns of a Cart.
 pub const SLOTS: usize = 64;
-/// The notes of one SFX.
 pub const SFX_NOTES: usize = 32;
 pub(crate) const SFX_BYTES: usize = 68;
 const PATTERN_BYTES: usize = 4;
@@ -32,8 +30,7 @@ const CHANNEL_DISABLED: u8 = 0x40;
 const SFX_MASK: u8 = 0x3f;
 const FLAG: u8 = 0x80;
 const EMPTY_PATTERN: [u8; PATTERN_BYTES] = [0x41, 0x42, 0x43, 0x44];
-/// A row PICO-8 leaves out of a `.p8` file holds nothing but this Speed.
-const DEFAULT_SPEED: u8 = 16;
+const OMITTED_ROW_SPEED: u8 = 16;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 const PNG_WIDTH: u32 = 160;
@@ -54,12 +51,9 @@ const MUSIC_FLAGS_DIGITS: usize = 2;
 const FNV_OFFSET: u32 = 0x811C_9DC5;
 const FNV_PRIME: u32 = 0x0100_0193;
 
-/// Why some bytes could not be read as a Cart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CartError {
-    /// The bytes are neither `.p8` text nor a 160×205 RGBA `.p8.png` image.
     NotACart,
-    /// A line of a `__sfx__` or `__music__` section is damaged.
     BadLine { line: usize },
 }
 
@@ -92,7 +86,6 @@ pub struct CartNote {
     pub instrument: u8,
     pub volume: u8,
     pub effect: u8,
-    /// Plays the SFX in the `instrument` slot instead of a Built-in Instrument.
     pub custom: bool,
 }
 
@@ -179,7 +172,7 @@ impl Default for Cart {
     /// A Cart whose every row is at its default.
     fn default() -> Self {
         let mut blank = [0; SFX_BYTES];
-        blank[SPEED_BYTE] = DEFAULT_SPEED;
+        blank[SPEED_BYTE] = OMITTED_ROW_SPEED;
         Self {
             patterns: [EMPTY_PATTERN; SLOTS],
             sfx: [blank; SLOTS],
@@ -336,7 +329,6 @@ fn png_pixels(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(pixels)
 }
 
-/// Which section of a `.p8` file a line belongs to.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Section {
     Sfx,

@@ -2,9 +2,7 @@
 
 use super::palette::Colour;
 
-/// Columns in the character grid.
 pub const GRID_COLUMNS: usize = 106;
-/// Rows in the character grid.
 pub const GRID_ROWS: usize = 45;
 
 /// The colours of one cell.

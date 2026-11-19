@@ -5,51 +5,38 @@ use crate::project::{CHAIN_ENTRIES, ChainEntry, MAX_STEPS, Phrase, PhraseId, Pro
 use crate::synth::{Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
 use std::sync::Arc;
 
-/// What the App core asks the Player to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AudioRequest {
-    /// Loops one Phrase over its LEN, starting from one of its Steps.
     PlayPhrase {
         project: Arc<Project>,
         phrase: PhraseId,
         transpose: i8,
         from_step: usize,
     },
-    /// Loops the Chain a Track holds on a Song row, alone on that Track, starting from one of its
-    /// entries. Each entry lasts as long as its Chain row.
     PlayChain {
         project: Arc<Project>,
         song_row: usize,
         track: usize,
         from_entry: usize,
     },
-    /// Plays the Song from one of its rows.
     PlaySong {
         project: Arc<Project>,
         from_row: usize,
     },
-    /// Swaps in the edited Project. What is playing carries on and hears each change the next time
-    /// the Playhead reaches it.
     UpdateProject(Arc<Project>),
-    /// Changes which Tracks are heard when the Song plays.
     SetTrackMix(TrackMix),
-    /// Sounds one Step while nothing plays, with its Phrase's Speed and filters, until
-    /// [`AudioRequest::EndPreview`] and for at least one Step.
     PreviewStep {
         phrase: Phrase,
         step: usize,
         transpose: i8,
     },
-    /// Lets the note being previewed end.
     EndPreview,
-    /// Cuts the sound at once.
     Stop,
 }
 
 /// The note being previewed.
 #[derive(Clone, Copy, Debug)]
 struct Preview {
-    /// The samples still owed to the note's shortest length of one Step.
     samples_left: u64,
     released: bool,
 }
@@ -62,9 +49,7 @@ struct Limiter {
 }
 
 impl Limiter {
-    /// The share of the remaining distance back to full gain recovered per sample: about 50 ms.
-    const RELEASE: f32 = 1.0 / (0.05 * SAMPLE_RATE as f32);
-    /// How close to full gain counts as full gain.
+    const RELEASE_PER_SAMPLE: f32 = 1.0 / (0.05 * SAMPLE_RATE as f32);
     const FULL_GAIN: f32 = 0.9999;
 
     const fn new() -> Self {
@@ -76,7 +61,7 @@ impl Limiter {
             self.gain = 1.0 / mix.abs();
         }
         let limited = (mix * self.gain).clamp(-1.0, 1.0);
-        self.gain += (1.0 - self.gain) * Self::RELEASE;
+        self.gain += (1.0 - self.gain) * Self::RELEASE_PER_SAMPLE;
         if self.gain > Self::FULL_GAIN {
             self.gain = 1.0;
         }
@@ -84,9 +69,7 @@ impl Limiter {
     }
 }
 
-/// The columns of the scope, as wide as the right-hand slot.
 pub const SCOPE_COLUMNS: usize = 23;
-/// The value a scope column holds for a sample at the top of the range.
 pub const SCOPE_RANGE: i8 = 100;
 const SAMPLES_PER_SCOPE_COLUMN: usize = 8;
 const SCOPE_SAMPLES: usize = SCOPE_COLUMNS * SAMPLES_PER_SCOPE_COLUMN;
@@ -172,9 +155,7 @@ impl TrackMix {
 /// The place being played, as the Player last reached it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Playhead {
-    /// The Song row and Chain row, unless a Phrase is playing alone.
     pub chain_row: Option<(usize, usize)>,
-    /// The Phrase and Step each heard Track is on.
     pub tracks: [Option<(PhraseId, usize)>; TRACKS],
 }
 
@@ -192,31 +173,22 @@ impl Playhead {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlaybackReport {
     pub playhead: Option<Playhead>,
-    /// The mix being heard, oldest column first, from `-SCOPE_RANGE` to `SCOPE_RANGE`.
     pub scope: [i8; SCOPE_COLUMNS],
-    /// The number of the latest play that ended by itself.
     pub finished_play: u64,
 }
 
-/// Which Chain rows play, and in what order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Route {
-    /// Every Track, row by row, to the end of the Song.
     Song,
-    /// One Track, round and round the Chain rows of one Song row.
     Chain { track: usize },
-    /// One Phrase alone, round and round its LEN.
     Phrase { phrase: PhraseId, transpose: i8 },
 }
 
-/// How far a Track has got through its entry of the current Chain row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum LaneState {
-    /// No entry, or one that was cleared while it played.
     #[default]
     Idle,
     Playing,
-    /// Played to its LEN, and silent until the next Chain row.
     Finished,
 }
 
@@ -225,7 +197,6 @@ enum LaneState {
 struct Lane {
     state: LaneState,
     fill: bool,
-    /// Whether a Fill entry has played its Phrase through at least once.
     played_through: bool,
     step: usize,
     samples_left: u64,
@@ -280,8 +251,7 @@ struct Playback {
     row: usize,
     k: usize,
     lanes: [Lane; TRACKS],
-    /// A looping Chain with nothing left to play waits here for an edit to give it notes again.
-    waiting: bool,
+    waiting_for_edit: bool,
 }
 
 impl Playback {
@@ -511,7 +481,7 @@ impl Player {
             return;
         };
         playback.project = project;
-        if playback.waiting {
+        if playback.waiting_for_edit {
             self.leave_chain_row();
         }
     }
@@ -536,7 +506,7 @@ impl Player {
             row,
             k,
             lanes: [Lane::default(); TRACKS],
-            waiting: false,
+            waiting_for_edit: false,
         };
         self.enter_chain_row(playback, from_step);
     }
@@ -559,7 +529,7 @@ impl Player {
         };
         if let Some((row, k)) = playback.next_chain_row() {
             (playback.row, playback.k) = (row, k);
-            playback.waiting = false;
+            playback.waiting_for_edit = false;
             self.enter_chain_row(playback, 0);
             return;
         }
@@ -568,7 +538,7 @@ impl Player {
         }
         if matches!(playback.route, Route::Chain { .. }) {
             playback.lanes = [Lane::default(); TRACKS];
-            playback.waiting = true;
+            playback.waiting_for_edit = true;
             self.playback = Some(playback);
         } else {
             self.finished_play = self.plays;

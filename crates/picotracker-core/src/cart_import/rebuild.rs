@@ -14,52 +14,43 @@ const DETUNE_DIVISOR: u8 = 8;
 const REVERB_DIVISOR: u8 = 24;
 const DAMPEN_DIVISOR: u8 = 72;
 const FILTER_LEVELS: u8 = 3;
-/// Past this many Steps, every note a loop can reach has come round at least once.
 const LOOP_CYCLE_STEPS: usize = 512;
 
 /// The Steps of one Chain entry.
 pub(super) struct RebuiltEntry {
     pub(super) phrase: Phrase,
     pub(super) fill: bool,
-    /// The SFX slots that the audible Steps play as instruments.
     pub(super) instruments: BTreeSet<u8>,
-    /// The first Step whose arpeggio sounds different from the Cart's.
     pub(super) arpeggio_changed: Option<usize>,
 }
 
-/// What one channel plays in one Chain row, and what could not be kept.
+/// What one channel plays in one Chain row, and what could not be kept. A Phrase can only start
+/// where its Chain row starts, so when the Chain row starts partway through one of the channel's
+/// Steps, the following Steps play `early_ticks` early.
 pub(super) struct RebuiltChannel {
-    /// `None` when the channel plays no whole Step here.
     pub(super) entry: Option<RebuiltEntry>,
-    /// Whether the Chain row ends partway through one of the channel's Steps.
     pub(super) lost_step: bool,
-    /// How many Steps an unroll would need, when it was too many and Fill took its place.
     pub(super) unroll_needed: Option<usize>,
-    /// How many Ticks early the channel's Steps play, because a Phrase can only start where its
-    /// Chain row starts and this Chain row starts partway through one of the channel's Steps.
     pub(super) early_ticks: u32,
 }
 
-/// What a Pattern becomes: its Chain rows, each with one place per channel.
+/// What a Pattern becomes: its Chain rows, each with one place per channel. A Pattern where
+/// every channel that plays holds a bit 7 SFX stalls PICO-8.
 pub(super) struct RebuiltPattern {
     pub(super) chain_rows: Vec<[Option<RebuiltChannel>; EXPORT_CHANNELS]>,
-    /// Whether every channel that plays holds a bit 7 SFX, which stalls PICO-8.
     pub(super) only_bit_7: bool,
 }
 
-/// How an SFX moves through its notes when music plays it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Playback {
     Once,
-    Loop {
-        start: usize,
-        end: usize,
-    },
-    /// Plays its 32 notes whatever its LEN and loop say, and never sets the Pattern's length.
+    Loop { start: usize, end: usize },
     Bit7,
 }
 
 impl Playback {
+    /// A bit 7 SFX plays its 32 notes whatever its LEN and loop say, and never sets the Pattern's
+    /// length.
     fn of(sfx: Sfx<'_>) -> Self {
         let (start, end) = (sfx.loop_start(), sfx.loop_end());
         if has_bit_7(sfx) {
@@ -198,7 +189,8 @@ fn fill_over(
     }
 }
 
-/// Whether nothing can be heard from this Step on.
+/// Whether nothing can be heard from this Step on. Past `LOOP_CYCLE_STEPS`, every note a loop can
+/// reach has come round at least once.
 fn silent_from(sfx: Sfx<'_>, playback: Playback, first: usize, past: usize) -> bool {
     (first..past.min(first + LOOP_CYCLE_STEPS))
         .filter_map(|step| playback.note_at(step))

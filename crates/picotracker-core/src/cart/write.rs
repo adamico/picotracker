@@ -11,17 +11,14 @@ use sha1::{Digest, Sha1};
 use std::fmt::Write as _;
 use std::ops::Range;
 
-/// The SHA-1 of a `.p8.png` Cart covers the bytes before this address.
-const SHA1_COVERS: usize = 0x8000;
+const SHA1_COVERED_BYTES: usize = 0x8000;
 const SHA1_AT: usize = 0x8006;
-/// A PNG chunk's length and type before its data, and its checksum after.
-const CHUNK_HEAD: usize = 8;
+const CHUNK_FRAMING_BYTES: usize = 8;
 const CHUNK_TAIL: usize = 4;
 const IMAGE_HEADER: &[u8] = b"IHDR";
 const IMAGE_DATA: &[u8] = b"IDAT";
 const IMAGE_END: &[u8] = b"IEND";
 
-/// The sections that come before `__sfx__` in a Cart, nearest first.
 const SECTIONS_BEFORE_SFX: [&[u8]; 5] =
     [b"__map__", b"__gff__", b"__label__", b"__gfx__", b"__lua__"];
 
@@ -60,7 +57,7 @@ impl Cart {
             .as_chunks::<PNG_CHANNELS>()
             .0
             .iter()
-            .take(SHA1_COVERS)
+            .take(SHA1_COVERED_BYTES)
             .map(|pixel| pixel_byte(*pixel))
             .collect();
         put_bytes(&mut pixels, SHA1_AT, Sha1::digest(&memory).as_slice());
@@ -130,7 +127,7 @@ fn png_chunks(file: &[u8]) -> Option<Vec<&[u8]>> {
     let mut rest = file.get(PNG_SIGNATURE.len()..)?;
     while !rest.is_empty() {
         let length = u32::from_be_bytes(rest.get(..4)?.try_into().ok()?) as usize;
-        let (chunk, after) = rest.split_at_checked(CHUNK_HEAD + length + CHUNK_TAIL)?;
+        let (chunk, after) = rest.split_at_checked(CHUNK_FRAMING_BYTES + length + CHUNK_TAIL)?;
         chunks.push(chunk);
         rest = after;
         if chunk_type(chunk) == IMAGE_END {
@@ -141,7 +138,7 @@ fn png_chunks(file: &[u8]) -> Option<Vec<&[u8]>> {
 }
 
 fn chunk_type(chunk: &[u8]) -> &[u8] {
-    &chunk[4..CHUNK_HEAD]
+    &chunk[4..CHUNK_FRAMING_BYTES]
 }
 
 /// The original file with its image swapped for a newly encoded one. Every other chunk, and
@@ -210,7 +207,6 @@ fn claimed_rows(
 #[derive(Default)]
 struct SectionRows {
     rows: Vec<Range<usize>>,
-    /// Just past the section's last row, or its mark if it has no rows.
     append_at: Option<usize>,
 }
 

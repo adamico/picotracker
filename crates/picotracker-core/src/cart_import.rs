@@ -15,7 +15,6 @@ use rebuild::{RebuiltChannel, RebuiltPattern, has_bit_7, rebuild_pattern};
 use std::collections::BTreeSet;
 
 const LAST_SLOT: u8 = SLOTS as u8 - 1;
-/// The Phrases a Project can name.
 const MAX_PHRASES: usize = 256;
 
 /// A Project rebuilt from a Cart, and everything about it that differs from the Cart.
@@ -29,7 +28,6 @@ pub struct ImportedCart {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportWarning {
     pub text: String,
-    /// The place in the Song it is about, if it is about one place.
     pub place: Option<SongPlace>,
 }
 
@@ -54,7 +52,6 @@ impl ImportWarning {
 struct SongRange {
     first: u8,
     last: u8,
-    /// The Song row that LOOP BACK jumps to.
     loop_row: Option<usize>,
 }
 
@@ -190,9 +187,7 @@ struct SongBuilder<'a> {
     project: &'a mut Project,
     warnings: &'a mut Vec<ImportWarning>,
     shared: SharedItems,
-    /// The SFX the Patterns play directly.
     played: BTreeSet<u8>,
-    /// The SFX that played notes use as instruments.
     instruments: BTreeSet<u8>,
     with_instruments: BTreeSet<u8>,
     spd_0_warned: BTreeSet<u8>,

@@ -12,22 +12,16 @@ const PHASER: u8 = 7;
 const DROP: u8 = 3;
 const FADE_OUT: u8 = 5;
 
-/// The programs in each General MIDI family.
-const FAMILY_SIZE: usize = 8;
-/// The programs General MIDI defines.
+const PROGRAMS_PER_FAMILY: usize = 8;
 pub const PROGRAMS: usize = 128;
-/// The hits of the drum kit.
 pub const DRUM_ROWS: usize = 5;
-/// The highest pitch a Step can hold.
 const MAX_PITCH: u8 = 63;
 const INSTRUMENTS: u8 = 8;
 const EFFECTS: u8 = 8;
-/// The lowest General MIDI tom, which plays the kit row's own note.
 const LOWEST_TOM: u8 = 41;
 const TOMS: usize = 4;
 
-/// Each General MIDI family's name and default Built-in Instrument, in program order.
-const FAMILIES: [(&str, u8); PROGRAMS / FAMILY_SIZE] = [
+const FAMILIES: [(&str, u8); PROGRAMS / PROGRAMS_PER_FAMILY] = [
     ("PIANO", TILTED_SAW),
     ("CHROMATIC", TILTED_SAW),
     ("ORGAN", ORGAN),
@@ -46,7 +40,6 @@ const FAMILIES: [(&str, u8); PROGRAMS / FAMILY_SIZE] = [
     ("SOUND FX", NOISE),
 ];
 
-/// The General MIDI notes each row of the kit answers to.
 const DRUM_NOTES: [&[u8]; DRUM_ROWS] = [
     &[35, 36],
     &[38, 40],
@@ -57,7 +50,7 @@ const DRUM_NOTES: [&[u8]; DRUM_ROWS] = [
 
 /// The name of a program's General MIDI family.
 pub fn family_name(program: u8) -> &'static str {
-    FAMILIES[usize::from(program) / FAMILY_SIZE % FAMILIES.len()].0
+    FAMILIES[usize::from(program) / PROGRAMS_PER_FAMILY % FAMILIES.len()].0
 }
 
 /// The kit row a General MIDI drum note belongs to, if any.
@@ -102,7 +95,7 @@ impl Default for MidiTable {
     /// The factory table.
     fn default() -> Self {
         Self {
-            programs: std::array::from_fn(|program| FAMILIES[program / FAMILY_SIZE].1),
+            programs: std::array::from_fn(|program| FAMILIES[program / PROGRAMS_PER_FAMILY].1),
             kit: FACTORY_KIT,
         }
     }

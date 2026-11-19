@@ -7,16 +7,13 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// The version of the `state.ron` format that this app reads and writes.
 pub const STATE_VERSION: u32 = 1;
 
-/// How many recent Projects the app remembers.
 pub const MAX_RECENT_PROJECTS: usize = 10;
 
 /// What the app remembers between sessions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AppState {
-    /// The Project files last opened or saved, the most recent first.
     recent_projects: Vec<PathBuf>,
 }
 
@@ -39,16 +36,11 @@ impl AppState {
     }
 }
 
-/// What reading `state.ron` found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateRead {
     Loaded(AppState),
-    /// The file cannot be read as any version of the format.
     Damaged,
-    /// The file comes from a newer version of the app.
-    Newer {
-        found: u32,
-    },
+    Newer { found: u32 },
 }
 
 /// The file as stored: the format version, then the state.

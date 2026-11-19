@@ -1,8 +1,6 @@
 //! Our own 5×7 bitmap font, drawn for picotracker.
 
-/// Width of a glyph in pixels.
 pub const GLYPH_WIDTH: usize = 5;
-/// Height of a glyph in pixels.
 pub const GLYPH_HEIGHT: usize = 7;
 
 /// One glyph: seven rows, with bit 4 as the left-most pixel.

@@ -9,19 +9,15 @@ use crate::project::{
 };
 use crate::wording::counted;
 
-/// MIDI note 69 is A 440, which is pitch 33 in PICO-8.
 const MIDI_KEY_OF_PITCH_0: i16 = 36;
 const SPEED_FACTOR: f64 = 7230.0;
 const MICROS_PER_MINUTE: f64 = 60_000_000.0;
 const MAX_VELOCITY: u32 = 127;
 const MAX_VOLUME: u32 = 7;
 const OCTAVE: i16 = 12;
-/// The pitches a Phrase can hold.
 const PITCHES: i16 = 64;
 const HIGHEST_PITCH: i16 = PITCHES - 1;
-/// The Chain rows of each Song row.
-const CHAIN_ROWS: usize = 4;
-/// The Phrases and the Chains a Project can name.
+const CHAIN_ROWS_PER_SONG_ROW: usize = 4;
 const IDS: usize = 256;
 
 /// Something the Project could not keep from the file.
@@ -50,7 +46,6 @@ pub struct GridOption {
     pub steps_per_beat: u8,
     pub speed: u8,
     pub phrase_length: usize,
-    /// Whole bars in a Phrase: 0 when one bar does not fit.
     pub bars: usize,
     pub collisions: usize,
 }
@@ -108,7 +103,6 @@ struct Slot {
 /// The file's timing laid out on the Step grid.
 struct Timeline {
     sections: Vec<Section>,
-    /// Tempo changes lost to a later one less than a Step away.
     close_tempos: usize,
     first_close_step: Option<usize>,
 }
@@ -284,24 +278,22 @@ fn program_on(changes: &[(usize, u8)], step: usize) -> u8 {
 
 /// How a melodic voice's notes fit the pitches a Phrase can hold.
 struct PitchPlan {
-    /// The semitones each Phrase's pitches sit below the sounding pitch.
     transpose: i8,
-    /// The lowest pitch the voice's Phrases hold, before the transpose comes off.
-    floor: i16,
+    lowest_pitch: i16,
     folded: usize,
     span: i16,
 }
 
 impl PitchPlan {
-    /// Drums play the kit's own pitches.
     const UNCHANGED: Self = Self {
         transpose: 0,
-        floor: 0,
+        lowest_pitch: 0,
         folded: 0,
         span: 0,
     };
 }
 
+/// MIDI note 69 is A 440, which is pitch 33 in PICO-8.
 fn sounding_pitch(key: u8) -> i16 {
     i16::from(key) - MIDI_KEY_OF_PITCH_0
 }
@@ -319,7 +311,7 @@ fn pitch_plan(voice: &Voice) -> PitchPlan {
     let top = highest.min(lowest + HIGHEST_PITCH);
     PitchPlan {
         transpose: transpose_for(lowest, top),
-        floor: lowest,
+        lowest_pitch: lowest,
         folded,
         span,
     }
@@ -348,7 +340,7 @@ fn transpose_for(lowest: i16, highest: i16) -> i8 {
 /// The pitch a Phrase holds for a sounding pitch, folded into the voice's range.
 fn phrase_pitch(pitch: i16, plan: &PitchPlan) -> u8 {
     let mut pitch = pitch;
-    while pitch > plan.floor + HIGHEST_PITCH {
+    while pitch > plan.lowest_pitch + HIGHEST_PITCH {
         pitch -= OCTAVE;
     }
     (pitch - i16::from(plan.transpose)).clamp(0, HIGHEST_PITCH) as u8
@@ -483,7 +475,7 @@ pub fn build(analysis: &Analysis, choices: &Choices) -> Imported {
     let mut phrases: Vec<Phrase> = Vec::new();
     let mut chains: Vec<Chain> = Vec::new();
     let mut song_rows = 0;
-    for (row, row_slots) in slots.chunks(CHAIN_ROWS).enumerate() {
+    for (row, row_slots) in slots.chunks(CHAIN_ROWS_PER_SONG_ROW).enumerate() {
         let kept_phrases = phrases.len();
         let kept_chains = chains.len();
         let cells = song_row_cells(&parts, row_slots, choices, &mut phrases, &mut chains);
@@ -553,9 +545,9 @@ fn song_place_of(slots: &[Slot], track: usize, step: usize) -> Option<SongPlace>
         .iter()
         .position(|slot| (slot.start..slot.start + slot.length).contains(&step))?;
     Some(SongPlace {
-        song_row: index / CHAIN_ROWS,
+        song_row: index / CHAIN_ROWS_PER_SONG_ROW,
         track,
-        chain_row: index % CHAIN_ROWS,
+        chain_row: index % CHAIN_ROWS_PER_SONG_ROW,
         step: step - slots[index].start,
     })
 }
@@ -639,7 +631,7 @@ fn warnings(
         )));
     }
 
-    if song_rows * CHAIN_ROWS < slots.len() {
+    if song_rows * CHAIN_ROWS_PER_SONG_ROW < slots.len() {
         warnings.push(Warning::new(format!(
             "SONG TOO LONG FOR A PROJECT: STOPPED AFTER {song_rows} SONG ROWS."
         )));

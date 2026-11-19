@@ -1,6 +1,5 @@
 //! The 16-colour PICO-8 palette.
 
-/// One of the 16 PICO-8 colours, named as PICO-8's manual numbers them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Colour {
@@ -23,7 +22,6 @@ pub enum Colour {
 }
 
 impl Colour {
-    /// Every colour, in PICO-8's order.
     pub const ALL: [Colour; 16] = [
         Colour::Black,
         Colour::DarkBlue,

@@ -24,20 +24,16 @@ const DETUNE_UNIT: u8 = 8;
 const REVERB_UNIT: u8 = 24;
 const DAMPEN_UNIT: u8 = 72;
 
-/// Channel byte 0 holds LOOP START, byte 1 LOOP BACK and byte 2 STOP, each in bit 7.
 const LOOP_START_CHANNEL: usize = 0;
 const LOOP_BACK_CHANNEL: usize = 1;
 const STOP_CHANNEL: usize = 2;
 const FLAG: u8 = 0x80;
-/// A disabled channel: the disabling bit and the channel's number from 1.
 const DISABLED_CHANNEL: u8 = 0x41;
 
-/// Why a Project could not be Exported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFailure {
     NoExportTracks,
     EmptyClaim,
-    /// The Claim names an SFX or a Pattern that no Cart has.
     BadClaim,
     EmptySong,
     TooFewSfx {
@@ -48,7 +44,6 @@ pub enum ExportFailure {
         needed: usize,
         claimed: usize,
     },
-    /// An audible Step falls outside PICO-8's pitch range after its transpose.
     NoteOutOfRange {
         phrase: u8,
         step: usize,
@@ -56,7 +51,6 @@ pub enum ExportFailure {
         song_row: usize,
         chain_row: usize,
     },
-    /// A Chain row needs compile rules that Export does not have yet.
     NotSimple {
         song_row: usize,
         chain_row: usize,
@@ -109,7 +103,6 @@ impl fmt::Display for ExportFailure {
 /// A finished Export.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Exported {
-    /// The whole Target Cart file with the Claim rewritten.
     pub cart_bytes: Vec<u8>,
     pub claimed_bytes_hash: String,
     pub sfx_count: usize,
@@ -124,7 +117,6 @@ type CompiledPattern = [Option<usize>; EXPORT_CHANNELS];
 struct CompiledSong {
     sfx: Vec<[u8; SFX_BYTES]>,
     patterns: Vec<CompiledPattern>,
-    /// The Pattern that LOOP BACK jumps to, if the Song loops.
     loop_target: Option<usize>,
 }
 
@@ -401,7 +393,8 @@ fn place_song(song: &CompiledSong, sfx_slots: &[u8], pattern_slots: &[u8], cart:
     }
 }
 
-/// The 4 bytes of a Pattern, with the flags that its place in the Song calls for.
+/// The 4 bytes of a Pattern, with the flags that its place in the Song calls for. A disabled
+/// channel holds the disabling bit and its number from 1.
 fn pattern_bytes(
     song: &CompiledSong,
     index: usize,

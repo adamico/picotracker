@@ -4,9 +4,7 @@ use super::font::{GLYPH_HEIGHT, GLYPH_WIDTH, glyph};
 use super::grid::{Cell, GRID_COLUMNS, GRID_ROWS, Grid};
 use super::palette::Colour;
 
-/// Width of the logical screen in pixels.
 pub const LOGICAL_WIDTH: u32 = 640;
-/// Height of the logical screen in pixels.
 pub const LOGICAL_HEIGHT: u32 = 360;
 
 const CELL_WIDTH: usize = 6;
