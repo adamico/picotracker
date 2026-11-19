@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 cpal = "0.18"
+directories = "6"
 picotracker-core = { path = "../picotracker-core" }
 pixels = "0.17"
 rtrb = "0.4.1"

@@ -1,5 +1,6 @@
 //! Carries out the App core's file requests on the real file system.
 
+use directories::ProjectDirs;
 use picotracker_core::app::{DirectoryEntry, FileRequest, FileResponse, StateContents};
 use std::ffi::OsString;
 use std::fs;
@@ -42,32 +43,12 @@ pub fn read_state(path: &Path) -> StateContents {
     }
 }
 
-/// Where `state.ron` lives: under `$XDG_STATE_HOME` on Linux, or the platform's per-user folder.
+/// Where `state.ron` lives: `$XDG_STATE_HOME/picotracker` on Linux, falling back as the
+/// `directories` crate does, or the platform's local data folder where there is no state folder.
 pub fn state_file() -> Option<PathBuf> {
-    Some(state_folder()?.join("picotracker").join("state.ron"))
-}
-
-#[cfg(target_os = "windows")]
-fn state_folder() -> Option<PathBuf> {
-    absolute_from_env("LOCALAPPDATA")
-}
-
-#[cfg(target_os = "macos")]
-fn state_folder() -> Option<PathBuf> {
-    Some(absolute_from_env("HOME")?.join("Library/Application Support"))
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn state_folder() -> Option<PathBuf> {
-    absolute_from_env("XDG_STATE_HOME")
-        .or_else(|| Some(absolute_from_env("HOME")?.join(".local/state")))
-}
-
-/// A folder named by an environment variable. The XDG rules ignore relative paths.
-fn absolute_from_env(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name)
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
+    let folders = ProjectDirs::from("", "", "picotracker")?;
+    let folder = folders.state_dir().unwrap_or(folders.data_local_dir());
+    Some(folder.join("state.ron"))
 }
 
 fn written(path: PathBuf, contents: &[u8]) -> FileResponse {
