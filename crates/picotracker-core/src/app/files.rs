@@ -66,6 +66,7 @@ pub(super) enum Accepted {
     NewProject,
     BrowseToOpen,
     BrowseToImport,
+    Quit,
     SaveOver(PathBuf),
     PurgeUnused,
 }
@@ -289,6 +290,25 @@ impl App {
         }
     }
 
+    /// Closes whatever is open, then quits or asks first about unsaved changes.
+    pub(super) fn quit(&mut self) {
+        self.midi_dialog = None;
+        self.speed_entry = None;
+        self.file_list = None;
+        self.question = None;
+        self.selection = None;
+        if self.has_unsaved_changes() {
+            self.ask_about_unsaved_changes(Accepted::Quit);
+        } else {
+            self.quitting = true;
+        }
+    }
+
+    /// Whether the app has been told to quit, which the Window shell carries out.
+    pub fn wants_to_quit(&self) -> bool {
+        self.quitting
+    }
+
     fn ask_about_unsaved_changes(&mut self, accepted: Accepted) {
         self.question = Some(Question {
             text: UNSAVED_QUESTION.to_owned(),
@@ -345,6 +365,7 @@ impl App {
                         Accepted::NewProject => self.replace_project(Project::new(), None),
                         Accepted::BrowseToOpen => self.browse(Purpose::Open),
                         Accepted::BrowseToImport => self.browse(Purpose::Import),
+                        Accepted::Quit => self.quitting = true,
                         Accepted::SaveOver(path) => self.write_project(path),
                         Accepted::PurgeUnused => self.purge_unused(),
                     }

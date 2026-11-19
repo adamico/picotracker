@@ -31,6 +31,7 @@ pub(super) fn bindings() -> Vec<(Key, Modifiers, Action)> {
         (Key::Char('s'), CTRL_SHIFT, Action::SaveAs),
         (Key::Char('i'), CTRL, Action::Import),
         (Key::Char('e'), CTRL, Action::Export),
+        (Key::Char('q'), CTRL, Action::Quit),
         (Key::Char('n'), CTRL_SHIFT, Action::NewUnused),
         (Key::Char('b'), CTRL, Action::StartSelection),
         (Key::Char('c'), CTRL, Action::Copy),

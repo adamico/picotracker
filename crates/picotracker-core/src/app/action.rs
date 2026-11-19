@@ -33,6 +33,8 @@ pub enum Action {
     SaveAs,
     Import,
     Export,
+    /// Closes the app, asking first if that would lose unsaved changes. Works anywhere.
+    Quit,
     NewUnused,
     StartSelection,
     Copy,
