@@ -9,9 +9,8 @@ use picotracker_core::cart_import::import;
 use picotracker_core::player::{AudioRequest, Player, TrackMix};
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
-use picotracker_core::synth::{SAMPLES_PER_TICK, Voice};
 use std::sync::Arc;
-use support::{assert_same_samples, sound_of};
+use support::{assert_same_samples, render_sounds, sound_of};
 
 const P8: &[u8] = include_bytes!("fixtures/pico8/advent26.p8");
 const PNG: &[u8] = include_bytes!("fixtures/pico8/advent26.p8.png");
@@ -19,7 +18,7 @@ const PNG: &[u8] = include_bytes!("fixtures/pico8/advent26.p8.png");
 /// Every SFX the song plays has this LEN and Speed, so every Pattern lasts LEN Steps.
 const LEN: usize = 18;
 const SPEED: u8 = 20;
-const PATTERNS: u8 = 7;
+const PATTERNS: usize = 7;
 
 fn p8() -> Cart {
     Cart::read(P8).unwrap()
@@ -97,31 +96,21 @@ fn import_gives_the_expected_project_from_either_format() {
     );
 }
 
+/// The SFX each of the two sounding channels plays in Patterns 0 to 6, read off the Pattern bytes
+/// PICO-8 saved (see `the_patterns_hold_the_bytes_pico8_saved`). Channels 2 and 3 are disabled
+/// throughout.
+const CHANNEL_SFX: [[u8; PATTERNS]; 2] = [[0, 1, 2, 1, 3, 4, 5], [6, 7, 8, 7, 8, 9, 10]];
+
 /// What one channel of the Cart plays from Pattern 0 to the end of Pattern 6, by PICO-8's rules:
-/// each Pattern starts its SFX afresh and plays LEN Steps, and a disabled channel is silent.
+/// each Pattern starts its SFX afresh and plays LEN Steps.
 fn channel_of_cart(cart: &Cart, channel: usize) -> Vec<f32> {
-    let step_samples = usize::from(SPEED) * SAMPLES_PER_TICK as usize;
-    let mut voice = Voice::new();
-    let mut samples = Vec::new();
-    for slot in 0..PATTERNS {
-        let pattern = cart.pattern_bytes(slot);
-        let byte = pattern[channel];
-        if byte & 0x40 != 0 {
-            samples.extend(std::iter::repeat_n(0.0, LEN * step_samples));
-            continue;
-        }
-        let sound = sound_of(cart, byte & 0x3f);
-        assert_eq!(sound.speed, SPEED);
-        for step in 0..LEN {
-            if step == 0 {
-                voice.play(sound, 0);
-            } else {
-                voice.continue_at(sound, step);
-            }
-            samples.extend((0..step_samples).map(|_| voice.next_sample()));
-        }
-    }
-    samples
+    let steps: Vec<usize> = (0..LEN).collect();
+    let sounds: Vec<_> = CHANNEL_SFX[channel]
+        .iter()
+        .map(|&slot| (sound_of(cart, slot), &steps[..]))
+        .collect();
+    assert!(sounds.iter().all(|(sound, _)| sound.speed == SPEED));
+    render_sounds(&sounds)
 }
 
 /// One Track of the Imported Song through the Player, with that Track soloed.
@@ -143,8 +132,7 @@ fn an_import_with_no_warnings_renders_the_samples_the_cart_plays() {
     let imported = import(&cart, "advent26.p8");
     assert!(imported.warnings.is_empty());
 
-    // Channels 2 and 3 are disabled throughout, so the song is on the first two.
-    for channel in 0..2 {
+    for channel in 0..CHANNEL_SFX.len() {
         let expected = channel_of_cart(&cart, channel);
         let rendered = track_of_song(imported.project.clone(), channel, expected.len());
         assert_same_samples(&rendered, &expected);
