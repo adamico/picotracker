@@ -19,7 +19,6 @@ const RECENT_HEADING: &str = "RECENT";
 const FOLDER: Style = Style::fg(Colour::Blue);
 const POINTER: Style = Style::fg(Colour::Yellow);
 
-/// What the file list is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
     Open,
@@ -37,18 +36,12 @@ impl Purpose {
     }
 }
 
-/// What Enter leads to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choice {
-    /// Nothing further to do.
     Stay,
-    /// Show this folder.
     Folder(PathBuf),
-    /// Open this file.
     Open(PathBuf),
-    /// Import this file.
     Import(PathBuf),
-    /// Save to this file, which may already exist.
     Save { path: PathBuf, exists: bool },
 }
 
@@ -59,18 +52,15 @@ struct Row {
 }
 
 /// A folder's contents, with a name field when saving and the recent Projects when opening.
+/// The picked row counts the name field first, then the recent Projects, then the folder's rows.
 #[derive(Debug)]
 pub struct FileList {
     purpose: Purpose,
     directory: PathBuf,
     rows: Vec<Row>,
-    /// Project files to offer above the folder, the most recent first.
-    recent: Vec<PathBuf>,
-    /// The picked row, counting the name field when saving, then the recent Projects, then the
-    /// folder's rows.
+    recent_projects: Vec<PathBuf>,
     picked: usize,
     name: String,
-    /// Whether a folder has been shown yet.
     listed: bool,
 }
 
@@ -80,7 +70,7 @@ impl FileList {
             purpose,
             directory,
             rows: vec![parent_row()],
-            recent: Vec::new(),
+            recent_projects: Vec::new(),
             picked: 0,
             name,
             listed: false,
@@ -89,7 +79,7 @@ impl FileList {
 
     /// Offers these Project files above the folder, with the cursor on the first.
     pub fn with_recent(mut self, recent: Vec<PathBuf>) -> Self {
-        self.recent = recent;
+        self.recent_projects = recent;
         self
     }
 
@@ -113,7 +103,11 @@ impl FileList {
         self.directory = directory;
         self.rows = rows;
         // The first listing starts on the newest recent Project. Later ones start on the folder.
-        self.picked = if self.listed { self.recent.len() } else { 0 };
+        self.picked = if self.listed {
+            self.recent_projects.len()
+        } else {
+            0
+        };
         self.listed = true;
     }
 
@@ -124,7 +118,7 @@ impl FileList {
 
     /// Rows above the folder's contents: the name field and the recent Projects.
     fn top_rows(&self) -> usize {
-        self.name_rows() + self.recent.len()
+        self.name_rows() + self.recent_projects.len()
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
@@ -151,10 +145,10 @@ impl FileList {
         let Some(index) = self.picked.checked_sub(self.name_rows()) else {
             return self.save_choice();
         };
-        if let Some(recent) = self.recent.get(index) {
+        if let Some(recent) = self.recent_projects.get(index) {
             return Choice::Open(recent.clone());
         }
-        let row = &self.rows[index - self.recent.len()];
+        let row = &self.rows[index - self.recent_projects.len()];
         if row.name == PARENT {
             Choice::Folder(parent_of(&self.directory))
         } else if row.is_directory {
@@ -196,10 +190,10 @@ impl FileList {
         };
         draw_title(grid, area.column, 0, title, true);
         let mut row = 1;
-        if !self.recent.is_empty() {
+        if !self.recent_projects.is_empty() {
             grid.put(area.column, row, RECENT_HEADING, HEADING);
             row += 1;
-            for (index, path) in self.recent.iter().enumerate() {
+            for (index, path) in self.recent_projects.iter().enumerate() {
                 self.draw_pointer(grid, area, row, self.name_rows() + index);
                 let name = path.file_name().unwrap_or(path.as_os_str());
                 grid.put(area.column + 1, row, &name.to_string_lossy(), VALUE);

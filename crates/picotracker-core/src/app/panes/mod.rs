@@ -28,15 +28,14 @@ const SELECTED: Style = Style {
 const FILL: Style = Style::fg(Colour::Pink);
 const OUT_OF_RANGE: Style = Style::fg(Colour::Red);
 const PLAYHEAD: Style = Style::fg(Colour::Green);
-/// Where a Chain entry or a Step is flagged, to the right of its last cell.
 const OUT_OF_RANGE_COLUMN: usize = 14;
 const COARSE_ID: i32 = 16;
 const MAX_ID: i32 = 255;
 
 /// The value of a two-digit cell after one more digit: the digit before it becomes the high digit.
-fn typed_value(typed_digit: &mut Option<u8>, digit: u8) -> u8 {
-    let value = typed_digit.map_or(0, |high| high << 4) | digit;
-    *typed_digit = Some(digit);
+fn typed_value(first_digit: &mut Option<u8>, digit: u8) -> u8 {
+    let value = first_digit.map_or(0, |high| high << 4) | digit;
+    *first_digit = Some(digit);
     value
 }
 

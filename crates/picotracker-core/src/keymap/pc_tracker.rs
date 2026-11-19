@@ -8,10 +8,8 @@ const CTRL: Modifiers = Modifiers::CTRL;
 const SHIFT: Modifiers = Modifiers::SHIFT;
 const CTRL_SHIFT: Modifiers = Modifiers::CTRL_SHIFT;
 
-/// The piano's lower octave, from C.
-const LOWER_PIANO: &str = "zsxdcvgbhnjm";
-/// The piano's upper octave, from C.
-const UPPER_PIANO: &str = "q2w3er5t6y7u";
+const LOWER_OCTAVE_KEYS: &str = "zsxdcvgbhnjm";
+const UPPER_OCTAVE_KEYS: &str = "q2w3er5t6y7u";
 const HEX_DIGITS: &str = "0123456789abcdef";
 
 /// Every binding of the preset.
@@ -53,7 +51,7 @@ pub(super) fn bindings() -> Vec<(Key, Modifiers, Action)> {
         (Key::F(10), NONE, Action::ToggleFollow),
         (Key::Delete, NONE, Action::Clear),
         (Key::Char('f'), CTRL, Action::ToggleFill),
-        (Key::Char('r'), CTRL, Action::SetSongLoopRow),
+        (Key::Char('r'), CTRL, Action::ToggleSongLoopRow),
         (Key::Char('['), NONE, Action::OctaveDown),
         (Key::Char(']'), NONE, Action::OctaveUp),
         (Key::Char('r'), SHIFT, Action::ResetMidiTable),
@@ -62,16 +60,17 @@ pub(super) fn bindings() -> Vec<(Key, Modifiers, Action)> {
         (Key::Up, CTRL, nudge(true, true)),
         (Key::Down, CTRL, nudge(false, true)),
     ];
-    for track in 1..=8 {
-        bindings.push((Key::F(track), NONE, Action::Mute(track)));
-        bindings.push((Key::F(track), SHIFT, Action::Solo(track)));
+    for track_number in 1..=8 {
+        let key = Key::F(track_number);
+        bindings.push((key, NONE, Action::Mute { track_number }));
+        bindings.push((key, SHIFT, Action::Solo { track_number }));
     }
     bindings
 }
 
 /// The keys that type characters, which depend on what the cursor is on.
 pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
-    let piano = LOWER_PIANO.chars().chain(UPPER_PIANO.chars());
+    let piano = LOWER_OCTAVE_KEYS.chars().chain(UPPER_OCTAVE_KEYS.chars());
     let piano = (0..).zip(piano).map(|(semitone, ch)| {
         (
             KeyContext::PhrasePitch,

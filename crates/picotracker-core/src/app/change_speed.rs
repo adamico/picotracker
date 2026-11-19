@@ -6,11 +6,9 @@ use super::{Action, App, CHAIN_ENTRIES, Focus, NO_PHRASE_HERE};
 use crate::project::{ChainId, PhraseId, SONG_ROWS, TRACKS};
 use crate::wording::counted;
 
-/// The most digits a Speed has in hexadecimal.
-const SPEED_DIGITS: usize = 2;
+const SPEED_HEX_DIGITS: usize = 2;
 const MIN_SPEED: u32 = 1;
 const MAX_SPEED: u32 = 255;
-/// Arpeggios change rate between this Speed and the next one up.
 const ARPEGGIO_SPEED: u8 = 8;
 const BAD_SPEED: &str = "SPEED MUST BE 01-FF  ";
 
@@ -62,12 +60,12 @@ impl SpeedEntry {
             if self.refused { BAD_SPEED } else { "" },
             self.shown.number(),
             self.shown_speed,
-            width = SPEED_DIGITS,
+            width = SPEED_HEX_DIGITS,
         );
     }
 
     fn type_digit(&mut self, digit: u8) {
-        if self.digits.len() < SPEED_DIGITS {
+        if self.digits.len() < SPEED_HEX_DIGITS {
             self.digits.push(digit);
         }
         self.refused = false;
@@ -129,7 +127,7 @@ impl App {
     /// Asks for the new Speed of the Phrase on show.
     pub(super) fn ask_for_speed(&mut self) {
         let Some(shown) = self.phrase_under_cursor() else {
-            self.status = Some(NO_PHRASE_HERE);
+            self.remark = Some(NO_PHRASE_HERE);
             return;
         };
         let shown_speed = self.project.phrase(shown).speed();
@@ -214,7 +212,7 @@ impl App {
             },
             Action::Cancel => {
                 self.speed_entry = None;
-                self.selection = None;
+                self.selection_start = None;
             }
             _ => {}
         }
@@ -234,7 +232,7 @@ impl App {
             inexact += usize::from(!exact);
             crossed += usize::from(crossed_arpeggio_speed(before, after));
         }
-        self.selection = None;
+        self.selection_start = None;
         let summary = format!(
             "{} CHANGED  {inexact} INEXACT  {} USED ELSEWHERE  {crossed} CROSSED SPEED 8",
             counted(changed, "PHRASE"),

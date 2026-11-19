@@ -12,7 +12,6 @@ const RIGHT: Action = Action::Move(Direction::Right);
 const DOWN: Action = Action::Move(Direction::Down);
 const TAB: Action = Action::FocusNext;
 const SPACE: Action = Action::PlayFocusedPane;
-/// A-2 at the first-launch octave: pitch 33, which sounds at 440 Hz.
 const A_440: Action = Action::PianoKey(9);
 const NUDGE_UP: Action = Action::Nudge {
     up: true,
@@ -25,7 +24,7 @@ const OCTAVE_UP: Action = Action::Nudge {
 
 const SPEED: i32 = 8;
 const STEP_SAMPLES: usize = SPEED as usize * SAMPLES_PER_TICK as usize;
-const SETTLE: usize = 300;
+const CROSSFADE_SAMPLES: usize = 300;
 
 /// An app with the Phrase pane focused on Phrase 01, whose first Step is a quiet A-2.
 fn phrase_app(transpose: i32) -> App {
@@ -92,7 +91,7 @@ fn entering_a_note_while_stopped_previews_it() {
     app.apply(A_440);
     let samples = render(&mut app, &mut player, STEP_SAMPLES);
 
-    assert_near(frequency(&samples[SETTLE..]), 440.0);
+    assert_near(frequency(&samples[CROSSFADE_SAMPLES..]), 440.0);
 }
 
 #[test]
@@ -103,7 +102,7 @@ fn the_preview_uses_the_chain_entrys_transpose() {
     app.apply(A_440);
     let samples = render(&mut app, &mut player, STEP_SAMPLES);
 
-    assert_near(frequency(&samples[SETTLE..]), 880.0);
+    assert_near(frequency(&samples[CROSSFADE_SAMPLES..]), 880.0);
 }
 
 #[test]
@@ -114,7 +113,7 @@ fn changing_a_steps_pitch_previews_the_new_note() {
     app.apply(OCTAVE_UP);
     let samples = render(&mut app, &mut player, STEP_SAMPLES);
 
-    assert_near(frequency(&samples[SETTLE..]), 880.0);
+    assert_near(frequency(&samples[CROSSFADE_SAMPLES..]), 880.0);
 }
 
 #[test]
@@ -191,7 +190,7 @@ fn the_preview_stops_when_the_key_is_released() {
     app.key_released();
     let samples = render(&mut app, &mut player, STEP_SAMPLES);
 
-    assert!(peak(&samples[SETTLE..]) < 0.01);
+    assert!(peak(&samples[CROSSFADE_SAMPLES..]) < 0.01);
 }
 
 #[test]
@@ -208,19 +207,19 @@ fn a_quick_key_press_still_sounds_for_one_step() {
         peak(&held[STEP_SAMPLES - 100..]) > 0.1,
         "sounds to the Step's end"
     );
-    assert!(peak(&after[SETTLE..]) < 0.01);
+    assert!(peak(&after[CROSSFADE_SAMPLES..]) < 0.01);
 }
 
 #[test]
 fn a_muted_track_does_not_silence_the_preview() {
     let mut app = phrase_app(0);
     let mut player = Player::new();
-    app.apply(Action::Mute(1));
+    app.apply(Action::Mute { track_number: 1 });
 
     app.apply(A_440);
     let samples = render(&mut app, &mut player, STEP_SAMPLES);
 
-    assert_near(frequency(&samples[SETTLE..]), 440.0);
+    assert_near(frequency(&samples[CROSSFADE_SAMPLES..]), 440.0);
 }
 
 #[test]

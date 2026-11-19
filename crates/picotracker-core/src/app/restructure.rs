@@ -33,7 +33,7 @@ impl App {
         match self.focus {
             Focus::Song => self.clone_chains(cells, deep),
             Focus::Chain => self.clone_phrases(cells),
-            Focus::Phrase => self.status = Some(NEEDS_A_REFERENCE),
+            Focus::Phrase => self.remark = Some(NEEDS_A_REFERENCE),
             Focus::RightSlot => {}
         }
     }
@@ -41,7 +41,7 @@ impl App {
     fn clone_chains(&mut self, cells: CellRange, deep: bool) {
         let chains = self.chains_in(cells);
         if chains.is_empty() {
-            self.status = Some(NO_CHAIN_HERE);
+            self.remark = Some(NO_CHAIN_HERE);
             return;
         }
         let phrases = if deep {
@@ -79,12 +79,12 @@ impl App {
                 }
             }
         }
-        self.selection = None;
+        self.selection_start = None;
     }
 
     fn clone_phrases(&mut self, cells: CellRange) {
         let Some(chain) = self.chain_under_cursor() else {
-            self.status = Some(NO_CHAIN_HERE);
+            self.remark = Some(NO_CHAIN_HERE);
             return;
         };
         let mut phrases = Vec::new();
@@ -96,7 +96,7 @@ impl App {
             }
         }
         if phrases.is_empty() {
-            self.status = Some(NO_PHRASE_HERE);
+            self.remark = Some(NO_PHRASE_HERE);
             return;
         }
         let Some(new_phrases) = self.free_phrase_slots(phrases.len()) else {
@@ -108,7 +108,7 @@ impl App {
                 entry.set_phrase(copies[&entry.phrase()]);
             }
         }
-        self.selection = None;
+        self.selection_start = None;
     }
 
     /// The distinct Chains in a range of Song cells, in the order they first appear.
@@ -200,39 +200,39 @@ impl App {
             Focus::Song => shift_song(&mut self.project, self.song.row()),
             Focus::Chain => {
                 let Some(chain) = self.chain_under_cursor() else {
-                    self.status = Some(NO_CHAIN_HERE);
+                    self.remark = Some(NO_CHAIN_HERE);
                     return;
                 };
                 shift_chain(self.project.chain_mut(chain), self.chain.entry());
             }
             Focus::Phrase => {
                 let Some(phrase) = self.phrase_under_cursor() else {
-                    self.status = Some(NO_PHRASE_HERE);
+                    self.remark = Some(NO_PHRASE_HERE);
                     return;
                 };
                 let Some(cell) = self.phrase.cell() else {
-                    self.status = Some(NO_STEP_HERE);
+                    self.remark = Some(NO_STEP_HERE);
                     return;
                 };
                 shift_phrase(self.project.phrase_mut(phrase), cell.row);
             }
             Focus::RightSlot => return,
         }
-        self.selection = None;
+        self.selection_start = None;
     }
 
     /// Asks whether to remove what nothing refers to, saying how much that is.
     pub(super) fn ask_to_purge(&mut self) {
         let unused = self.project.unused_items();
         if unused.is_empty() {
-            self.status = Some(NOTHING_TO_PURGE);
+            self.remark = Some(NOTHING_TO_PURGE);
             return;
         }
         let loose = match unused.loose_phrases {
             0 => String::new(),
             count => format!(" ({count} LOOSE)"),
         };
-        self.selection = None;
+        self.selection_start = None;
         self.question = Some(Question::purge_unused(format!(
             "PURGE {}{loose}  ENTER PURGE  ESC CANCEL",
             counted_items(&unused),
@@ -256,14 +256,14 @@ impl App {
                 }
             }
             Focus::Chain => self.new_unused_phrase(),
-            Focus::Phrase => self.status = Some(NEEDS_A_REFERENCE),
+            Focus::Phrase => self.remark = Some(NEEDS_A_REFERENCE),
             Focus::RightSlot => {}
         }
     }
 
     fn new_unused_phrase(&mut self) {
         let Some(chain) = self.chain_under_cursor() else {
-            self.status = Some(NO_CHAIN_HERE);
+            self.remark = Some(NO_CHAIN_HERE);
             return;
         };
         let Some(slots) = self.free_phrase_slots(1) else {

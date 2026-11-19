@@ -1,13 +1,11 @@
 //! Which pane has focus. Tab cycles four stops.
 
-/// A stop in the focus cycle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Focus {
     #[default]
     Song,
     Chain,
     Phrase,
-    /// Whichever view the right-hand slot is showing.
     RightSlot,
 }
 

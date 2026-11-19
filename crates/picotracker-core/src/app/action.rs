@@ -1,6 +1,5 @@
 //! The named actions that drive the App core. Every key press becomes one of these.
 
-/// A direction the cursor can move in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Direction {
     Up,
@@ -21,7 +20,6 @@ impl Direction {
     }
 }
 
-/// A named, rebindable action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
     Move(Direction),
@@ -33,7 +31,6 @@ pub enum Action {
     SaveAs,
     Import,
     Export,
-    /// Closes the app, asking first if that would lose unsaved changes. Works anywhere.
     Quit,
     NewUnused,
     StartSelection,
@@ -52,71 +49,38 @@ pub enum Action {
     ToggleLog,
     PlayFocusedPane,
     PlaySongFromCursor,
-    /// Mutes a Track, numbered 1 to 8.
-    Mute(u8),
-    /// Solos a Track, numbered 1 to 8.
-    Solo(u8),
+    Mute { track_number: u8 },
+    Solo { track_number: u8 },
     ClearMutesAndSolos,
     ToggleFollow,
-    /// Enters a note: semitones above C of the keyboard's lower octave.
     PianoKey(u8),
-    /// Types one hexadecimal digit into the cell under the cursor.
     HexDigit(u8),
     OctaveUp,
     OctaveDown,
-    /// Removes the reference or value under the cursor.
     Clear,
-    /// Marks the Chain entry under the cursor as Fill, or takes the mark away.
     ToggleFill,
-    /// Makes the Song row under the cursor the Song loop row, or turns the loop off if it already
-    /// is.
-    SetSongLoopRow,
-    /// Raises or lowers the cell under the cursor, by a small or a large amount.
-    Nudge {
-        up: bool,
-        coarse: bool,
-    },
-    /// Says yes to a question, or takes the thing under the cursor.
+    ToggleSongLoopRow,
+    Nudge { up: bool, coarse: bool },
     Confirm,
-    /// Says no to a question, or dismisses what is showing.
     Cancel,
-    /// Types one character of a file name.
     TypeChar(char),
-    /// Takes the last character off a file name.
     Backspace,
-    /// Ticks or unticks the picked voice of a MIDI file.
     ToggleVoice,
-    /// Ticks or unticks every voice of the picked voice's source.
     ToggleSource,
-    /// Moves between the program table and the drum kit.
     SwitchMidiTable,
-    /// Raises or lowers the note of the picked drum hit.
-    MidiDrumNote {
-        up: bool,
-    },
-    /// Moves the picked drum hit on to the next effect.
+    MidiDrumNote { up: bool },
     CycleDrumEffect,
-    /// Puts the picked row of the MIDI table back to the factory table.
     ResetMidiRow,
-    /// Puts the whole MIDI table back to the factory table.
     ResetMidiTable,
 }
 
-/// What the cursor is on, which decides what the keys that type characters do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum KeyContext {
-    /// Nothing that takes typed characters.
     Navigation,
-    /// A Step's pitch: letter and digit keys are a piano.
     PhrasePitch,
-    /// Any other value in the Phrase pane: hexadecimal digits are typed directly.
     PhraseValue,
-    /// A Chain or Phrase reference, or a transpose: hexadecimal digits are typed directly.
     ReferenceValue,
-    /// A file name: characters are typed as they are.
     FileName,
-    /// The MIDI Import dialog, which has keys of its own.
     MidiImport,
-    /// The new Speed that Change Speed is asking for: hexadecimal digits are typed directly.
     SpeedEntry,
 }

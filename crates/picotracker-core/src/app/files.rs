@@ -11,24 +11,16 @@ use crate::project::Project;
 use crate::project_file;
 use std::path::{Path, PathBuf};
 
-/// The name of a Project that has never been saved, as the window title spells it.
 const UNTITLED: &str = "Untitled";
 const UNSAVED_QUESTION: &str = "UNSAVED CHANGES WILL BE LOST  ENTER DISCARD  ESC CANCEL";
 
-/// Something the app needs done to the file system.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileRequest {
-    /// Say what a folder holds.
     List { directory: PathBuf },
-    /// Read a whole text file.
     Read { path: PathBuf },
-    /// Read a whole file that may not be text.
     ReadBytes { path: PathBuf },
-    /// Replace a file with these contents.
     Write { path: PathBuf, contents: String },
-    /// Replace a file with these bytes.
     WriteBytes { path: PathBuf, contents: Vec<u8> },
-    /// Give a file another name.
     Rename { from: PathBuf, to: PathBuf },
 }
 
@@ -39,7 +31,6 @@ pub struct DirectoryEntry {
     pub is_directory: bool,
 }
 
-/// The result of a `FileRequest`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileResponse {
     Listed {
@@ -57,18 +48,15 @@ pub enum FileResponse {
     Written {
         path: PathBuf,
     },
-    /// The file now has this name.
     Renamed {
         path: PathBuf,
     },
-    /// A request for this path could not be carried out.
     Failed {
         path: PathBuf,
         reason: String,
     },
 }
 
-/// What a yes to the question on the status line does.
 #[derive(Debug)]
 pub(super) enum Accepted {
     NewProject,
@@ -96,20 +84,14 @@ impl Question {
     }
 }
 
-/// A file request still being carried out.
 #[derive(Debug)]
 pub(super) enum Waiting {
     Listing(PathBuf),
     Reading(PathBuf),
     Importing(PathBuf),
-    /// The Project as it was when the save was asked for.
     Writing(PathBuf, Box<Project>),
-    /// The Target Cart, read so that an Export can write into it.
     ExportReading(PathBuf),
-    /// The Target Cart, being replaced by an Export.
     ExportWriting(PathBuf, FinishedExport),
-    /// A damaged `state.ron`, being renamed to its `.bad` name. Until that works, `state.ron` is
-    /// not written.
     SettingAside {
         state_file: PathBuf,
         bad_file: PathBuf,
@@ -274,7 +256,7 @@ impl App {
         self.project = project;
         self.history.clear();
         self.speed_entry = None;
-        self.selection = None;
+        self.selection_start = None;
         self.clipboard = None;
         self.project_path = path;
         self.song = Default::default();
@@ -283,7 +265,7 @@ impl App {
         self.overview = Default::default();
         self.focus = Focus::Song;
         self.played_pane = Focus::Song;
-        self.log_return = Focus::Song;
+        self.focus_before_log = Focus::Song;
     }
 
     pub(super) fn new_project(&mut self) {
@@ -316,7 +298,7 @@ impl App {
         self.speed_entry = None;
         self.file_list = None;
         self.question = None;
-        self.selection = None;
+        self.selection_start = None;
         if self.has_unsaved_changes() {
             self.ask_about_unsaved_changes(Accepted::Quit);
         } else {

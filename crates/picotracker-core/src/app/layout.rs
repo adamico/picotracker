@@ -10,10 +10,8 @@ pub struct Area {
     pub rows: usize,
 }
 
-/// The row of the status line, the bottom row of the grid.
 pub const STATUS_ROW: usize = GRID_ROWS - 1;
 
-/// Rows available to the panes, above the status line.
 const PANE_ROWS: usize = STATUS_ROW;
 
 pub const SONG: Area = Area {

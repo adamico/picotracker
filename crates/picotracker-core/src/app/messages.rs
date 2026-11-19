@@ -3,14 +3,11 @@
 use crate::project::SongPlace;
 use std::time::Duration;
 
-/// How long info stays on the status line.
 const INFO_LIFETIME: Duration = Duration::from_secs(3);
-/// How long info shows at full brightness before it starts to fade.
 const INFO_BRIGHT: Duration = Duration::from_secs(2);
 const LOG_POINTER: &str = "  ^L LOG";
 const ATTENTION_MARK: &str = "! ";
 
-/// How serious a message is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Severity {
     Info,
@@ -116,7 +113,6 @@ impl Report {
     }
 }
 
-/// How a message on the status line looks right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Look {
     Info,

@@ -1,6 +1,5 @@
 //! Key presses, independent of any windowing library.
 
-/// A key on the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     Up,
@@ -14,9 +13,7 @@ pub enum Key {
     Backspace,
     Insert,
     Delete,
-    /// A function key, numbered from 1.
     F(u8),
-    /// A key that types a character.
     Char(char),
 }
 

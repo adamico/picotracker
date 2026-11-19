@@ -27,7 +27,6 @@ const HEADER_ROW: usize = 0;
 const FILE_ROW: usize = 1;
 const TITLE_ROW: usize = 3;
 const FIRST_ROW: usize = 5;
-/// The rows a list can use above the status line.
 const LIST_ROWS: usize = 38;
 const SECOND_COLUMN: usize = 58;
 
@@ -67,14 +66,12 @@ impl Page {
     }
 }
 
-/// Which table of the Instruments page has the cursor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Table {
     Programs,
     Drums,
 }
 
-/// What the dialog wants done after a key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Stay,
@@ -96,7 +93,6 @@ pub struct MidiDialog {
     programs: Vec<u8>,
     program_row: usize,
     drum_row: usize,
-    /// What Import would produce, worked out on reaching Review.
     preview: Option<Imported>,
     warning_scroll: usize,
 }
