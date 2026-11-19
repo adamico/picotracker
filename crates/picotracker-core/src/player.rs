@@ -38,6 +38,10 @@ pub enum AudioRequest {
         transpose: i8,
     },
     EndPreview,
+    AuditionInstrument {
+        project: Arc<Project>,
+        instrument: u8,
+    },
     Stop,
 }
 
@@ -75,6 +79,10 @@ impl Limiter {
         limited
     }
 }
+
+const AUDITION_PITCH: u8 = 24;
+const AUDITION_VOLUME: u8 = 5;
+const AUDITION_SPEED: u8 = 255;
 
 pub const SCOPE_COLUMNS: usize = 23;
 pub const SCOPE_RANGE: i8 = 100;
@@ -435,6 +443,10 @@ impl Player {
                     preview.released = true;
                 }
             }
+            AudioRequest::AuditionInstrument {
+                project,
+                instrument,
+            } => self.audition(&project, instrument),
             AudioRequest::Stop => self.cut(),
         }
     }
@@ -462,6 +474,30 @@ impl Player {
         for voice in &mut self.voices {
             voice.stop();
         }
+    }
+
+    /// Holds C-2 on a Custom Instrument on the first voice until playback stops.
+    fn audition(&mut self, project: &Project, instrument: u8) {
+        self.cut();
+        self.plays += 1;
+        self.hear_instruments_of(project);
+        let note = Note {
+            pitch: i16::from(AUDITION_PITCH),
+            instrument,
+            custom: true,
+            volume: AUDITION_VOLUME,
+            effect: 0,
+        };
+        self.voices[0].play(
+            Sound {
+                notes: [note; MAX_STEPS],
+                speed: AUDITION_SPEED,
+                filters: 0,
+                loop_start: 0,
+                loop_end: MAX_STEPS as u8,
+            },
+            0,
+        );
     }
 
     /// Gives every voice the Custom Instruments of a Project.

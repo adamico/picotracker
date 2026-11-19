@@ -166,6 +166,16 @@ fn nudging_a_selection_keeps_custom_instruments() {
 }
 
 #[test]
+fn nudging_a_selection_stops_built_in_instruments_at_07() {
+    let mut project = music();
+    *project.phrase_mut(PhraseId::new(0)).step_mut(0) = Step::new(24, 0x07, 5, 0).unwrap();
+    let mut app = App::with_project(project);
+    apply(&mut app, &[TAB, TAB, RIGHT, SELECT, DOWN, NUDGE_UP]);
+
+    assert_eq!(step(&app, 0).instrument(), 0x07);
+}
+
+#[test]
 fn nudging_chain_entries_changes_transposes_and_skips_empty_entries() {
     let mut app = App::with_project(music());
     apply(

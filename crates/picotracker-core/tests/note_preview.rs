@@ -137,14 +137,15 @@ fn changing_a_steps_volume_or_effect_previews_nothing() {
 
 #[test]
 fn a_nudge_that_changes_nothing_previews_nothing() {
+    // The Step is on Instrument 00, the lowest there is.
     let mut app = phrase_app(0);
     apply(&mut app, &[RIGHT]);
-    for _ in 0..7 {
-        app.apply(NUDGE_UP);
-    }
     app.take_audio_requests();
 
-    app.apply(NUDGE_UP);
+    app.apply(Action::Nudge {
+        up: false,
+        coarse: false,
+    });
 
     assert_eq!(previews(&mut app), 0);
 }

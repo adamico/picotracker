@@ -32,7 +32,7 @@ const DEFAULT_LENGTH: usize = 16;
 const DEFAULT_SPEED: u8 = 16;
 const DEFAULT_PITCH: u8 = 24;
 pub(crate) const MAX_PITCH: i32 = 63;
-const MAX_BUILT_IN_INSTRUMENT: i32 = 7;
+const MAX_INSTRUMENT: i32 = u8::MAX as i32;
 const MAX_VOLUME: i32 = 7;
 const MAX_EFFECT: i32 = 7;
 const EFFECT_ARPEGGIO_FAST: u8 = 6;
@@ -112,9 +112,10 @@ impl Step {
         self.pitch = pitch.clamp(0, MAX_PITCH) as u8;
     }
 
-    /// Sets the Instrument, stopping at the Built-in Instruments 00 and 07.
+    /// Sets the Instrument, stopping at 00 and FF: 00–07 are Built-in Instruments and 08–FF are
+    /// Custom Instruments.
     pub fn set_instrument(&mut self, instrument: i32) {
-        self.instrument = instrument.clamp(0, MAX_BUILT_IN_INSTRUMENT) as u8;
+        self.instrument = instrument.clamp(0, MAX_INSTRUMENT) as u8;
     }
 
     /// Sets the volume, stopping at 0 and 7.
@@ -418,6 +419,18 @@ pub struct SfxInstrument {
     pub loop_end: u8,
 }
 
+impl Default for SfxInstrument {
+    fn default() -> Self {
+        Self {
+            steps: vec![Step::default(); DEFAULT_LENGTH],
+            speed: DEFAULT_SPEED,
+            filters: Filters::default(),
+            loop_start: 0,
+            loop_end: 0,
+        }
+    }
+}
+
 /// A Custom Instrument made of one looping wave.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WaveformInstrument {
@@ -426,6 +439,18 @@ pub struct WaveformInstrument {
     pub detune: u8,
     pub reverb: u8,
     pub dampen: u8,
+}
+
+impl Default for WaveformInstrument {
+    fn default() -> Self {
+        Self {
+            samples: [0; WAVEFORM_SAMPLES],
+            bass: false,
+            detune: 0,
+            reverb: 0,
+            dampen: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -439,6 +464,15 @@ pub enum InstrumentSound {
 pub struct CustomInstrument {
     pub name: Option<String>,
     pub sound: InstrumentSound,
+}
+
+impl Default for CustomInstrument {
+    fn default() -> Self {
+        Self {
+            name: None,
+            sound: InstrumentSound::Sfx(SfxInstrument::default()),
+        }
+    }
 }
 
 /// The SFX slots and the inclusive range of Patterns a Project owns in its Target Cart.
@@ -620,6 +654,11 @@ impl Project {
         self.custom_instruments
             .iter()
             .map(|(id, instrument)| (*id, instrument))
+    }
+
+    /// The Custom Instrument with this number, if the Project defines one.
+    pub fn custom_instrument(&self, id: u8) -> Option<&CustomInstrument> {
+        self.custom_instruments.get(&id)
     }
 
     /// Defines the Custom Instrument with this number, or removes it.
