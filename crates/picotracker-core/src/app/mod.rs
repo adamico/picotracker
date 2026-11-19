@@ -12,6 +12,7 @@ mod launching;
 mod layout;
 mod messages;
 mod panes;
+mod paths;
 mod restructure;
 mod selection;
 mod status_line;
@@ -346,7 +347,7 @@ impl App {
         self.notice.as_ref()?.time_until_change()
     }
 
-    /// Applies one named action. Whatever it changes in the Project becomes one undo step.
+    /// Applies one named action. Whatever it changes in the Project becomes one undo entry.
     pub fn apply(&mut self, action: Action) {
         let merge = match action {
             Action::Nudge { .. } if self.selection.is_none() => Some(Merge::Nudge),

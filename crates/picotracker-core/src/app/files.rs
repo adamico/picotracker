@@ -4,6 +4,7 @@
 use super::exporting::FinishedExport;
 use super::messages::Report;
 use super::panes::file_list::{Choice, FileList, Purpose};
+use super::paths::{relative_path, resolved};
 use super::{Action, App, Focus};
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
@@ -373,6 +374,30 @@ impl App {
             directory: directory.clone(),
         });
         self.waiting = Some(Waiting::Listing(directory));
+    }
+
+    /// The Project as a file in this folder holds it: the path changes so that the Target Cart
+    /// stays the same Cart. A file in the same folder keeps the path exactly as it was.
+    fn project_saved_in(&self, folder: &Path) -> Project {
+        let mut project = self.project.clone();
+        let moved = resolved(self.target_cart_folder()) != resolved(folder);
+        if let Some(mut target) = self.project.target_cart().cloned().filter(|_| moved) {
+            let cart = self.target_cart_path(&target.path);
+            if let Some(path) = relative_path(folder, &cart) {
+                target.path = path.to_string_lossy().into_owned();
+                project.set_target_cart(Some(target));
+            }
+        }
+        project
+    }
+
+    /// Takes on the Target Cart path that a finished save gave the Project.
+    fn adopt_saved_cart_path(&mut self, saved: &Project) {
+        if let (Some(saved), Some(current)) = (saved.target_cart(), self.project.target_cart()) {
+            let mut current = current.clone();
+            current.path.clone_from(&saved.path);
+            self.project.set_target_cart(Some(current));
+        }
     }
 
     fn write_project(&mut self, path: PathBuf) {
