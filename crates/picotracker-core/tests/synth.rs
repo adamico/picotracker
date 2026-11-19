@@ -1,6 +1,8 @@
 //! The offline synth seam: sound data in, samples at 22,050 Hz out.
 
-use picotracker_core::synth::{Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
+use picotracker_core::synth::{
+    Instrument, Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, Waveform, packed_filters,
+};
 
 const TRIANGLE: u8 = 0;
 const NOISE: u8 = 6;
@@ -261,4 +263,98 @@ fn a_note_on_an_sfx_instrument_plays_that_sound_at_the_note_pitch() {
     let samples = render(&mut voice, 8_000);
 
     assert_near(frequency(&samples[1_000..]), 523.25, 3.0);
+}
+
+/// Half the wave high and half low, so that each cycle has one rising zero crossing.
+fn half_high_half_low() -> [i8; 64] {
+    std::array::from_fn(|index| if index < 32 { 100 } else { -100 })
+}
+
+/// A sound whose notes all play the Custom Instrument numbered 8 at one pitch.
+fn held_on_instrument_8(pitch: i16) -> Sound {
+    let mut sound = held(pitch, 32, 0);
+    for note in &mut sound.notes {
+        note.instrument = 8;
+        note.custom = true;
+    }
+    sound
+}
+
+fn on_waveform(waveform: Waveform, pitch: i16, samples: usize) -> Vec<f32> {
+    let mut voice = Voice::new();
+    voice.set_instrument(8, Instrument::Waveform(waveform));
+    voice.play(held_on_instrument_8(pitch), 0);
+    render(&mut voice, samples)
+}
+
+#[test]
+fn a_waveform_instrument_at_c2_plays_one_64_sample_cycle_at_261_6_hz() {
+    let c2 = 24;
+    let waveform = Waveform {
+        samples: half_high_half_low(),
+        bass: false,
+        filters: 0,
+    };
+
+    let samples = on_waveform(waveform, c2, 12_000);
+
+    assert_near(frequency(&samples[1_000..]), 261.63, 1.0);
+}
+
+#[test]
+fn bass_plays_a_waveform_instrument_one_octave_lower() {
+    let c3 = 36;
+    let waveform = Waveform {
+        samples: half_high_half_low(),
+        bass: true,
+        filters: 0,
+    };
+
+    let samples = on_waveform(waveform, c3, 12_000);
+
+    assert_near(frequency(&samples[1_000..]), 261.63, 1.0);
+}
+
+#[test]
+fn a_waveform_instrument_moves_between_its_samples_by_linear_interpolation() {
+    // At C-0 each of the 64 samples spans about 5 output samples, so the jump between the high
+    // and low halves is spread over them instead of taken at once.
+    let c0 = 0;
+    let waveform = Waveform {
+        samples: half_high_half_low(),
+        bass: false,
+        filters: 0,
+    };
+
+    let samples = on_waveform(waveform, c0, 12_000);
+
+    let swing = peak(&samples[1_000..]) * 2.0;
+    let largest_jump = samples[1_000..]
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).abs())
+        .fold(0.0, f32::max);
+    assert!(swing > 0.1, "the waveform is silent");
+    assert!(
+        largest_jump < swing * 0.3,
+        "jumped {largest_jump} of a {swing} swing"
+    );
+}
+
+#[test]
+fn a_waveform_instrument_ignores_noiz_and_buzz() {
+    let c2 = 24;
+    let plain = Waveform {
+        samples: half_high_half_low(),
+        bass: false,
+        filters: 0,
+    };
+    let filtered = Waveform {
+        filters: packed_filters(true, true, 0, 0, 0),
+        ..plain
+    };
+
+    assert_eq!(
+        on_waveform(filtered, c2, 4_000),
+        on_waveform(plain, c2, 4_000)
+    );
 }
