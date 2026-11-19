@@ -353,43 +353,44 @@ impl App {
             Action::HexDigit(_) => Some(Merge::Digit),
             _ => None,
         };
-        self.history.begin(&self.project, self.spot());
+        self.history.begin(&self.project, self.cursor_place());
         self.perform(action);
-        self.history.finish(&self.project, self.spot(), merge);
+        self.history
+            .finish(&self.project, self.cursor_place(), merge);
     }
 
     /// Where the cursor is in every pane.
-    fn spot(&self) -> CursorPlace {
+    fn cursor_place(&self) -> CursorPlace {
         CursorPlace {
             focus: self.focus,
-            song: self.song.spot(),
-            chain: self.chain.spot(),
-            phrase: self.phrase.spot(),
+            song: self.song.cursor_place(),
+            chain: self.chain.cursor_place(),
+            phrase: self.phrase.cursor_place(),
             overview: self.overview.channel(),
         }
     }
 
     /// Puts the cursor back where a change was made.
-    fn return_to(&mut self, spot: CursorPlace) {
+    fn return_to(&mut self, place: CursorPlace) {
         self.selection = None;
         self.stop_following();
-        self.set_focus(spot.focus);
-        self.song.return_to(spot.song);
-        self.chain.return_to(spot.chain);
-        self.phrase.return_to(spot.phrase);
-        self.overview.return_to(spot.overview);
+        self.set_focus(place.focus);
+        self.song.return_to(place.song);
+        self.chain.return_to(place.chain);
+        self.phrase.return_to(place.phrase);
+        self.overview.return_to(place.overview);
     }
 
     fn undo(&mut self) {
         match self.history.undo(&mut self.project) {
-            Some(spot) => self.return_to(spot),
+            Some(place) => self.return_to(place),
             None => self.status = Some(NOTHING_TO_UNDO),
         }
     }
 
     fn redo(&mut self) {
         match self.history.redo(&mut self.project) {
-            Some(spot) => self.return_to(spot),
+            Some(place) => self.return_to(place),
             None => self.status = Some(NOTHING_TO_REDO),
         }
     }
