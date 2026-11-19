@@ -4,6 +4,11 @@
 //! `src/filter.cpp` and `src/pico8/sfx.cpp`), with the REVERB 2 fix from fake-08 at commit
 //! `814991a` (`source/Audio.cpp`, lines 764 and 765). The notices of both projects follow.
 //!
+//! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
+//! instead of the port: the crossfade between notes, the phase of saw, square and pulse, the
+//! level of the whole output, the saw and noise, the steps of vibrato, and silence on a silent
+//! note of an SFX Instrument.
+//!
 //! zepto8, `src/synth.cpp`:
 //!
 //! ```text
