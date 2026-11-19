@@ -8,12 +8,13 @@ mod files;
 mod keys;
 
 use audio::AudioOutput;
-use picotracker_core::app::{Action, App};
+use picotracker_core::app::{Action, App, Launch};
 use picotracker_core::keymap::Keymap;
 use picotracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use picotracker_core::screen::viewport::integer_scale;
 use pixels::{Pixels, SurfaceTexture};
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -32,6 +33,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     event_loop.set_control_flow(ControlFlow::Wait);
 
     let mut shell = Shell::default();
+    shell.launch();
     event_loop.run_app(&mut shell)?;
     shell.failure.map_or(Ok(()), Err)
 }
@@ -103,6 +105,21 @@ impl Default for Shell {
 }
 
 impl Shell {
+    /// Gives the app what `state.ron` holds and starts in the folder the app was launched from.
+    fn launch(&mut self) {
+        let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let Some(state_file) = files::state_file() else {
+            return;
+        };
+        let state = std::fs::read_to_string(&state_file).ok();
+        self.app.launch(Launch {
+            state_file,
+            state,
+            directory,
+        });
+        self.run_file_requests();
+    }
+
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: Box<dyn Error>) {
         self.failure = Some(error);
         event_loop.exit();
