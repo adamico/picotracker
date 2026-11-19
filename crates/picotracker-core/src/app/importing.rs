@@ -9,6 +9,7 @@ use crate::cart::Cart;
 use crate::cart_import;
 use crate::midi_import;
 use crate::project::SongPlace;
+use crate::wording::counted;
 use std::path::{Path, PathBuf};
 
 /// What a file can be Imported as.
@@ -44,9 +45,8 @@ fn import_report(source: &str, warnings: Vec<LogItem>) -> Report {
     if warnings.is_empty() {
         return Report::info(format!("IMPORTED {source}"));
     }
-    let count = warnings.len();
-    let plural = if count == 1 { "" } else { "S" };
-    Report::warning(format!("IMPORTED {source} WITH {count} WARNING{plural}")).with_items(warnings)
+    let count = counted(warnings.len(), "WARNING");
+    Report::warning(format!("IMPORTED {source} WITH {count}")).with_items(warnings)
 }
 
 impl App {

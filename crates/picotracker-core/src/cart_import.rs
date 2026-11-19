@@ -10,6 +10,7 @@ use crate::project::{
     Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, SongPlace,
     TargetCart,
 };
+use crate::wording::counted;
 use rebuild::{RebuiltChannel, RebuiltPattern, has_bit_7, rebuild_pattern};
 use std::collections::BTreeSet;
 
@@ -158,19 +159,29 @@ fn lost_step_warning(
     place: SongPlace,
     phrase: Option<(PhraseId, usize)>,
 ) -> ImportWarning {
-    let track = place.track + 1;
+    let track = track_name(place.track);
     let (lost, step) = match phrase {
         Some((id, length)) => (
-            format!("T{track} PHRASE {:02X} LOST ITS LAST STEP.", id.number()),
+            format!("{track} PHRASE {:02X} LOST ITS LAST STEP.", id.number()),
             length - 1,
         ),
-        None => (format!("T{track} LOST A STEP."), 0),
+        None => (format!("{track} LOST A STEP."), 0),
     };
     let ends = if is_last_row { "ENDS" } else { "SPLITS" };
     ImportWarning::at(
         SongPlace { step, ..place },
-        format!("PATTERN {pattern:02X} {ends} INSIDE A STEP: {lost}"),
+        format!("{} {ends} INSIDE A STEP: {lost}", pattern_name(pattern)),
     )
+}
+
+/// A Pattern as warnings name it, by its slot in hex.
+fn pattern_name(slot: u8) -> String {
+    format!("PATTERN {slot:02X}")
+}
+
+/// A Track as warnings name it, numbered from 1.
+fn track_name(track: usize) -> String {
+    format!("T{}", track + 1)
 }
 
 /// Writes a song into a Project, one Song row per Pattern, gathering what it claims.
@@ -230,8 +241,9 @@ impl<'a> SongBuilder<'a> {
             let track = (0..EXPORT_CHANNELS).find(|&track| pattern.channel(track).is_some());
             self.warnings.push(ImportWarning {
                 text: format!(
-                    "PATTERN {slot:02X} HOLDS ONLY BIT 7 SFX: THE CART STALLS HERE, THE EXPORTED \
-                     SONG PLAYS THROUGH."
+                    "{} HOLDS ONLY BIT 7 SFX: THE CART STALLS HERE, THE EXPORTED SONG PLAYS \
+                     THROUGH.",
+                    pattern_name(slot)
                 ),
                 place: track.map(|track| SongPlace {
                     song_row: row,
@@ -306,9 +318,9 @@ impl<'a> SongBuilder<'a> {
                 self.warnings.push(ImportWarning::at(
                     SongPlace { step, ..place },
                     format!(
-                        "PATTERN {slot:02X} T{} STEP {step:02X} PLAYS A DIFFERENT ARPEGGIO AFTER \
-                         IMPORT.",
-                        track + 1
+                        "{} {} STEP {step:02X} PLAYS A DIFFERENT ARPEGGIO AFTER IMPORT.",
+                        pattern_name(slot),
+                        track_name(track)
                     ),
                 ));
             }
@@ -321,14 +333,13 @@ impl<'a> SongBuilder<'a> {
                 .as_ref()
                 .is_some_and(|e| !e.phrase.is_silent());
             if channel.early_ticks > 0 && sounds {
-                let ticks = channel.early_ticks;
-                let plural = if ticks == 1 { "" } else { "S" };
                 self.warnings.push(ImportWarning::at(
                     place,
                     format!(
-                        "PATTERN {slot:02X} SPLITS INSIDE A STEP: T{} PLAYS ITS LATER STEPS \
-                         {ticks} TICK{plural} EARLY.",
-                        track + 1
+                        "{} SPLITS INSIDE A STEP: {} PLAYS ITS LATER STEPS {} EARLY.",
+                        pattern_name(slot),
+                        track_name(track),
+                        counted(channel.early_ticks as usize, "TICK")
                     ),
                 ));
             }

@@ -10,7 +10,8 @@ use crate::project::Project;
 use crate::project_file;
 use std::path::{Path, PathBuf};
 
-const UNTITLED: &str = "UNTITLED";
+/// The name of a Project that has never been saved, as the window title spells it.
+const UNTITLED: &str = "Untitled";
 const UNSAVED_QUESTION: &str = "UNSAVED CHANGES WILL BE LOST  ENTER DISCARD  ESC CANCEL";
 
 /// Something the app needs done to the file system.
@@ -453,7 +454,7 @@ impl App {
     pub(super) fn project_name(&self) -> String {
         self.project_path
             .as_deref()
-            .map_or_else(|| UNTITLED.to_owned(), shown_name)
+            .map_or_else(|| UNTITLED.to_uppercase(), shown_name)
     }
 
     /// The window's title: the Project's file name as spelt, with a star for unsaved changes.
@@ -463,7 +464,7 @@ impl App {
             .as_deref()
             .and_then(Path::file_name)
             .map_or_else(
-                || "Untitled".to_owned(),
+                || UNTITLED.to_owned(),
                 |name| name.to_string_lossy().into_owned(),
             );
         let star = if self.has_unsaved_changes() { "*" } else { "" };

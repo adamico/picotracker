@@ -1,10 +1,10 @@
 //! Change Speed: a new Speed typed for the Phrase on show scales many Phrases by the same ratio.
 
 use super::messages::Report;
-use super::restructure::counted;
 use super::selection::{CellPosition, CellRange};
 use super::{Action, App, CHAIN_ENTRIES, Focus, NO_PHRASE_HERE};
 use crate::project::{ChainId, PhraseId, SONG_ROWS, TRACKS};
+use crate::wording::counted;
 
 /// The most digits a Speed has in hexadecimal.
 const SPEED_DIGITS: usize = 2;
