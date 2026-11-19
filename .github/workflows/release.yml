@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  manuals-purged:
+    name: Reference manuals are purged
+    # RELEASE GUARD: this workflow must not run until issue #51 has purged the reference
+    # manuals from the repo and its history. `if: false` skips this job, and every other
+    # job here depends on it, so a tag push builds and publishes nothing.
+    # Issue #51 enables the workflow by deleting the `if: false` line below.
+    if: false
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The manuals are gone from every branch and tag
+        run: |
+          history=$(git log --all --oneline -- \
+            docs/sources/pico-8_manual.txt \
+            docs/sources/m8_operation_manual_v20260421.pdf)
+          if [ -n "$history" ]; then
+            echo "The reference manuals are still in the history:"
+            echo "$history"
+            exit 1
+          fi
+
+  ci:
+    name: Full CI suite
+    needs: manuals-purged
+    uses: ./.github/workflows/ci.yml
+
+  draft-release:
+    name: Draft release
+    needs: ci
+    # The oldest Ubuntu LTS that GitHub's runners support, so that the binary asks for
+    # the oldest glibc.
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the ALSA headers
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+      - name: Build
+        run: cargo build --release --locked
+      - name: Package
+        run: CHECK_LINKS=1 scripts/package-release.sh "${GITHUB_REF_NAME#v}"
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file dist/RELEASE_NOTES.md \
+            dist/*.tar.gz dist/SHA256SUMS
