@@ -36,4 +36,24 @@ New tests use the highest seam that can express them:
 4. **Offline synth**: Cart data or a Project to samples.
 5. **Project file**: `.ptrk` text to and from a Project.
 
-Expected data comes from real PICO-8 (saved Carts, measurements) or from a decision in an ADR, never from the code under test. Sound equality is proved through our synth: an imported Song renders the same samples as the original Cart, and an Exported Cart renders the same samples as the Project. A test that builds its expectation with `Voice` or `Player` for those comparisons follows the rule. A test that reads source text breaks it.
+Expected data comes from real PICO-8 (saved Carts, measurements) or from a decision in an ADR, never from the code under test. A test that reads source text breaks this rule.
+
+### Proof per area
+
+A change to an area carries that area's proof. Flag a change that has none.
+
+| Area | Proof |
+|---|---|
+| Cart reading and writing | Carts saved by real PICO-8 with expected bytes, plus read-write round trips |
+| Cart Import | Expected `.ptrk` snapshots and warning lists. An Import with no warnings renders the same samples as the original Cart through our synth |
+| MIDI Import | Small MIDI files built in test code, with expected Projects |
+| Export | The Exported Cart renders the same samples as the Project's Export Tracks through our synth. A property test keeps every byte outside the Claim unchanged |
+| Playback | Comparison with stored measurements of real PICO-8, plus exact snapshots of our synth's output |
+| Keyboard UI | Actions drive the headless App core. Tests assert on the Project and the grid's text, plus one pixel snapshot of the font and palette |
+| `.ptrk` files | One fixture per released format version loads to the expected Project, and saving and reloading gives an identical Project |
+
+The Cart Import and Export comparisons go through our synth by design. A test that builds their expected samples with `Voice` or `Player` follows the expected-data rule.
+
+### Fingerprint limits
+
+Loosening a limit in a comparison with real PICO-8 measurements needs an A/B listening check by the owner, noted in the commit. Flag a loosened limit whose commit has no such note.
