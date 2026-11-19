@@ -12,7 +12,6 @@ use crate::screen::grid::{Grid, Style};
 use std::ops::RangeInclusive;
 
 const COARSE_TRANSPOSE: i32 = 12;
-/// Rows above the first Chain entry: the title and the column headings.
 const HEADER_ROWS: usize = 2;
 const STRIP_TITLE_ROW: usize = 19;
 const STRIP_HEADING_ROW: usize = 20;
@@ -21,7 +20,6 @@ const STRIP_FIRST_TRACK_COLUMN: usize = 2;
 const STRIP_TRACK_WIDTH: usize = 3;
 const STRIP_TICKS_COLUMN: usize = 27;
 
-/// The cells of a Chain entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EntryCell {
     Phrase,
@@ -29,8 +27,7 @@ enum EntryCell {
     Fill,
 }
 
-/// The cells of a Chain entry: which each is, where it starts and what an empty entry shows.
-const COLUMNS: [(EntryCell, usize, &str); 3] = [
+const ENTRY_CELLS: [(EntryCell, usize, &str); 3] = [
     (EntryCell::Phrase, 2, "--"),
     (EntryCell::Transpose, 5, "---"),
     (EntryCell::Fill, 9, "----"),
@@ -41,7 +38,6 @@ const COLUMNS: [(EntryCell, usize, &str); 3] = [
 pub struct ChainView {
     pub song_row: usize,
     pub track: usize,
-    /// The entry the Playhead is on, when it is on this Song row.
     pub playing_entry: Option<usize>,
 }
 
@@ -50,10 +46,8 @@ pub struct ChainView {
 pub struct ChainPane {
     entry: usize,
     column: usize,
-    /// The digit typed just before this one into the same cell.
-    typed_digit: Option<u8>,
-    /// Whether the transpose being typed is below zero.
-    typing_downwards: bool,
+    first_digit: Option<u8>,
+    typing_negative: bool,
 }
 
 /// Where the Chain pane's cursor is.
@@ -85,7 +79,7 @@ impl ChainPane {
 
     pub fn move_cursor(&mut self, direction: Direction) {
         let (columns, rows) = direction.delta();
-        self.column = stepped(self.column, columns, COLUMNS.len());
+        self.column = stepped(self.column, columns, ENTRY_CELLS.len());
         self.entry = stepped(self.entry, rows, CHAIN_ENTRIES);
     }
 
@@ -95,7 +89,7 @@ impl ChainPane {
     }
 
     fn cell(&self) -> EntryCell {
-        COLUMNS[self.column].0
+        ENTRY_CELLS[self.column].0
     }
 
     /// Whether the cell under the cursor can be edited in an entry holding no Phrase.
@@ -110,21 +104,21 @@ impl ChainPane {
 
     /// Ends the value being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
-        self.typed_digit = None;
+        self.first_digit = None;
     }
 
     /// Types a hexadecimal digit into the cell under the cursor.
     pub fn type_digit(&mut self, chain: &mut Chain, digit: u8) {
-        let first_digit = self.typed_digit.is_none();
-        let value = typed_value(&mut self.typed_digit, digit);
+        let is_first_digit = self.first_digit.is_none();
+        let value = typed_value(&mut self.first_digit, digit);
         let slot = chain.entry_mut(self.entry);
         match (self.cell(), slot.as_mut()) {
             (EntryCell::Phrase, _) => set_phrase(slot, PhraseId::new(value)),
             (EntryCell::Transpose, Some(entry)) => {
-                if first_digit {
-                    self.typing_downwards = entry.transpose() < 0;
+                if is_first_digit {
+                    self.typing_negative = entry.transpose() < 0;
                 }
-                let sign = if self.typing_downwards { -1 } else { 1 };
+                let sign = if self.typing_negative { -1 } else { 1 };
                 entry.set_transpose(sign * i32::from(value));
             }
             _ => {}
@@ -155,7 +149,7 @@ impl ChainPane {
             let slot = chain.entry_mut(entry);
             if slot.is_some() {
                 for column in cells.columns() {
-                    nudge_cell(slot, COLUMNS[column].0, up, coarse);
+                    nudge_cell(slot, ENTRY_CELLS[column].0, up, coarse);
                 }
             }
         }
@@ -165,7 +159,7 @@ impl ChainPane {
     pub fn clear_cells(&self, chain: &mut Chain, cells: CellRange) {
         for entry in cells.rows() {
             for column in cells.columns() {
-                clear_cell(chain.entry_mut(entry), COLUMNS[column].0);
+                clear_cell(chain.entry_mut(entry), ENTRY_CELLS[column].0);
             }
         }
     }
@@ -195,7 +189,7 @@ impl ChainPane {
         for entry in cells.rows() {
             for column in cells.columns() {
                 if (entry, column) != (self.entry, self.column) {
-                    let (_, offset, empty) = COLUMNS[column];
+                    let (_, offset, empty) = ENTRY_CELLS[column];
                     let row = HEADER_ROWS + entry;
                     grid.restyle(area.column + offset, row, empty.len(), SELECTED);
                 }
@@ -243,7 +237,7 @@ impl ChainPane {
             let label = format!("{index:X}");
             draw_row_label(grid, area.column, row, &label, playing_entry == Some(index));
             let entry = project.chain_row_entry(song_row, track, index);
-            for (column, (cell, offset, empty)) in COLUMNS.iter().enumerate() {
+            for (column, (cell, offset, empty)) in ENTRY_CELLS.iter().enumerate() {
                 let is_cursor = focused && index == self.entry && column == self.column;
                 let (text, style) = match entry {
                     Some(entry) => cell_text(*cell, entry),
@@ -299,7 +293,7 @@ fn paste_entry(
     columns: &RangeInclusive<usize>,
 ) {
     let copied = |cell| {
-        COLUMNS
+        ENTRY_CELLS
             .iter()
             .position(|(column, _, _)| *column == cell)
             .is_some_and(|column| columns.contains(&column))

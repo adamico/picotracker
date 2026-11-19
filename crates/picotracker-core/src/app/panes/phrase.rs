@@ -11,7 +11,6 @@ use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, NOTE_NAMES, Phrase, Phr
 use crate::screen::grid::Grid;
 use std::ops::RangeInclusive;
 
-/// Rows above the first Step: the title, three header rows and the column headings.
 const HEADER_ROWS: usize = 5;
 const FIRST_HEADER_ROW: usize = 1;
 
@@ -20,7 +19,6 @@ const SEMITONES_PER_OCTAVE: i32 = 12;
 const COARSE_SPEED: i32 = 16;
 const COARSE_LENGTH: i32 = 4;
 
-/// The cells of a Step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StepCell {
     Pitch,
@@ -29,7 +27,6 @@ enum StepCell {
     Effect,
 }
 
-/// The cells of a Step: which each is, where it starts and what a silent Step shows.
 const STEP_CELLS: [(StepCell, usize, &str); 4] = [
     (StepCell::Pitch, 3, "..."),
     (StepCell::Instrument, 7, ".."),
@@ -37,7 +34,6 @@ const STEP_CELLS: [(StepCell, usize, &str); 4] = [
     (StepCell::Effect, 12, "."),
 ];
 
-/// The editable values of the Phrase header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeaderCell {
     Speed,
@@ -49,7 +45,6 @@ enum HeaderCell {
     Dampen,
 }
 
-/// The header's rows of editable values, each with the column its value starts in.
 const HEADER_CELLS: [&[(HeaderCell, usize)]; 3] = [
     &[(HeaderCell::Speed, 4)],
     &[
@@ -70,7 +65,6 @@ pub struct PhraseView<'a> {
     pub id: Option<PhraseId>,
     pub phrase: &'a Phrase,
     pub transpose: i8,
-    /// The Step the Playhead is on, when it is in this Phrase.
     pub playing_step: Option<usize>,
 }
 
@@ -79,13 +73,11 @@ pub struct PhraseView<'a> {
 pub struct PhrasePane {
     step: usize,
     column: usize,
-    /// The header row under the cursor, when the cursor is in the header.
     header_row: Option<usize>,
     octave: u8,
     instrument: u8,
     volume: u8,
-    /// The digit typed just before this one into the same two-digit cell.
-    typed_digit: Option<u8>,
+    first_digit: Option<u8>,
 }
 
 impl Default for PhrasePane {
@@ -97,7 +89,7 @@ impl Default for PhrasePane {
             octave: 2,
             instrument: 2,
             volume: 5,
-            typed_digit: None,
+            first_digit: None,
         }
     }
 }
@@ -228,19 +220,19 @@ impl PhrasePane {
 
     /// Ends the two-digit value being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
-        self.typed_digit = None;
+        self.first_digit = None;
     }
 
     /// Types a hexadecimal digit into the cell under the cursor. Two digits in a row make one
     /// value in the cells that hold two.
     pub fn type_digit(&mut self, phrase: &mut Phrase, digit: u8) {
-        let typed = self.typed_digit.map_or(0, |high| high << 4) | digit;
+        let typed = self.first_digit.map_or(0, |high| high << 4) | digit;
         let two_digits = matches!(self.step_cell(), Some(StepCell::Instrument))
             || matches!(
                 self.header_cell(),
                 Some(HeaderCell::Speed | HeaderCell::Length)
             );
-        self.typed_digit = two_digits.then_some(digit);
+        self.first_digit = two_digits.then_some(digit);
         let value = i32::from(if two_digits { typed } else { digit });
         self.set_cell(phrase, value);
     }

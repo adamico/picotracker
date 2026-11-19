@@ -7,27 +7,19 @@ use crate::settings::{StateRead, read_state, write_state};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// What the Window shell found at launch.
+/// What the Window shell found at launch. `state_file` is `None` when the platform has no folder
+/// for `state.ron`, and then nothing is remembered this session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launch {
-    /// Where `state.ron` lives, whether or not it exists yet. `None` when the platform has no
-    /// folder for it, and then nothing is remembered this session.
     pub state_file: Option<PathBuf>,
-    /// What reading `state.ron` gave.
     pub state: StateContents,
-    /// The folder the file list starts in until a Project is opened or saved.
     pub directory: PathBuf,
 }
 
-/// What reading `state.ron` at launch gave.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateContents {
-    /// There is no file yet.
     Missing,
-    /// The file's bytes. Bytes that are not text count as a damaged file.
     Bytes(Vec<u8>),
-    /// The file is there but could not be read, so it is left alone and never written this
-    /// session.
     Unreadable { reason: String },
 }
 
@@ -36,9 +28,9 @@ const NEWER_STATE: &str = "STATE.RON IS FROM A NEWER PICOTRACKER: USING DEFAULTS
 
 impl App {
     /// Starts the app with what `state.ron` held, and opens the Project opened or saved last.
-    /// A damaged file is renamed with a `.bad` suffix, and written again only once that rename
-    /// has worked. A file from a newer version, or one that cannot be read, is left alone and
-    /// never written this session.
+    /// Bytes that are not text count as a damaged file. A damaged file is renamed with a `.bad`
+    /// suffix, and written again only once that rename has worked. A file from a newer version,
+    /// or one that cannot be read, is left alone and never written this session.
     pub fn launch(&mut self, launch: Launch) {
         self.directory = launch.directory;
         let Some(state_file) = launch.state_file else {

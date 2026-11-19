@@ -8,8 +8,7 @@ use picotracker_core::synth::SAMPLES_PER_TICK;
 use std::path::PathBuf;
 
 const STEP_SAMPLES: usize = 16 * SAMPLES_PER_TICK as usize;
-/// The row of the Song pane holding the Track headers.
-const HEADER_ROW: usize = 1;
+const TRACK_HEADER_ROW: usize = 1;
 const CONFIRM: Action = Action::Confirm;
 
 fn song() -> Project {
@@ -58,7 +57,12 @@ fn open(app: &mut App, project: &Project) {
 }
 
 fn headers(app: &App) -> String {
-    app.grid().text_dump().lines().nth(HEADER_ROW).unwrap()[4..27].to_owned()
+    app.grid()
+        .text_dump()
+        .lines()
+        .nth(TRACK_HEADER_ROW)
+        .unwrap()[4..27]
+        .to_owned()
 }
 
 #[test]
@@ -113,8 +117,8 @@ fn opening_a_project_clears_the_playhead_marker() {
 #[test]
 fn opening_a_project_resets_mute_and_solo() {
     let mut app = App::with_project(song());
-    app.apply(Action::Mute(1));
-    app.apply(Action::Solo(2));
+    app.apply(Action::Mute { track_number: 1 });
+    app.apply(Action::Solo { track_number: 2 });
     app.take_audio_requests();
 
     open(&mut app, &song());
@@ -130,7 +134,7 @@ fn opening_a_project_resets_mute_and_solo() {
 #[test]
 fn a_new_project_resets_mute_and_solo_too() {
     let mut app = App::with_project(Project::new());
-    app.apply(Action::Mute(1));
+    app.apply(Action::Mute { track_number: 1 });
 
     app.apply(Action::NewProject);
 
@@ -140,7 +144,7 @@ fn a_new_project_resets_mute_and_solo_too() {
 #[test]
 fn a_failed_open_leaves_mute_and_solo_alone() {
     let mut app = App::with_project(song());
-    app.apply(Action::Mute(1));
+    app.apply(Action::Mute { track_number: 1 });
     choose_next_file(&mut app);
     app.receive_file(FileResponse::Read {
         path: PathBuf::from("./next.ptrk"),

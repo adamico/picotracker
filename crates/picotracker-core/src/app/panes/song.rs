@@ -13,10 +13,8 @@ use crate::screen::grid::{Grid, Style};
 use crate::screen::palette::Colour;
 
 const SOLOED: Style = Style::fg(Colour::Yellow);
-/// The PICO-8 channel an Exported Track goes to, right after its header.
-const EXPORT_CHANNEL: Style = Style::fg(Colour::Green);
+const EXPORT_CHANNEL_NUMBER: Style = Style::fg(Colour::Green);
 
-/// Rows above the first Song row: the title and the Track headers.
 const HEADER_ROWS: usize = 2;
 const FIRST_TRACK_COLUMN: usize = 4;
 const TRACK_WIDTH: usize = 3;
@@ -38,8 +36,7 @@ fn track_header(track_mix: &TrackMix, track: usize) -> (char, Style) {
 pub struct SongPane {
     row: usize,
     track: usize,
-    /// The digit typed just before this one into the same cell.
-    typed_digit: Option<u8>,
+    first_digit: Option<u8>,
 }
 
 /// Where the Song pane's cursor is.
@@ -96,12 +93,12 @@ impl SongPane {
 
     /// Ends the Chain number being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
-        self.typed_digit = None;
+        self.first_digit = None;
     }
 
     /// Types a hexadecimal digit of the Chain under the cursor.
     pub fn type_digit(&mut self, project: &mut Project, digit: u8) {
-        let number = typed_value(&mut self.typed_digit, digit);
+        let number = typed_value(&mut self.first_digit, digit);
         self.set_chain(project, Some(ChainId::new(number)));
     }
 
@@ -232,7 +229,7 @@ impl SongPane {
                 .iter()
                 .position(|exported| *exported == Some(number));
             if let Some(channel) = channel {
-                grid.put(column + 2, 1, &channel.to_string(), EXPORT_CHANNEL);
+                grid.put(column + 2, 1, &channel.to_string(), EXPORT_CHANNEL_NUMBER);
             }
         }
 

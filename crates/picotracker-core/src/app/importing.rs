@@ -12,7 +12,6 @@ use crate::project::SongPlace;
 use crate::wording::counted;
 use std::path::{Path, PathBuf};
 
-/// What a file can be Imported as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ImportKind {
     Cart,

@@ -8,12 +8,10 @@ use crate::project::SongPlace;
 use crate::screen::grid::{Grid, Style};
 use crate::screen::palette::Colour;
 
-/// How many items the Log remembers.
-const HISTORY: usize = 32;
+const MAX_ITEMS: usize = 32;
 const FIRST_ITEM_ROW: usize = 1;
 const TAG_COLUMN: usize = 1;
 const TEXT_COLUMN: usize = 5;
-/// The columns of the right-hand slot that item text can use.
 const TEXT_WIDTH: usize = 18;
 
 const INFO_TAG: Style = Style::fg(Colour::Green);
@@ -32,7 +30,7 @@ impl LogPane {
     /// Puts a result's items at the top of the Log, in their own order.
     pub fn add(&mut self, items: Vec<LogItem>) {
         self.items.splice(0..0, items);
-        self.items.truncate(HISTORY);
+        self.items.truncate(MAX_ITEMS);
         self.picked = 0;
     }
 

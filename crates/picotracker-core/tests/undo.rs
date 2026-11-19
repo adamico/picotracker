@@ -157,7 +157,7 @@ fn edits_in_every_pane_are_undone_in_order() {
     apply(
         &mut app,
         &[
-            Action::SetSongLoopRow,
+            Action::ToggleSongLoopRow,
             Action::FocusNext,
             Action::ToggleFill,
             Action::FocusNext,
@@ -292,8 +292,8 @@ fn actions_that_change_no_music_are_not_steps() {
             DOWN,
             Action::FocusNext,
             Action::OctaveUp,
-            Action::Mute(1),
-            Action::Solo(2),
+            Action::Mute { track_number: 1 },
+            Action::Solo { track_number: 2 },
             Action::ToggleFollow,
         ],
     );
@@ -306,7 +306,10 @@ fn actions_that_change_no_music_are_not_steps() {
 #[test]
 fn undo_leaves_mute_and_solo_alone() {
     let mut app = App::with_project(project_with_a_song());
-    apply(&mut app, &[Action::HexDigit(1), Action::Mute(1)]);
+    apply(
+        &mut app,
+        &[Action::HexDigit(1), Action::Mute { track_number: 1 }],
+    );
     let muted = app.grid().text_dump().lines().nth(1).unwrap().to_owned();
 
     app.apply(Action::Undo);
@@ -328,7 +331,7 @@ fn undo_turns_follow_off_because_it_moves_the_cursor() {
 #[test]
 fn the_history_keeps_the_last_thousand_steps() {
     let mut app = App::new();
-    apply(&mut app, &[Action::SetSongLoopRow; 1001]);
+    apply(&mut app, &[Action::ToggleSongLoopRow; 1001]);
     // An odd number of flips leaves the loop off, and the oldest flip can no longer be undone.
     assert_eq!(app.project().song_loop_row(), None);
 

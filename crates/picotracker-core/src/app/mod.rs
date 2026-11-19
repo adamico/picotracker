@@ -60,55 +60,37 @@ const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCE
 #[derive(Debug)]
 pub struct App {
     project: Project,
-    /// The Project as it was last saved or opened.
     saved_project: Project,
     history: History,
-    /// Where the selection in the focused pane started, while there is one.
-    selection: Option<CellPosition>,
+    selection_start: Option<CellPosition>,
     clipboard: Option<Clipboard>,
-    /// The file the Project was last saved to or opened from.
     project_path: Option<PathBuf>,
-    /// The folder the file list starts in.
     directory: PathBuf,
-    /// Set once the user has chosen to quit.
     quitting: bool,
-    /// What the app remembers between sessions.
     app_state: AppState,
-    /// Where `state.ron` is written, unless the app must not write it this session.
     state_file: Option<PathBuf>,
     focus: Focus,
     song: SongPane,
     chain: ChainPane,
     phrase: PhrasePane,
     overview: OverviewPane,
-    /// The last focused of the Song, Chain and Phrase panes, which Space plays.
     played_pane: Focus,
     playing: bool,
-    /// How many plays have been asked for, which numbers the latest one.
-    plays: u64,
-    /// The Project as the Player last heard it.
-    heard: Arc<Project>,
+    latest_play: u64,
+    heard_project: Arc<Project>,
     track_mix: TrackMix,
     playhead: Option<Playhead>,
-    /// Whether the panes track the Playhead.
     follow: bool,
     scope: [i8; SCOPE_COLUMNS],
-    /// Whether a note is sounding until its key is released.
     previewing: bool,
-    /// A brief remark about the last action, gone on the next one.
-    status: Option<&'static str>,
-    /// The latest result on the status line.
+    remark: Option<&'static str>,
     notice: Option<Notice>,
     question: Option<Question>,
-    /// The new Speed being typed for Change Speed.
     speed_entry: Option<SpeedEntry>,
     log: LogPane,
-    /// Whether the right-hand slot shows the Log instead of the Overview.
     log_open: bool,
-    /// The pane that focus goes back to when the Log closes.
-    log_return: Focus,
+    focus_before_log: Focus,
     file_list: Option<FileList>,
-    /// The MIDI Import dialog, which replaces the panes while it is open.
     midi_dialog: Option<Box<MidiDialog>>,
     waiting: Option<Waiting>,
     file_requests: Vec<FileRequest>,
@@ -131,7 +113,7 @@ impl App {
     pub fn with_project(project: Project) -> Self {
         Self {
             saved_project: project.clone(),
-            heard: Arc::new(project.clone()),
+            heard_project: Arc::new(project.clone()),
             track_mix: TrackMix::default(),
             playhead: None,
             follow: false,
@@ -139,7 +121,7 @@ impl App {
             previewing: false,
             project,
             history: History::default(),
-            selection: None,
+            selection_start: None,
             clipboard: None,
             project_path: None,
             directory: PathBuf::from("."),
@@ -153,14 +135,14 @@ impl App {
             overview: OverviewPane::default(),
             played_pane: Focus::default(),
             playing: false,
-            plays: 0,
-            status: None,
+            latest_play: 0,
+            remark: None,
             notice: None,
             question: None,
             speed_entry: None,
             log: LogPane::default(),
             log_open: false,
-            log_return: Focus::default(),
+            focus_before_log: Focus::default(),
             file_list: None,
             midi_dialog: None,
             waiting: None,
@@ -229,7 +211,7 @@ impl App {
     /// Tells the app that a play has ended by itself, by the number the Player gave it. A report
     /// about any play but the latest changes nothing.
     pub fn playback_finished(&mut self, play: u64) {
-        if play == self.plays {
+        if play == self.latest_play {
             self.playing = false;
         }
     }
@@ -242,7 +224,7 @@ impl App {
         let changed = moved || report.scope != self.scope;
         self.playhead = playhead;
         self.scope = report.scope;
-        if moved && self.follow && self.selection.is_none() {
+        if moved && self.follow && self.selection_start.is_none() {
             self.follow_playhead();
         }
         changed
@@ -307,14 +289,14 @@ impl App {
 
     fn toggle_follow(&mut self) {
         self.follow = !self.follow;
-        self.status = Some(if self.follow { FOLLOW_ON } else { FOLLOW_OFF });
+        self.remark = Some(if self.follow { FOLLOW_ON } else { FOLLOW_OFF });
     }
 
     /// Turns Follow off because the user has moved the cursor by hand, and says so.
     fn stop_following(&mut self) {
         if self.follow {
             self.follow = false;
-            self.status = Some(FOLLOW_OFF);
+            self.remark = Some(FOLLOW_OFF);
         }
     }
 
@@ -324,7 +306,7 @@ impl App {
         self.notice = Some(Notice::new(report.severity, report.status_text()));
         if !report.items.is_empty() && !self.log_open {
             self.log_open = true;
-            self.log_return = self.focus;
+            self.focus_before_log = self.focus;
         }
         self.log.add(report.into_log_items());
     }
@@ -350,7 +332,7 @@ impl App {
     /// Applies one named action. Whatever it changes in the Project becomes one undo entry.
     pub fn apply(&mut self, action: Action) {
         let merge = match action {
-            Action::Nudge { .. } if self.selection.is_none() => Some(Merge::Nudge),
+            Action::Nudge { .. } if self.selection_start.is_none() => Some(Merge::Nudge),
             Action::HexDigit(_) => Some(Merge::Digit),
             _ => None,
         };
@@ -367,37 +349,37 @@ impl App {
             song: self.song.cursor_place(),
             chain: self.chain.cursor_place(),
             phrase: self.phrase.cursor_place(),
-            overview: self.overview.channel(),
+            overview_channel: self.overview.channel(),
         }
     }
 
     /// Puts the cursor back where a change was made.
     fn return_to(&mut self, place: CursorPlace) {
-        self.selection = None;
+        self.selection_start = None;
         self.stop_following();
         self.set_focus(place.focus);
         self.song.return_to(place.song);
         self.chain.return_to(place.chain);
         self.phrase.return_to(place.phrase);
-        self.overview.return_to(place.overview);
+        self.overview.return_to(place.overview_channel);
     }
 
     fn undo(&mut self) {
         match self.history.undo(&mut self.project) {
             Some(place) => self.return_to(place),
-            None => self.status = Some(NOTHING_TO_UNDO),
+            None => self.remark = Some(NOTHING_TO_UNDO),
         }
     }
 
     fn redo(&mut self) {
         match self.history.redo(&mut self.project) {
             Some(place) => self.return_to(place),
-            None => self.status = Some(NOTHING_TO_REDO),
+            None => self.remark = Some(NOTHING_TO_REDO),
         }
     }
 
     fn perform(&mut self, action: Action) {
-        self.status = None;
+        self.remark = None;
         if !matches!(action, Action::HexDigit(_)) {
             self.song.finish_typing();
             self.chain.finish_typing();
@@ -416,7 +398,7 @@ impl App {
             self.settle_after_edit();
             return;
         }
-        if action == Action::Cancel && self.selection.take().is_some() {
+        if action == Action::Cancel && self.selection_start.take().is_some() {
             return;
         }
         if self.question.is_some() {
@@ -458,18 +440,18 @@ impl App {
             Action::PlayFocusedPane => self.play_or_stop(),
             Action::PlaySongFromCursor => self.play_song(),
             Action::ToggleFollow => self.toggle_follow(),
-            Action::Mute(track) => self.change_track_mix(|mix| {
-                mix.toggle_mute(usize::from(track) - 1);
+            Action::Mute { track_number } => self.change_track_mix(|mix| {
+                mix.toggle_mute(usize::from(track_number) - 1);
             }),
-            Action::Solo(track) => self.change_track_mix(|mix| {
-                mix.toggle_solo(usize::from(track) - 1);
+            Action::Solo { track_number } => self.change_track_mix(|mix| {
+                mix.toggle_solo(usize::from(track_number) - 1);
             }),
             Action::ClearMutesAndSolos => {
                 self.change_track_mix(|mix| *mix = TrackMix::default());
             }
             Action::OctaveUp => self.phrase.change_octave(1),
             Action::OctaveDown => self.phrase.change_octave(-1),
-            Action::SetSongLoopRow => self.song.toggle_loop_row(&mut self.project),
+            Action::ToggleSongLoopRow => self.song.toggle_loop_row(&mut self.project),
             Action::ToggleFill if self.focus == Focus::Chain => self.toggle_fill(),
             Action::Clear => self.clear_cells(),
             Action::PianoKey(key) if self.focus == Focus::Phrase => {
@@ -500,7 +482,7 @@ impl App {
 
     /// Passes the Project to the Player when an action has changed what is playing.
     fn send_edits_to_the_player(&mut self) {
-        if self.playing && *self.heard != self.project {
+        if self.playing && *self.heard_project != self.project {
             let project = self.project_for_player();
             self.audio_requests
                 .push(AudioRequest::UpdateProject(project));
@@ -509,8 +491,8 @@ impl App {
 
     /// A copy of the Project for the Player, remembered as what it has heard.
     fn project_for_player(&mut self) -> Arc<Project> {
-        self.heard = Arc::new(self.project.clone());
-        Arc::clone(&self.heard)
+        self.heard_project = Arc::new(self.project.clone());
+        Arc::clone(&self.heard_project)
     }
 
     fn log_has_focus(&self) -> bool {
@@ -522,7 +504,7 @@ impl App {
             self.close_log();
         } else {
             self.log_open = true;
-            self.log_return = self.focus;
+            self.focus_before_log = self.focus;
             self.set_focus(Focus::RightSlot);
         }
     }
@@ -530,7 +512,7 @@ impl App {
     fn close_log(&mut self) {
         self.log_open = false;
         if self.focus == Focus::RightSlot {
-            self.set_focus(self.log_return);
+            self.set_focus(self.focus_before_log);
         }
     }
 
@@ -572,7 +554,7 @@ impl App {
     }
 
     fn nudge(&mut self, up: bool, coarse: bool) {
-        if self.selection.is_some() {
+        if self.selection_start.is_some() {
             self.nudge_selection(up, coarse);
             return;
         }
@@ -586,7 +568,7 @@ impl App {
 
     fn toggle_fill(&mut self) {
         if self.chain_under_cursor().is_some() && self.entry_under_cursor().is_none() {
-            self.status = Some(NO_PHRASE_HERE);
+            self.remark = Some(NO_PHRASE_HERE);
             return;
         }
         self.edit_chain(|pane, chain| pane.toggle_fill(chain));
@@ -595,11 +577,11 @@ impl App {
     /// Edits the Chain under the Song cursor, or says why there is nothing to edit.
     fn edit_chain(&mut self, edit: impl FnOnce(&mut ChainPane, &mut Chain)) {
         let Some(id) = self.chain_under_cursor() else {
-            self.status = Some(NO_CHAIN_HERE);
+            self.remark = Some(NO_CHAIN_HERE);
             return;
         };
         if self.entry_under_cursor().is_none() && !self.chain.edits_empty_entries() {
-            self.status = Some(NO_PHRASE_HERE);
+            self.remark = Some(NO_PHRASE_HERE);
             return;
         }
         edit(&mut self.chain, self.project.chain_mut(id));
@@ -609,13 +591,13 @@ impl App {
     fn edit_phrase(&mut self, edit: impl FnOnce(&mut PhrasePane, &mut Phrase)) {
         match self.phrase_under_cursor() {
             Some(id) => edit(&mut self.phrase, self.project.phrase_mut(id)),
-            None => self.status = Some(NO_PHRASE_HERE),
+            None => self.remark = Some(NO_PHRASE_HERE),
         }
     }
 
     fn set_focus(&mut self, focus: Focus) {
         if focus != self.focus {
-            self.selection = None;
+            self.selection_start = None;
         }
         self.focus = focus;
         if focus != Focus::RightSlot {
@@ -640,14 +622,14 @@ impl App {
     fn start_playing(&mut self, request: AudioRequest) {
         self.playing = true;
         self.previewing = false;
-        self.plays += 1;
+        self.latest_play += 1;
         self.audio_requests.push(request);
     }
 
     fn play_song(&mut self) {
         let from_row = self.song.row();
         if self.project.song_row_is_empty(from_row) {
-            self.status = Some(NOTHING_TO_PLAY);
+            self.remark = Some(NOTHING_TO_PLAY);
             return;
         }
         let project = self.project_for_player();
@@ -656,7 +638,7 @@ impl App {
 
     fn play_chain(&mut self) {
         if !self.chain_under_cursor_sounds() {
-            self.status = Some(NOTHING_TO_PLAY);
+            self.remark = Some(NOTHING_TO_PLAY);
             return;
         }
         let project = self.project_for_player();
@@ -683,7 +665,7 @@ impl App {
             .phrase_under_cursor()
             .filter(|id| !self.project.phrase(*id).is_silent())
         else {
-            self.status = Some(NOTHING_TO_PLAY);
+            self.remark = Some(NOTHING_TO_PLAY);
             return;
         };
         let project = self.project_for_player();
@@ -704,7 +686,7 @@ impl App {
             Focus::Chain => self.chain.move_cursor(direction),
             // The Phrase header cannot be selected, so a selection stops at the first Step.
             Focus::Phrase
-                if self.selection.is_some()
+                if self.selection_start.is_some()
                     && direction == Direction::Up
                     && self.phrase.step() == 0 => {}
             Focus::Phrase => {
@@ -797,7 +779,7 @@ impl App {
         if let Some(notice) = notice.filter(|notice| notice.is_persistent()) {
             return StatusLine::Notice(notice);
         }
-        if let Some(remark) = self.status {
+        if let Some(remark) = self.remark {
             return StatusLine::Remark(remark);
         }
         if let Some(notice) = notice {

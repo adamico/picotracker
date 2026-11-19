@@ -10,12 +10,10 @@ const SPACE: Action = Action::PlayFocusedPane;
 
 const SPEED: i32 = 8;
 const STEP_SAMPLES: usize = SPEED as usize * SAMPLES_PER_TICK as usize;
-const SETTLE: usize = 300;
+const CROSSFADE_SAMPLES: usize = 300;
 const TRIANGLE: i32 = 0;
 const SQUARE: i32 = 3;
-/// The Overview's first column on the grid.
 const OVERVIEW_COLUMN: usize = 83;
-/// The first row below the scope's title.
 const FIRST_SCOPE_ROW: usize = 8;
 
 fn write(project: &mut Project, id: u8, instrument: i32, volume: i32, steps: usize) -> PhraseId {
@@ -106,7 +104,7 @@ fn the_level_comes_back_after_a_loud_passage() {
     let samples = hear(project, STEP_SAMPLES * 12);
 
     // A triangle at volume 5 peaks at 5/7 of its half-range output.
-    let last_step = &samples[STEP_SAMPLES * 11 + SETTLE..];
+    let last_step = &samples[STEP_SAMPLES * 11 + CROSSFADE_SAMPLES..];
     let expected = 0.5 * 5.0 / 7.0;
     assert!(
         (peak(last_step) - expected).abs() < 0.02,
@@ -161,7 +159,7 @@ fn a_muted_track_does_not_reach_the_scope() {
     let mut app = App::with_project(unison(SQUARE, 5, 1, 8));
     let mut player = Player::new();
 
-    app.apply(Action::Mute(1));
+    app.apply(Action::Mute { track_number: 1 });
     app.apply(PLAY_SONG);
     play_and_report(&mut app, &mut player, STEP_SAMPLES);
 

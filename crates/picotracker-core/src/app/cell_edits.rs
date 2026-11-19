@@ -10,17 +10,13 @@ use std::ops::RangeInclusive;
 pub(super) const NO_STEP_HERE: &str = "NO STEP HERE";
 const NOTHING_TO_PASTE: &str = "NOTHING TO PASTE";
 
-/// What was last copied, which remembers the kind of pane it came from.
 #[derive(Clone, Debug)]
 pub(super) enum Clipboard {
-    /// References to Chains, row by row.
     Song(Vec<Vec<Option<ChainId>>>),
-    /// Chain entries, and which of their columns were copied.
     Chain {
         columns: RangeInclusive<usize>,
         rows: Vec<Option<ChainEntry>>,
     },
-    /// Step values, and which of their columns were copied.
     Phrase {
         columns: RangeInclusive<usize>,
         rows: Vec<Step>,
@@ -61,7 +57,10 @@ impl App {
 
     /// The cells selected in the focused pane.
     pub(super) fn selected_cells(&self) -> Option<CellRange> {
-        Some(CellRange::between(self.selection?, self.cursor_cell()?))
+        Some(CellRange::between(
+            self.selection_start?,
+            self.cursor_cell()?,
+        ))
     }
 
     /// The cells an action works on: the selection, or else the cell under the cursor.
@@ -75,9 +74,9 @@ impl App {
         match self.cursor_cell() {
             Some(cell) => {
                 self.stop_following();
-                self.selection = Some(cell);
+                self.selection_start = Some(cell);
             }
-            None if self.focus == Focus::Phrase => self.status = Some(NO_STEP_HERE),
+            None if self.focus == Focus::Phrase => self.remark = Some(NO_STEP_HERE),
             None => {}
         }
     }
@@ -86,7 +85,7 @@ impl App {
     fn edit_selected_chain(&mut self, edit: impl FnOnce(&ChainPane, &mut Chain)) {
         match self.chain_under_cursor() {
             Some(id) => edit(&self.chain, self.project.chain_mut(id)),
-            None => self.status = Some(NO_CHAIN_HERE),
+            None => self.remark = Some(NO_CHAIN_HERE),
         }
     }
 
@@ -133,7 +132,7 @@ impl App {
             Focus::Song => Some(Clipboard::Song(self.song.copy(&self.project, cells?))),
             Focus::Chain => {
                 let Some(id) = self.chain_under_cursor() else {
-                    self.status = Some(NO_CHAIN_HERE);
+                    self.remark = Some(NO_CHAIN_HERE);
                     return None;
                 };
                 let cells = cells?;
@@ -144,11 +143,11 @@ impl App {
             }
             Focus::Phrase => {
                 let Some(id) = self.phrase_under_cursor() else {
-                    self.status = Some(NO_PHRASE_HERE);
+                    self.remark = Some(NO_PHRASE_HERE);
                     return None;
                 };
                 let Some(cells) = cells else {
-                    self.status = Some(NO_STEP_HERE);
+                    self.remark = Some(NO_STEP_HERE);
                     return None;
                 };
                 Some(Clipboard::Phrase {
@@ -163,7 +162,7 @@ impl App {
     pub(super) fn copy(&mut self) {
         if let Some(copied) = self.copied_cells() {
             self.clipboard = Some(copied);
-            self.selection = None;
+            self.selection_start = None;
         }
     }
 
@@ -172,7 +171,7 @@ impl App {
         if let Some(copied) = self.copied_cells() {
             self.clipboard = Some(copied);
             self.clear_cells();
-            self.selection = None;
+            self.selection_start = None;
         }
     }
 
@@ -182,7 +181,7 @@ impl App {
             return;
         }
         let Some(clipboard) = self.clipboard.clone() else {
-            self.status = Some(NOTHING_TO_PASTE);
+            self.remark = Some(NOTHING_TO_PASTE);
             return;
         };
         let lost = match (&clipboard, self.focus) {
@@ -205,7 +204,7 @@ impl App {
         let Some(lost) = lost else {
             return;
         };
-        self.selection = None;
+        self.selection_start = None;
         if lost > 0 {
             let rows = if lost == 1 { "ROW" } else { "ROWS" };
             self.report(Report::warning(format!("PASTE LOST {lost} {rows}")));
@@ -218,7 +217,7 @@ impl App {
         rows: &[Option<ChainEntry>],
     ) -> Option<usize> {
         let Some(id) = self.chain_under_cursor() else {
-            self.status = Some(NO_CHAIN_HERE);
+            self.remark = Some(NO_CHAIN_HERE);
             return None;
         };
         Some(self.chain.paste(self.project.chain_mut(id), columns, rows))
@@ -230,11 +229,11 @@ impl App {
         rows: &[Step],
     ) -> Option<usize> {
         let Some(id) = self.phrase_under_cursor() else {
-            self.status = Some(NO_PHRASE_HERE);
+            self.remark = Some(NO_PHRASE_HERE);
             return None;
         };
         if self.phrase.cell().is_none() {
-            self.status = Some(NO_STEP_HERE);
+            self.remark = Some(NO_STEP_HERE);
             return None;
         }
         Some(

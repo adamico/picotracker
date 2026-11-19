@@ -32,17 +32,11 @@ const QUESTION: Style = Style {
 
 const KEY_HINTS: &str = "^N NEW  ^O OPEN  ^I IMPORT  ^S SAVE  ^L LOG  SPACE PLAY  ^Q QUIT";
 
-/// What the status line shows.
 pub enum StatusLine<'a> {
-    /// A question waiting for Enter or Esc.
     Question(&'a str),
-    /// A result of something the user asked for.
     Notice(&'a Notice),
-    /// A brief remark about the last action.
     Remark(&'a str),
-    /// The keys of the file list.
     Hints(&'a str),
-    /// Nothing to say: the usual keys, and the Project's name.
     Idle { project: &'a str, unsaved: bool },
 }
 
