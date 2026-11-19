@@ -2,7 +2,7 @@
 
 mod midi_support;
 
-use midi_support::{STEP, Song};
+use midi_support::{Song, TICKS_PER_STEP};
 use picotracker_core::midi_import::{self, Analysis, Choices, Imported};
 use picotracker_core::project::{Phrase, Project, Step};
 
@@ -33,16 +33,16 @@ fn pitch_on(project: &Project, track: usize) -> u8 {
 
 fn nine_note_chord() -> Song {
     (0..9).fold(Song::new(), |song, voice| {
-        song.note(0, STEP, 1, MIDDLE_C + voice, 127)
+        song.note(0, TICKS_PER_STEP, 1, MIDDLE_C + voice, 127)
     })
 }
 
 #[test]
 fn a_chord_splits_into_stacked_voices_with_the_highest_note_first() {
     let song = Song::new()
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .note(0, STEP, 1, MIDDLE_C + 4, 127)
-        .note(0, STEP, 1, MIDDLE_C + 7, 127);
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C + 4, 127)
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C + 7, 127);
 
     let project = project(&song);
 
@@ -54,10 +54,10 @@ fn a_chord_splits_into_stacked_voices_with_the_highest_note_first() {
 #[test]
 fn voices_fill_tracks_in_file_order_keeping_a_source_together() {
     let song = Song::new()
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .note(0, STEP, 1, MIDDLE_C + 4, 127)
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C + 4, 127)
         .track()
-        .note(0, STEP, 2, MIDDLE_C + 12, 127);
+        .note(0, TICKS_PER_STEP, 2, MIDDLE_C + 12, 127);
 
     let project = project(&song);
 
@@ -68,9 +68,13 @@ fn voices_fill_tracks_in_file_order_keeping_a_source_together() {
 
 #[test]
 fn two_channels_on_one_midi_track_are_two_sources() {
-    let song = Song::new()
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .note(0, STEP, 2, MIDDLE_C + 4, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127).note(
+        0,
+        TICKS_PER_STEP,
+        2,
+        MIDDLE_C + 4,
+        127,
+    );
 
     let analysis = analysed(&song);
 
@@ -80,10 +84,9 @@ fn two_channels_on_one_midi_track_are_two_sources() {
 
 #[test]
 fn notes_that_barely_overlap_stay_on_one_voice() {
-    let song =
-        Song::new()
-            .note(0, STEP + 2, 1, MIDDLE_C, 127)
-            .note(STEP, STEP, 1, MIDDLE_C + 2, 127);
+    let song = Song::new()
+        .note(0, TICKS_PER_STEP + 2, 1, MIDDLE_C, 127)
+        .note(TICKS_PER_STEP, TICKS_PER_STEP, 1, MIDDLE_C + 2, 127);
 
     assert_eq!(analysed(&song).voices().len(), 1);
 }
@@ -91,9 +94,9 @@ fn notes_that_barely_overlap_stay_on_one_voice() {
 #[test]
 fn drum_hits_that_land_together_go_to_voices_kick_then_snare_then_hats() {
     let song = Song::new()
-        .note(0, STEP, 10, 42, 127)
-        .note(0, STEP, 10, 38, 127)
-        .note(0, STEP, 10, 36, 127);
+        .note(0, TICKS_PER_STEP, 10, 42, 127)
+        .note(0, TICKS_PER_STEP, 10, 38, 127)
+        .note(0, TICKS_PER_STEP, 10, 36, 127);
 
     let project = project(&song);
 
@@ -114,9 +117,9 @@ fn drum_hits_that_land_together_go_to_voices_kick_then_snare_then_hats() {
 #[test]
 fn channel_10_on_two_midi_tracks_is_one_source() {
     let song = Song::new()
-        .note(0, STEP, 10, 36, 127)
+        .note(0, TICKS_PER_STEP, 10, 36, 127)
         .track()
-        .note(0, STEP, 10, 38, 127);
+        .note(0, TICKS_PER_STEP, 10, 38, 127);
 
     let analysis = analysed(&song);
 
@@ -126,7 +129,7 @@ fn channel_10_on_two_midi_tracks_is_one_source() {
 
 #[test]
 fn drum_notes_are_never_transposed() {
-    let song = Song::new().note(0, STEP, 10, 35, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 10, 35, 127);
 
     let project = project(&song);
 
@@ -135,9 +138,13 @@ fn drum_notes_are_never_transposed() {
 
 #[test]
 fn toms_play_at_pitches_that_match_their_notes() {
-    let song = Song::new()
-        .note(0, STEP, 10, 41, 127)
-        .note(STEP, STEP, 10, 50, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 10, 41, 127).note(
+        TICKS_PER_STEP,
+        TICKS_PER_STEP,
+        10,
+        50,
+        127,
+    );
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -148,9 +155,9 @@ fn toms_play_at_pitches_that_match_their_notes() {
 #[test]
 fn drum_notes_outside_the_kit_are_dropped_with_a_warning() {
     let song = Song::new()
-        .note(0, STEP, 10, 36, 127)
-        .note(STEP, STEP, 10, 56, 127)
-        .note(STEP * 2, STEP, 10, 39, 127);
+        .note(0, TICKS_PER_STEP, 10, 36, 127)
+        .note(TICKS_PER_STEP, TICKS_PER_STEP, 10, 56, 127)
+        .note(TICKS_PER_STEP * 2, TICKS_PER_STEP, 10, 39, 127);
 
     let warnings = imported(&song).warnings;
 
@@ -201,7 +208,7 @@ fn programs_map_to_built_in_instruments_by_general_midi_family() {
     for (program, instrument) in families {
         let song = Song::new()
             .program(0, 1, program)
-            .note(0, STEP, 1, MIDDLE_C, 127);
+            .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
         let step = phrase(&project(&song), 0, 0, 0).step(0);
 
@@ -213,8 +220,8 @@ fn programs_map_to_built_in_instruments_by_general_midi_family() {
 fn a_program_change_partway_through_a_voice_applies_from_that_step() {
     let song = Song::new()
         .program(0, 1, 33)
-        .note(0, STEP * 4, 1, MIDDLE_C, 127)
-        .program(STEP * 2, 1, 80);
+        .note(0, TICKS_PER_STEP * 4, 1, MIDDLE_C, 127)
+        .program(TICKS_PER_STEP * 2, 1, 80);
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -225,9 +232,10 @@ fn a_program_change_partway_through_a_voice_applies_from_that_step() {
 
 #[test]
 fn an_edited_table_changes_what_the_notes_play() {
-    let song = Song::new()
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .note(0, STEP, 10, 36, 127);
+    let song =
+        Song::new()
+            .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
+            .note(0, TICKS_PER_STEP, 10, 36, 127);
     let analysis = analysed(&song);
     let mut choices = Choices::defaults_for(&analysis);
     choices.table.change_program(0, true);
@@ -245,10 +253,9 @@ fn an_edited_table_changes_what_the_notes_play() {
 
 #[test]
 fn when_two_notes_land_on_one_step_the_later_wins_and_import_warns() {
-    let song =
-        Song::new()
-            .note(STEP * 4, 2, 1, MIDDLE_C, 127)
-            .note(STEP * 4 + 4, 2, 1, MIDDLE_C + 2, 127);
+    let song = Song::new()
+        .note(TICKS_PER_STEP * 4, 2, 1, MIDDLE_C, 127)
+        .note(TICKS_PER_STEP * 4 + 4, 2, 1, MIDDLE_C + 2, 127);
 
     let imported = imported(&song);
 
@@ -273,7 +280,7 @@ fn a_phrase_holds_the_most_whole_bars_that_fit_in_32_steps() {
     for (numerator, power, steps_per_beat, length) in cases {
         let song = Song::new()
             .metre(0, numerator, power)
-            .note(0, STEP, 1, MIDDLE_C, 127);
+            .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
         let analysis = analysed(&song);
         let mut choices = Choices::defaults_for(&analysis);
         choices.steps_per_beat = steps_per_beat;
@@ -289,7 +296,13 @@ fn a_phrase_holds_the_most_whole_bars_that_fit_in_32_steps() {
 fn each_song_row_holds_a_chain_of_four_chain_rows() {
     // Each Phrase differs, so that none are shared.
     let song = (0..5).fold(Song::new(), |song, phrase| {
-        song.note(phrase * STEP * 32, STEP, 1, MIDDLE_C + phrase as u8, 127)
+        song.note(
+            phrase * TICKS_PER_STEP * 32,
+            TICKS_PER_STEP,
+            1,
+            MIDDLE_C + phrase as u8,
+            127,
+        )
     });
 
     let project = project(&song);
@@ -307,9 +320,9 @@ fn each_song_row_holds_a_chain_of_four_chain_rows() {
 fn a_tempo_change_cuts_every_track_and_starts_a_new_chain_row() {
     let song = Song::new()
         .tempo(0, 120)
-        .tempo(STEP * 8, 60)
-        .note(0, STEP * 12, 1, MIDDLE_C, 127)
-        .note(0, STEP * 12, 2, MIDDLE_C + 12, 127);
+        .tempo(TICKS_PER_STEP * 8, 60)
+        .note(0, TICKS_PER_STEP * 12, 1, MIDDLE_C, 127)
+        .note(0, TICKS_PER_STEP * 12, 2, MIDDLE_C + 12, 127);
 
     let project = project(&song);
 
@@ -325,8 +338,8 @@ fn a_tempo_change_cuts_every_track_and_starts_a_new_chain_row() {
 fn a_tempo_change_that_rounds_to_the_same_speed_is_ignored() {
     let song = Song::new()
         .tempo(0, 120)
-        .tempo(STEP * 8, 121)
-        .note(0, STEP * 12, 1, MIDDLE_C, 127);
+        .tempo(TICKS_PER_STEP * 8, 121)
+        .note(0, TICKS_PER_STEP * 12, 1, MIDDLE_C, 127);
 
     let project = project(&song);
 
@@ -338,9 +351,9 @@ fn a_tempo_change_that_rounds_to_the_same_speed_is_ignored() {
 fn tempo_changes_closer_than_one_step_leave_the_last_one_and_warn() {
     let song = Song::new()
         .tempo(0, 120)
-        .tempo(STEP * 8, 60)
-        .tempo(STEP * 8 + 2, 40)
-        .note(0, STEP * 12, 1, MIDDLE_C, 127);
+        .tempo(TICKS_PER_STEP * 8, 60)
+        .tempo(TICKS_PER_STEP * 8 + 2, 40)
+        .note(0, TICKS_PER_STEP * 12, 1, MIDDLE_C, 127);
 
     let imported = imported(&song);
 
@@ -353,11 +366,10 @@ fn tempo_changes_closer_than_one_step_leave_the_last_one_and_warn() {
 
 #[test]
 fn a_time_signature_change_starts_a_new_chain_row() {
-    let song =
-        Song::new()
-            .metre(0, 4, 2)
-            .metre(STEP * 32, 3, 2)
-            .note(0, STEP * 36, 1, MIDDLE_C, 127);
+    let song = Song::new()
+        .metre(0, 4, 2)
+        .metre(TICKS_PER_STEP * 32, 3, 2)
+        .note(0, TICKS_PER_STEP * 36, 1, MIDDLE_C, 127);
 
     let project = project(&song);
 
@@ -367,10 +379,9 @@ fn a_time_signature_change_starts_a_new_chain_row() {
 
 #[test]
 fn a_silent_phrase_becomes_an_empty_chain_entry() {
-    let song =
-        Song::new()
-            .note(0, STEP * 64, 1, MIDDLE_C, 127)
-            .note(STEP * 32, STEP, 2, MIDDLE_C, 127);
+    let song = Song::new()
+        .note(0, TICKS_PER_STEP * 64, 1, MIDDLE_C, 127)
+        .note(TICKS_PER_STEP * 32, TICKS_PER_STEP, 2, MIDDLE_C, 127);
 
     let project = project(&song);
 
@@ -380,9 +391,13 @@ fn a_silent_phrase_becomes_an_empty_chain_entry() {
 
 #[test]
 fn a_rest_on_every_track_keeps_its_length() {
-    let song = Song::new()
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .note(STEP * 64, STEP, 1, MIDDLE_C, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127).note(
+        TICKS_PER_STEP * 64,
+        TICKS_PER_STEP,
+        1,
+        MIDDLE_C,
+        127,
+    );
 
     let project = project(&song);
 
@@ -393,7 +408,7 @@ fn a_rest_on_every_track_keeps_its_length() {
 #[test]
 fn identical_phrases_and_chains_are_shared() {
     let song = (0..256).fold(Song::new(), |song, step| {
-        song.note(step * STEP, STEP, 1, MIDDLE_C, 127)
+        song.note(step * TICKS_PER_STEP, TICKS_PER_STEP, 1, MIDDLE_C, 127)
     });
 
     let project = project(&song);
@@ -405,7 +420,7 @@ fn identical_phrases_and_chains_are_shared() {
 
 #[test]
 fn notes_below_the_range_sit_an_octave_up_with_the_offset_in_the_chain_transpose() {
-    let song = Song::new().note(0, STEP, 1, 24, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, 24, 127);
 
     let project = project(&song);
 
@@ -415,7 +430,7 @@ fn notes_below_the_range_sit_an_octave_up_with_the_offset_in_the_chain_transpose
 
 #[test]
 fn notes_above_the_range_sit_an_octave_down_with_the_offset_in_the_chain_transpose() {
-    let song = Song::new().note(0, STEP, 1, 108, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, 108, 127);
 
     let project = project(&song);
 
@@ -426,9 +441,13 @@ fn notes_above_the_range_sit_an_octave_down_with_the_offset_in_the_chain_transpo
 #[test]
 fn a_voice_that_fits_no_whole_octave_still_lands_inside_the_range() {
     // Sounding pitches -5 and 54: the only offsets that fit are -9 to -5.
-    let song = Song::new()
-        .note(0, STEP, 1, 31, 127)
-        .note(STEP, STEP, 1, 90, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, 31, 127).note(
+        TICKS_PER_STEP,
+        TICKS_PER_STEP,
+        1,
+        90,
+        127,
+    );
 
     let project = project(&song);
 
@@ -440,9 +459,13 @@ fn a_voice_that_fits_no_whole_octave_still_lands_inside_the_range() {
 
 #[test]
 fn a_voice_too_wide_for_a_phrase_is_folded_by_octave_with_a_warning() {
-    let song = Song::new()
-        .note(0, STEP, 1, 24, 127)
-        .note(STEP, STEP, 1, 97, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, 24, 127).note(
+        TICKS_PER_STEP,
+        TICKS_PER_STEP,
+        1,
+        97,
+        127,
+    );
 
     let imported = imported(&song);
 
@@ -459,7 +482,7 @@ fn volume_and_expression_controllers_are_ignored_with_a_warning() {
     let song = Song::new()
         .controller(0, 1, 7, 10)
         .controller(0, 1, 11, 10)
-        .note(0, STEP, 1, MIDDLE_C, 127);
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
     let imported = imported(&song);
 
@@ -476,7 +499,7 @@ fn pitch_bend_and_other_controllers_share_one_warning() {
         .pitch_bend(0, 1)
         .controller(0, 1, 91, 10)
         .controller(0, 1, 1, 10)
-        .note(0, STEP, 1, MIDDLE_C, 127);
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
     let warnings = imported(&song).warnings;
 

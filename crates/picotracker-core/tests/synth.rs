@@ -4,7 +4,6 @@ use picotracker_core::synth::{Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice,
 
 const TRIANGLE: u8 = 0;
 const NOISE: u8 = 6;
-/// Pitch 33 is A-2 in tracker naming and sounds at 440 Hz.
 const A_440: i16 = 33;
 const A_880: i16 = 45;
 const LOUDEST: u8 = 7;

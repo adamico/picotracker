@@ -17,13 +17,9 @@ const FOLLOW: Action = Action::ToggleFollow;
 const SPEED: i32 = 8;
 const STEP_SAMPLES: usize = SPEED as usize * SAMPLES_PER_TICK as usize;
 
-/// The screen row of Song row 00.
 const FIRST_SONG_ROW: usize = 2;
-/// The screen row of Chain entry 0.
 const FIRST_CHAIN_ROW: usize = 2;
-/// The screen row of the Chain row strip's first row.
 const FIRST_STRIP_ROW: usize = 21;
-/// The screen row of Step 00.
 const FIRST_STEP_ROW: usize = 5;
 const CHAIN_COLUMN: usize = 29;
 const PHRASE_COLUMN: usize = 63;

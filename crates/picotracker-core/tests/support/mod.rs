@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 pub const HEADER: &str = "pico-8 cartridge // http://www.pico-8.com\nversion 43\n";
 
-/// The byte offsets of the music data in a `.p8.png` Cart's memory.
 pub const PATTERNS_AT: usize = 0x3100;
 pub const SFX_AT: usize = 0x3200;
 const CART_BYTES: usize = 0x8020;

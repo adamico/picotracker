@@ -12,14 +12,11 @@ const DOWN: Action = Action::Move(Direction::Down);
 const LEFT: Action = Action::Move(Direction::Left);
 const RIGHT: Action = Action::Move(Direction::Right);
 const SPACE: Action = Action::PlayFocusedPane;
-/// A-2 at the first-launch octave: pitch 33, which sounds at 440 Hz.
 const A_440: Action = Action::PianoKey(9);
-/// A-3 at the first-launch octave: pitch 45, which sounds at 880 Hz.
 const A_880: Action = Action::PianoKey(21);
 const SPEED: usize = 8;
 const STEP_SAMPLES: usize = SPEED * SAMPLES_PER_TICK as usize;
-/// Skips the crossfade at the start of a Step.
-const SETTLE: usize = 300;
+const CROSSFADE_SAMPLES: usize = 300;
 
 /// An app with the Phrase pane focused, writing triangle notes at Speed 8 with LEN 4.
 fn phrase_app() -> App {
@@ -71,12 +68,12 @@ fn frequency_at(samples: &[f32], rate: u32) -> f32 {
 
 /// The frequency during one Step of the render, counting from the first Step played.
 fn step_frequency(samples: &[f32], step: usize) -> f32 {
-    let start = step * STEP_SAMPLES + SETTLE;
+    let start = step * STEP_SAMPLES + CROSSFADE_SAMPLES;
     frequency_at(&samples[start..(step + 1) * STEP_SAMPLES], SAMPLE_RATE)
 }
 
 fn step_peak(samples: &[f32], step: usize) -> f32 {
-    samples[step * STEP_SAMPLES + SETTLE..(step + 1) * STEP_SAMPLES]
+    samples[step * STEP_SAMPLES + CROSSFADE_SAMPLES..(step + 1) * STEP_SAMPLES]
         .iter()
         .fold(0.0, |peak, sample| peak.max(sample.abs()))
 }

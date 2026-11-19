@@ -2,7 +2,6 @@
 
 use picotracker_core::app::{Action, App, Direction};
 
-/// The first Song row sits below the title and the Track headers.
 const FIRST_SONG_LINE: usize = 2;
 const LAST_PANE_LINE: usize = 43;
 

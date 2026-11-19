@@ -27,7 +27,6 @@ const OCTAVE_UP: Action = Action::Nudge {
 };
 
 const SELECTED: Colour = Colour::Lavender;
-/// Where the first Song row is drawn, and the first Track's cell on it.
 const SONG_FIRST_LINE: usize = 2;
 const SONG_FIRST_COLUMN: usize = 4;
 const SONG_TRACK_WIDTH: usize = 3;
