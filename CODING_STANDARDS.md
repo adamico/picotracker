@@ -9,6 +9,12 @@ Constants, statics, enums, enum variants and struct fields carry no comments: th
 - Flag a name that needs its deleted comment to make sense. Rename it until it reads on its own.
 - Give a primitive its own small type when its name cannot say its range or unit, such as a Track numbered 1 to 8.
 
+## Logic lives in the App core
+
+The Window shell (`crates/picotracker`) only connects the App core to the window, the audio device and the disk. Every decision lives in the App core, where the main test seam reaches it. Flag a decision made in the shell, such as a branch on the Project or the wording of a message.
+
+Every key reaches the App core as a named `Action` from the keymap. Flag a key handled anywhere else.
+
 ## Glossary terms
 
 `GLOSSARY.md` is the vocabulary for identifiers, messages, tests and docs.
