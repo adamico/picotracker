@@ -5,9 +5,10 @@
 //! `814991a` (`source/Audio.cpp`, lines 764 and 765). The notices of both projects follow.
 //!
 //! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
-//! instead of the port: the crossfade between notes, the phase of saw, square and pulse, the
-//! level of the whole output, the saw and noise, the steps of vibrato, and silence on a silent
-//! note of an SFX Instrument.
+//! instead of the port: the pitch of each note in whole phase units, the phase a voice starts from
+//! and keeps, the crossfade between notes, the phase of saw, square and pulse, the level of the
+//! whole output, the saw, noise and Waveform Instruments, the steps of vibrato, and silence on a
+//! silent note of an SFX Instrument.
 //!
 //! zepto8, `src/synth.cpp`:
 //!
@@ -83,22 +84,27 @@ pub const WAVEFORM_SAMPLES: usize = 64;
 
 const RATE: f64 = SAMPLE_RATE as f64;
 const NOIZ_AND_BUZZ: u8 = 0x6;
-const WAVEFORM_FULL_SCALE: f32 = 198.0;
+const WAVEFORM_FULL_SCALE: f32 = 192.0;
 const WAVEFORM_FIRST_VOICE: f32 = 0.7;
-const WAVEFORM_START: f32 = 0.5;
 const REVERB_1_SAMPLES: usize = 2 * SAMPLES_PER_TICK as usize;
 const REVERB_2_SAMPLES: usize = 4 * SAMPLES_PER_TICK as usize;
 const NOISE_SEED: u32 = 0x1234_5678;
 const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
-const CROSSFADES_PER_SECOND: f64 = 350.0;
+const CROSSFADE_SAMPLES: f32 = 64.0;
 const VIBRATO_STEPS: f64 = 8.0;
 const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
 const VIBRATO_SEMITONES: f32 = 0.27;
 const SAW_LEVEL: f32 = 2.0 / 3.0;
 const OUTPUT_GAIN: f32 = 0.9841;
 const NOISE_LEVEL: f32 = 0.844;
+const PHASE_UNITS_PER_CYCLE: f32 = 65_536.0;
+const TABLE_OCTAVE: i32 = 3;
+const MAX_OCTAVE_SHIFT: i32 = 32;
+const OCTAVE_PHASE_UNITS: [u32; 12] = [
+    1554, 1646, 1744, 1848, 1958, 2074, 2199, 2330, 2469, 2615, 2770, 2924,
+];
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -173,8 +179,24 @@ pub const fn packed_filters(noiz: bool, buzz: bool, detune: u8, reverb: u8, damp
     (noiz as u8) * 2 + (buzz as u8) * 4 + detune * 8 + reverb * 24 + dampen * 72
 }
 
-fn key_to_freq(key: f32) -> f32 {
-    440.0 * ((key - 33.0) / 12.0).exp2()
+/// How far through its cycle a pitch moves in one sample, as PICO-8 plays it. PICO-8 keeps a phase
+/// in 65,536ths of a cycle and moves it by a whole number of them each sample, taken from one
+/// octave of pitches and halved or doubled for each octave below or above it. Measured on PICO-8,
+/// these lie a little below equal temperament, and B lies 7 cents below.
+fn pitch_increment(pitch: i16) -> f32 {
+    let octaves_up = i32::from(pitch.div_euclid(12)) - TABLE_OCTAVE;
+    let phase_units = u64::from(OCTAVE_PHASE_UNITS[pitch.rem_euclid(12) as usize]);
+    let phase_units = if octaves_up >= 0 {
+        phase_units << octaves_up.min(MAX_OCTAVE_SHIFT)
+    } else {
+        phase_units >> (-octaves_up).min(MAX_OCTAVE_SHIFT)
+    };
+    phase_units as f32 / PHASE_UNITS_PER_CYCLE
+}
+
+/// A phase moved on by one sample of an increment, in PICO-8's whole phase units.
+fn advanced(phi: f64, increment: f32) -> f64 {
+    phi + f64::from((increment * PHASE_UNITS_PER_CYCLE).floor() / PHASE_UNITS_PER_CYCLE)
 }
 
 fn mix(a: f32, b: f32, t: f32) -> f32 {
@@ -202,19 +224,17 @@ struct SynthParam {
     custom: bool,
     filters: u8,
     key: i16,
-    freq: f32,
+    increment: f32,
     volume: f32,
-    phi: f32,
-    last_advance: f32,
+    phi: f64,
+    last_advance: f64,
     last_sample: f32,
     wave: Option<[i8; WAVEFORM_SAMPLES]>,
 }
 
-/// One cycle of a Waveform Instrument, read between its samples by linear interpolation. As
-/// measured on PICO-8, a cycle starts half way through the samples, and the loudest sample plays
-/// at about 0.64 of full scale.
+/// One cycle of a Waveform Instrument, read between its samples by linear interpolation.
 fn interpolated(wave: &[i8; WAVEFORM_SAMPLES], t: f32) -> f32 {
-    let position = ((t + WAVEFORM_START) % 1.0) * WAVEFORM_SAMPLES as f32;
+    let position = t * WAVEFORM_SAMPLES as f32;
     let index = (position as usize).min(WAVEFORM_SAMPLES - 1);
     let next = (index + 1) % WAVEFORM_SAMPLES;
     let between = mix(
@@ -232,7 +252,7 @@ fn high_for_the_last(duty: f32, t: f32) -> f32 {
 
 fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let advance = p.phi;
-    let t = advance % 1.0;
+    let t = (advance % 1.0) as f32;
     if let Some(wave) = &p.wave {
         return interpolated(wave, t);
     }
@@ -264,7 +284,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
         INST_SAW => {
             // PICO-8's saw rises through the whole cycle and drops as it starts.
             let advance = advance + 0.5;
-            let t = advance % 1.0;
+            let t = (advance % 1.0) as f32;
             let mut ret = if t < 0.5 { t } else { t - 1.0 };
             if buzz {
                 let offset = if ((advance % 2.0) - 1.0).abs() < 0.5 {
@@ -277,7 +297,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             SAW_LEVEL * ret
         }
         INST_SQUARE => high_for_the_last(if buzz { 0.4 } else { 0.5 }, t),
-        INST_PULSE => high_for_the_last(if buzz { 0.255 } else { 0.316 }, t),
+        INST_PULSE => high_for_the_last(if buzz { 0.255 } else { 0.3125 }, t),
         INST_ORGAN => {
             let mut ret = if t < 0.5 {
                 3.0 - (24.0 * t - 6.0).abs()
@@ -295,7 +315,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             ret / 9.0
         }
         INST_NOISE => {
-            let scale = (advance - p.last_advance) * 8.858_923;
+            let scale = (advance - p.last_advance) as f32 * 8.858_923;
             let new_sample = (p.last_sample + scale * rng.next()) / (1.0 + scale);
             let factor = 1.0 - f32::from(p.key) / 63.0;
             let mut ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
@@ -308,10 +328,10 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
         }
         INST_PHASER => {
             let mut ret = 2.0 - (8.0 * t - 4.0).abs();
-            ret += 1.0 - (4.0 * ((advance * 109.0 / 110.0) % 1.0) - 2.0).abs();
+            ret += 1.0 - (4.0 * ((advance * 109.0 / 110.0) % 1.0) as f32 - 2.0).abs();
             if buzz {
-                ret += 0.25 - (((advance * 2.0 + 0.5) % 1.0) - 0.5).abs();
-                ret += 0.125 - (0.5 * ((advance * 4.0) % 1.0) - 0.25).abs();
+                ret += 0.25 - (((advance * 2.0 + 0.5) % 1.0) as f32 - 0.5).abs();
+                ret += 0.125 - (0.5 * ((advance * 4.0) % 1.0) as f32 - 0.25).abs();
             }
             ret / 6.0
         }
@@ -371,9 +391,9 @@ fn synth_sample(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     if detune != 0 && (plays_waveform || p.instrument != INST_NOISE) {
         let mut second = *p;
         if plays_waveform {
-            second.phi *= waveform_detune_factor(detune);
+            second.phi *= f64::from(waveform_detune_factor(detune));
         } else {
-            second.phi *= detune_factor(p.instrument, detune);
+            second.phi *= f64::from(detune_factor(p.instrument, detune));
             if detune == 2 && p.instrument == INST_ORGAN {
                 second.instrument = INST_TRIANGLE;
             }
@@ -448,7 +468,7 @@ struct SoundState {
     playing: bool,
     offset: f64,
     time: f64,
-    previous_key: f32,
+    previous_key: i16,
     previous_volume: f32,
 }
 
@@ -457,7 +477,7 @@ impl SoundState {
         playing: false,
         offset: 0.0,
         time: 0.0,
-        previous_key: MIDDLE_KEY as f32,
+        previous_key: MIDDLE_KEY,
         previous_volume: 0.0,
     };
 }
@@ -512,6 +532,15 @@ impl Voice {
         }
     }
 
+    /// A silent voice whose wave is `phase_units` 65,536ths of the way through its cycle. A new
+    /// voice starts at the start of its cycle, as every channel does when PICO-8 starts a song,
+    /// and playing a sound keeps the phase the voice has.
+    pub fn with_phase(phase_units: u16) -> Self {
+        let mut voice = Self::new();
+        voice.last_synth.phi = f64::from(phase_units) / f64::from(PHASE_UNITS_PER_CYCLE);
+        voice
+    }
+
     /// Sets the sound that notes marked `custom` play for an instrument slot from 0 to 7.
     pub fn set_sfx_instrument(&mut self, slot: usize, sound: Sound) {
         self.set_instrument(slot as u8, Instrument::Sfx(sound));
@@ -540,6 +569,17 @@ impl Voice {
         self.last_main_key = NO_KEY;
     }
 
+    /// Starts a sound the way PICO-8's music starts a channel's SFX at each Pattern: as [`play`],
+    /// except that a silent voice also starts its wave at the start of its cycle.
+    ///
+    /// [`play`]: Self::play
+    pub fn play_pattern(&mut self, sound: Sound, from_note: usize) {
+        if self.last_synth.volume == 0.0 && self.fade <= 0.0 {
+            self.last_synth.phi = 0.0;
+        }
+        self.play(sound, from_note);
+    }
+
     /// Moves on to one note of a sound as the next Step of what is already playing, so that a
     /// slide carries over from the note just played and nothing retriggers.
     pub fn continue_at(&mut self, sound: Sound, note: usize) {
@@ -547,7 +587,7 @@ impl Voice {
         self.sound = sound;
         self.state.playing = true;
         self.state.offset = note.min(NOTES - 1) as f64;
-        self.state.previous_key = f32::from(played.pitch);
+        self.state.previous_key = played.pitch;
         self.state.previous_volume = f32::from(played.volume) / 7.0;
     }
 
@@ -565,7 +605,6 @@ impl Voice {
 
     /// The next sample at 22,050 Hz.
     pub fn next_sample(&mut self) -> f32 {
-        let inverse_rate = 1.0 / RATE;
         let last_synth = self.last_synth;
         let mut new_synth = SynthParam {
             phi: last_synth.phi,
@@ -603,10 +642,9 @@ impl Voice {
                 match self.instruments.get(&self.instrument_number) {
                     Some(Instrument::Waveform(wave)) => {
                         if wave.bass {
-                            new_synth.freq *= 0.5;
+                            new_synth.increment *= 0.5;
                         }
-                        new_synth.phi =
-                            last_synth.phi + (f64::from(new_synth.freq) * inverse_rate) as f32;
+                        new_synth.phi = advanced(last_synth.phi, new_synth.increment);
                         new_synth.filters = wave.filters & !NOIZ_AND_BUZZ;
                         new_synth.wave = Some(wave.samples);
                     }
@@ -617,7 +655,7 @@ impl Voice {
                             _ => &silent,
                         };
                         new_synth.phi = last_synth.phi;
-                        let freq_factor = new_synth.freq / key_to_freq(f32::from(MIDDLE_KEY));
+                        let freq_factor = new_synth.increment / pitch_increment(MIDDLE_KEY);
                         let main_volume = new_synth.volume;
                         // A silent note of the SFX Instrument silences the voice.
                         new_synth.volume = 0.0;
@@ -635,9 +673,9 @@ impl Voice {
         }
 
         // Crossfade over abrupt changes, so that they do not click.
-        let freq_threshold = new_synth.freq.min(last_synth.freq) * 0.01;
+        let increment_threshold = new_synth.increment.min(last_synth.increment) * 0.01;
         if (new_synth.volume - last_synth.volume).abs() > 0.1
-            || (new_synth.freq - last_synth.freq).abs() > freq_threshold
+            || (new_synth.increment - last_synth.increment).abs() > increment_threshold
             || new_synth.instrument != last_synth.instrument
         {
             if self.fade <= 0.0 {
@@ -657,7 +695,9 @@ impl Voice {
         let mut dampen_2 = level(dampen == 2);
 
         if self.fade > 0.0 {
-            self.fade_synth.phi += (f64::from(self.fade_synth.freq) * inverse_rate) as f32;
+            // PICO-8 is already one sample into the crossfade on the first sample that changes.
+            self.fade -= 1.0 / CROSSFADE_SAMPLES;
+            self.fade_synth.phi = advanced(self.fade_synth.phi, self.fade_synth.increment);
             let faded = synth_sample(&mut self.fade_synth, &mut self.rng);
             value = mix(value, faded, self.fade);
             let fade_reverb = (self.fade_synth.filters / 24) % 3;
@@ -666,7 +706,6 @@ impl Voice {
             reverb_2 = mix(reverb_2, level(fade_reverb == 2), self.fade);
             dampen_1 = mix(dampen_1, level(fade_dampen == 1), self.fade);
             dampen_2 = mix(dampen_2, level(fade_dampen == 2), self.fade);
-            self.fade -= (CROSSFADES_PER_SECOND * inverse_rate) as f32;
         }
 
         let index_1 = self.reverb_index % REVERB_1_SAMPLES;
@@ -736,13 +775,13 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
         let next_note_index = next_offset.floor() as usize;
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
-        let mut freq = key_to_freq(f32::from(note.pitch)) * freq_factor;
+        let mut increment = pitch_increment(note.pitch) * freq_factor;
         let progress = (offset % 1.0) as f32;
 
         if volume > 0.0 {
             match note.effect {
                 FX_SLIDE => {
-                    freq = mix(key_to_freq(state.previous_key), freq, progress);
+                    increment = mix(pitch_increment(state.previous_key), increment, progress);
                     if state.previous_volume > 0.0 {
                         volume = mix(state.previous_volume, volume, progress);
                     }
@@ -753,9 +792,9 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                     let ticks = offset * f64::from(speed);
                     let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
                     let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
-                    freq *= (t * VIBRATO_SEMITONES / 12.0).exp2();
+                    increment *= (t * VIBRATO_SEMITONES / 12.0).exp2();
                 }
-                FX_DROP => freq *= 1.0 - progress,
+                FX_DROP => increment *= 1.0 - progress,
                 FX_FADE_IN => volume *= progress,
                 FX_FADE_OUT => volume *= 1.0 - progress,
                 FX_ARP_FAST | FX_ARP_SLOW => {
@@ -763,21 +802,21 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                     let divisor = if note.effect == FX_ARP_FAST { 4 } else { 8 };
                     let position = f64::from(rate / divisor) * 7.5 * offset / offset_per_second;
                     let arpeggio_note = (note_index & !3) | (position as usize & 3);
-                    freq = key_to_freq(f32::from(sound.notes[arpeggio_note].pitch));
+                    increment = pitch_increment(sound.notes[arpeggio_note].pitch);
                 }
                 _ => {}
             }
             synth.key = note.pitch;
-            synth.freq = freq;
+            synth.increment = increment;
             synth.instrument = note.instrument;
             synth.custom = note.custom;
             synth.filters = sound.filters;
             synth.volume = volume;
-            synth.phi += (f64::from(freq) * inverse_rate) as f32;
+            synth.phi = advanced(synth.phi, increment);
         }
 
         if next_note_index != note_index {
-            state.previous_key = f32::from(note.pitch);
+            state.previous_key = note.pitch;
             state.previous_volume = f32::from(note.volume) / 7.0;
         }
     }

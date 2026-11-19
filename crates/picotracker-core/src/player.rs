@@ -573,7 +573,7 @@ impl Player {
         for (track, voice) in self.voices.iter_mut().enumerate() {
             let lane = Lane::starting(playback.entry(track), &playback.project, from_step);
             playback.lanes[track] = lane;
-            voice.play(playback.sound(track).unwrap_or_default(), lane.step);
+            voice.play_pattern(playback.sound(track).unwrap_or_default(), lane.step);
         }
         self.playback = Some(playback);
     }
