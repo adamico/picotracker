@@ -731,11 +731,18 @@ impl Voice {
         // Measured on PICO-8: DAMPEN takes the level a sound starts with, and changes only on the
         // last sample of each Tick, to the level playing then, so that a Custom Instrument's own
         // DAMPEN comes in at the end of its first Tick. It changes at once, with no crossfade,
-        // and a silent note keeps the sound's own level.
+        // and a silent note keeps the sound's own level. A sound that has ended keeps only the
+        // level of a Custom Instrument it ended on.
         self.tick_sample += 1;
         if self.tick_sample == SAMPLES_PER_TICK {
             self.tick_sample = 0;
-            self.dampen_filters = if new_synth.volume > 0.0 {
+            self.dampen_filters = if !self.state.playing {
+                if new_synth.custom {
+                    new_synth.filters
+                } else {
+                    0
+                }
+            } else if new_synth.volume > 0.0 {
                 new_synth.filters
             } else {
                 self.sound.filters
