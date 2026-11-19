@@ -124,7 +124,10 @@ fn opening_a_project_remembers_it_first() {
             is_directory: false,
         }],
     });
-    app.apply(Action::Move(picotracker_core::app::Direction::Down));
+    // Past the recent Project and "..", to the file.
+    for _ in 0..2 {
+        app.apply(Action::Move(picotracker_core::app::Direction::Down));
+    }
     app.apply(Action::Confirm);
     let requests = app.take_file_requests();
     let opened = PathBuf::from(HOME).join("new.ptrk");
