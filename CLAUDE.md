@@ -11,7 +11,3 @@ Default vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, 
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-### Spec
-
-`docs/spec.md` holds the built app's rules: modules, dependencies, file formats, Import, Export, synth, playback, editing, UI, keys, app files and releases. `docs/testing.md` says what proves each area. Read the section for the area you change, and update it when a decision changes.
