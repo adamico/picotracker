@@ -149,7 +149,7 @@ impl ChainPane {
         }
     }
 
-    /// Raises or lowers every cell in a cells. Empty entries stay empty.
+    /// Raises or lowers every cell in the range. Empty entries stay empty.
     pub fn nudge_cells(&self, chain: &mut Chain, cells: CellRange, up: bool, coarse: bool) {
         for entry in cells.rows() {
             let slot = chain.entry_mut(entry);
@@ -161,7 +161,7 @@ impl ChainPane {
         }
     }
 
-    /// Clears every cell in a cells.
+    /// Clears every cell in the range.
     pub fn clear_cells(&self, chain: &mut Chain, cells: CellRange) {
         for entry in cells.rows() {
             for column in cells.columns() {
@@ -170,7 +170,7 @@ impl ChainPane {
         }
     }
 
-    /// The entries a cells of cells is on.
+    /// The entries the range of cells is on.
     pub fn copy(&self, chain: &Chain, cells: CellRange) -> Vec<Option<ChainEntry>> {
         cells.rows().map(|entry| chain.entry(entry)).collect()
     }

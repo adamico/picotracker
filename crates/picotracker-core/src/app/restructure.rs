@@ -116,7 +116,7 @@ impl App {
         self.selection = None;
     }
 
-    /// The distinct Chains in a cells of Song cells, in the order they first appear.
+    /// The distinct Chains in a range of Song cells, in the order they first appear.
     pub(super) fn chains_in(&self, cells: CellRange) -> Vec<ChainId> {
         let mut chains = Vec::new();
         for row in cells.rows() {

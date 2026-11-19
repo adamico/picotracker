@@ -324,7 +324,7 @@ impl PhrasePane {
         })
     }
 
-    /// Raises or lowers every cell in a cells. Silent Steps show as empty, so they stay as they
+    /// Raises or lowers every cell in the range. Silent Steps show as empty, so they stay as they
     /// are.
     pub fn nudge_cells(&self, phrase: &mut Phrase, cells: CellRange, up: bool, coarse: bool) {
         for index in cells.rows() {
@@ -337,7 +337,7 @@ impl PhrasePane {
         }
     }
 
-    /// Empties every cell in a cells. A Step has no empty pitch or Instrument, so clearing either
+    /// Empties every cell in the range. A Step has no empty pitch or Instrument, so clearing either
     /// silences the Step and keeps its values.
     pub fn clear_cells(&self, phrase: &mut Phrase, cells: CellRange) {
         for index in cells.rows() {
@@ -351,7 +351,7 @@ impl PhrasePane {
         }
     }
 
-    /// The Steps a cells of cells is on.
+    /// The Steps the range of cells is on.
     pub fn copy(&self, phrase: &Phrase, cells: CellRange) -> Vec<Step> {
         cells.rows().map(|index| phrase.step(index)).collect()
     }

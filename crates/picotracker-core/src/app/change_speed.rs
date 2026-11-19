@@ -145,8 +145,8 @@ impl App {
         }
     }
 
-    /// The Phrases of the Chains in a cells of Song cells. A Phrase is used elsewhere when a Chain
-    /// outside the cells plays it, or when one of the cells's Chains is also placed outside it.
+    /// The Phrases of the Chains in a range of Song cells. A Phrase is used elsewhere when a Chain
+    /// outside the range plays it, or when one of its Chains is also placed outside it.
     fn song_scope(&self, cells: CellRange) -> (Vec<PhraseId>, usize) {
         let chains = self.chains_in(cells);
         let phrases = self.phrases_of(&chains);

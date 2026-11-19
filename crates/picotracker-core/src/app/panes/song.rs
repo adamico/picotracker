@@ -128,7 +128,7 @@ impl SongPane {
         }
     }
 
-    /// Steps every Chain in a cells. Empty cells stay empty.
+    /// Steps every Chain in the range of cells. Empty cells stay empty.
     pub fn nudge_cells(&self, project: &mut Project, cells: CellRange, up: bool, coarse: bool) {
         for row in cells.rows() {
             for track in cells.columns() {
@@ -140,7 +140,7 @@ impl SongPane {
         }
     }
 
-    /// Takes the Chains off a cells of cells. The Chains themselves are kept.
+    /// Takes the Chains off the range of cells. The Chains themselves are kept.
     pub fn clear_cells(&self, project: &mut Project, cells: CellRange) {
         for row in cells.rows() {
             for track in cells.columns() {
@@ -149,7 +149,7 @@ impl SongPane {
         }
     }
 
-    /// The Chains in a cells of cells, row by row.
+    /// The Chains in the range of cells, row by row.
     pub fn copy(&self, project: &Project, cells: CellRange) -> Vec<Vec<Option<ChainId>>> {
         cells
             .rows()
