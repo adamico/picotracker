@@ -1,8 +1,14 @@
 //! Player: turns a Project and a play request into the Playhead and samples. The Window shell
 //! owns the audio stream that carries them to a device.
 
-use crate::project::{CHAIN_ENTRIES, ChainEntry, MAX_STEPS, Phrase, PhraseId, Project, TRACKS};
-use crate::synth::{Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
+use crate::project::{
+    CHAIN_ENTRIES, ChainEntry, FIRST_CUSTOM_INSTRUMENT, Filters, InstrumentSound, MAX_STEPS,
+    Phrase, PhraseId, Project, SfxInstrument, Step, TRACKS, WaveformInstrument,
+};
+use crate::synth::{
+    Instrument, Instruments, Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, Waveform,
+    packed_filters,
+};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +32,7 @@ pub enum AudioRequest {
     UpdateProject(Arc<Project>),
     SetTrackMix(TrackMix),
     PreviewStep {
+        project: Arc<Project>,
         phrase: Phrase,
         step: usize,
         transpose: i8,
@@ -414,10 +421,15 @@ impl Player {
             AudioRequest::UpdateProject(project) => self.update_project(project),
             AudioRequest::SetTrackMix(track_mix) => self.track_mix = track_mix,
             AudioRequest::PreviewStep {
+                project,
                 phrase,
                 step,
                 transpose,
-            } => self.start_preview(&phrase, step, transpose),
+            } => {
+                self.cut();
+                self.hear_instruments_of(&project);
+                self.start_preview(&phrase, step, transpose);
+            }
             AudioRequest::EndPreview => {
                 if let Some(preview) = self.preview.as_mut() {
                     preview.released = true;
@@ -452,9 +464,16 @@ impl Player {
         }
     }
 
+    /// Gives every voice the Custom Instruments of a Project.
+    fn hear_instruments_of(&mut self, project: &Project) {
+        let instruments = Arc::new(instruments(project));
+        for voice in &mut self.voices {
+            voice.set_instruments(Arc::clone(&instruments));
+        }
+    }
+
     /// Holds one Step on the first voice, repeating it until the preview ends.
     fn start_preview(&mut self, phrase: &Phrase, step: usize, transpose: i8) {
-        self.cut();
         let mut held = sound(phrase, transpose, 0, 1);
         held.notes[0] = held.notes[step];
         self.voices[0].play(held, 0);
@@ -477,6 +496,7 @@ impl Player {
     }
 
     fn update_project(&mut self, project: Arc<Project>) {
+        self.hear_instruments_of(&project);
         let Some(playback) = self.playback.as_mut() else {
             return;
         };
@@ -495,6 +515,7 @@ impl Player {
         from_step: usize,
     ) {
         self.cut();
+        self.hear_instruments_of(&project);
         self.plays += 1;
         let Some(k) = k else {
             self.finished_play = self.plays;
@@ -635,24 +656,80 @@ fn sound(phrase: &Phrase, transpose: i8, loop_start: u8, loop_end: u8) -> Sound 
         *note = Note {
             pitch: i16::from(step.pitch()) + i16::from(transpose),
             instrument: step.instrument(),
-            custom: false,
+            custom: step.instrument() >= FIRST_CUSTOM_INSTRUMENT,
             volume: step.volume(),
             effect: step.effect(),
         };
     }
-    let filters = phrase.filters();
     Sound {
         notes,
         speed: phrase.speed(),
-        filters: packed_filters(
-            filters.noiz(),
-            filters.buzz(),
-            filters.detune(),
-            filters.reverb(),
-            filters.dampen(),
-        ),
+        filters: packed(phrase.filters()),
         loop_start,
         loop_end,
+    }
+}
+
+fn packed(filters: Filters) -> u8 {
+    packed_filters(
+        filters.noiz(),
+        filters.buzz(),
+        filters.detune(),
+        filters.reverb(),
+        filters.dampen(),
+    )
+}
+
+/// What the synth plays for each of a Project's Custom Instruments.
+fn instruments(project: &Project) -> Instruments {
+    project
+        .custom_instruments()
+        .map(|(id, instrument)| {
+            let played = match &instrument.sound {
+                InstrumentSound::Sfx(sfx) => Instrument::Sfx(sfx_instrument_sound(sfx)),
+                InstrumentSound::Waveform(wave) => Instrument::Waveform(waveform(wave)),
+            };
+            (id, played)
+        })
+        .collect()
+}
+
+/// The sound of an SFX Instrument. Its Steps keep their instrument digits as Built-in
+/// Instruments, and the loop plays only when it starts before it ends.
+fn sfx_instrument_sound(sfx: &SfxInstrument) -> Sound {
+    let mut notes = [Note::default(); MAX_STEPS];
+    for (note, step) in notes.iter_mut().zip(&sfx.steps) {
+        *note = built_in_note(*step);
+    }
+    let (loop_start, loop_end) = if sfx.loop_start < sfx.loop_end {
+        (sfx.loop_start, sfx.loop_end)
+    } else {
+        (0, 0)
+    };
+    Sound {
+        notes,
+        speed: sfx.speed,
+        filters: packed(sfx.filters),
+        loop_start,
+        loop_end,
+    }
+}
+
+fn built_in_note(step: Step) -> Note {
+    Note {
+        pitch: i16::from(step.pitch()),
+        instrument: step.instrument(),
+        custom: false,
+        volume: step.volume(),
+        effect: step.effect(),
+    }
+}
+
+fn waveform(wave: &WaveformInstrument) -> Waveform {
+    Waveform {
+        samples: wave.samples,
+        bass: wave.bass,
+        filters: packed_filters(false, false, wave.detune, wave.reverb, wave.dampen),
     }
 }
 
