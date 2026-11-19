@@ -84,6 +84,8 @@ const CROSSFADES_PER_SECOND: f64 = 350.0;
 const VIBRATO_STEPS: f64 = 8.0;
 const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
 const VIBRATO_SEMITONES: f32 = 0.27;
+const SAW_LEVEL: f32 = 2.0 / 3.0;
+const OUTPUT_GAIN: f32 = 0.9841;
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -176,6 +178,11 @@ struct SynthParam {
     last_sample: f32,
 }
 
+/// PICO-8's square and pulse: low through the cycle and high for its last `duty`.
+fn high_for_the_last(duty: f32, t: f32) -> f32 {
+    if t < 1.0 - duty { -0.25 } else { 0.25 }
+}
+
 fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let advance = p.phi;
     let t = advance % 1.0;
@@ -205,6 +212,9 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             ret * 0.5
         }
         INST_SAW => {
+            // PICO-8's saw rises through the whole cycle and drops as it starts.
+            let advance = advance + 0.5;
+            let t = advance % 1.0;
             let mut ret = if t < 0.5 { t } else { t - 1.0 };
             if buzz {
                 let offset = if ((advance % 2.0) - 1.0).abs() < 0.5 {
@@ -214,22 +224,10 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
                 };
                 ret = ret * 0.83 - offset;
             }
-            0.653 * ret
+            SAW_LEVEL * ret
         }
-        INST_SQUARE => {
-            if t < (if buzz { 0.4 } else { 0.5 }) {
-                0.25
-            } else {
-                -0.25
-            }
-        }
-        INST_PULSE => {
-            if t < (if buzz { 0.255 } else { 0.316 }) {
-                0.25
-            } else {
-                -0.25
-            }
-        }
+        INST_SQUARE => high_for_the_last(if buzz { 0.4 } else { 0.5 }, t),
+        INST_PULSE => high_for_the_last(if buzz { 0.255 } else { 0.316 }, t),
         INST_ORGAN => {
             let mut ret = if t < 0.5 {
                 3.0 - (24.0 * t - 6.0).abs()
@@ -591,7 +589,7 @@ impl Voice {
             value = mix(value, damped, dampen_2);
         }
 
-        f32::from((32767.99 * value.clamp(-0.99, 0.99)) as i16) / 32768.0
+        f32::from((32767.99 * (OUTPUT_GAIN * value).clamp(-0.99, 0.99)) as i16) / 32768.0
     }
 }
 

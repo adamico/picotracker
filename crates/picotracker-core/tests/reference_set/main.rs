@@ -119,7 +119,6 @@ const AWAITING_SYNTH_DIFFERENCES_53: &[&str] = &[
     "coverage_sfx23",
     "coverage_sfx24",
     "coverage_sfx25",
-    "coverage_sfx26",
     "coverage_sfx27",
     "coverage_sfx28",
     "drop_on_an_sfx_instrument_keeps_the_pitch",
