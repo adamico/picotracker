@@ -86,6 +86,7 @@ const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
 const VIBRATO_SEMITONES: f32 = 0.27;
 const SAW_LEVEL: f32 = 2.0 / 3.0;
 const OUTPUT_GAIN: f32 = 0.9841;
+const NOISE_LEVEL: f32 = 0.844;
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -248,7 +249,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             let scale = (advance - p.last_advance) * 8.858_923;
             let new_sample = (p.last_sample + scale * rng.next()) / (1.0 + scale);
             let factor = 1.0 - f32::from(p.key) / 63.0;
-            let mut ret = new_sample * 1.5 * (1.0 + factor * factor);
+            let mut ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
             if noiz {
                 ret *= 2.0 * (if t < 0.5 { t } else { t - 1.0 });
             }
