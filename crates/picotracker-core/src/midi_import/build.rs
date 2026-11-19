@@ -547,7 +547,7 @@ fn song_row_cells(
 }
 
 /// The place in the Song of a Step on a Track.
-fn spot_of(slots: &[Slot], track: usize, step: usize) -> Option<SongPlace> {
+fn song_place_of(slots: &[Slot], track: usize, step: usize) -> Option<SongPlace> {
     let index = slots
         .iter()
         .position(|slot| (slot.start..slot.start + slot.length).contains(&step))?;
@@ -621,8 +621,8 @@ fn warnings(
     if timing.close_tempos > 0 {
         let row = timing
             .first_close_step
-            .and_then(|step| spot_of(slots, 0, step))
-            .map_or(0, |spot| spot.song_row);
+            .and_then(|step| song_place_of(slots, 0, step))
+            .map_or(0, |place| place.song_row);
         warnings.push(Warning::new(format!(
             "{} CLOSER THAN ONE STEP: THE LAST ONE WON. (ROW {row:02X})",
             counted(timing.close_tempos, "TEMPO CHANGE")
@@ -654,24 +654,24 @@ fn collision_warning(
 ) -> Warning {
     let first = parts.iter().enumerate().find_map(|(track, part)| {
         let step = part.painting.first_collision?;
-        spot_of(slots, track, step)
+        song_place_of(slots, track, step)
     });
-    let place = first.and_then(|spot| {
-        let entry = project.chain_row_entry(spot.song_row, spot.track, spot.chain_row)?;
+    let named = first.and_then(|place| {
+        let entry = project.chain_row_entry(place.song_row, place.track, place.chain_row)?;
         Some(format!(
             " FIRST: T{} PHRASE {:02X} STEP {:02X}",
-            spot.track + 1,
+            place.track + 1,
             entry.phrase().number(),
-            spot.step
+            place.step
         ))
     });
     Warning {
         text: format!(
             "{} LANDED ON A STEP ALREADY TAKEN: THE LATER NOTE WON.{}",
             counted(collisions, "NOTE"),
-            place.as_deref().unwrap_or("")
+            named.as_deref().unwrap_or("")
         ),
-        place: place.as_ref().and(first),
+        place: named.as_ref().and(first),
     }
 }
 

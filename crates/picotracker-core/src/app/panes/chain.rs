@@ -58,24 +58,24 @@ pub struct ChainPane {
 
 /// Where the Chain pane's cursor is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ChainSpot {
+pub struct ChainCursorPlace {
     entry: usize,
     column: usize,
 }
 
 impl ChainPane {
     /// Where the cursor is now.
-    pub fn spot(&self) -> ChainSpot {
-        ChainSpot {
+    pub fn cursor_place(&self) -> ChainCursorPlace {
+        ChainCursorPlace {
             entry: self.entry,
             column: self.column,
         }
     }
 
     /// Puts the cursor back where it was.
-    pub fn return_to(&mut self, spot: ChainSpot) {
-        self.entry = spot.entry;
-        self.column = spot.column;
+    pub fn return_to(&mut self, place: ChainCursorPlace) {
+        self.entry = place.entry;
+        self.column = place.column;
     }
 
     /// Puts the cursor on a Chain entry.

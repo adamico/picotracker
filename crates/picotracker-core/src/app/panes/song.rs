@@ -44,24 +44,24 @@ pub struct SongPane {
 
 /// Where the Song pane's cursor is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SongSpot {
+pub struct SongCursorPlace {
     row: usize,
     track: usize,
 }
 
 impl SongPane {
     /// Where the cursor is now.
-    pub fn spot(&self) -> SongSpot {
-        SongSpot {
+    pub fn cursor_place(&self) -> SongCursorPlace {
+        SongCursorPlace {
             row: self.row,
             track: self.track,
         }
     }
 
     /// Puts the cursor back where it was.
-    pub fn return_to(&mut self, spot: SongSpot) {
-        self.row = spot.row;
-        self.track = spot.track;
+    pub fn return_to(&mut self, place: SongCursorPlace) {
+        self.row = place.row;
+        self.track = place.track;
     }
 
     /// The Song row under the cursor.
