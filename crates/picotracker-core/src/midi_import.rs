@@ -12,18 +12,13 @@ pub use table::{DRUM_ROWS, DrumHit, MidiTable, PROGRAMS, family_name};
 use read::{Note, Score};
 use std::fmt;
 
-/// The Steps per beat the user can pick from.
 pub const STEPS_PER_BEAT: [u8; 5] = [2, 3, 4, 6, 8];
-/// The Steps per beat each Import starts on.
 pub const DEFAULT_STEPS_PER_BEAT: u8 = 4;
 
-/// Why a file cannot be Imported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportError {
     NotMidi,
-    /// A format 2 file, whose tracks are separate songs.
     SequentialTracks,
-    /// A file timed in SMPTE frames instead of beats.
     TimecodeTiming,
     NoNotes,
 }
@@ -82,7 +77,6 @@ impl Voice {
 pub struct Analysis {
     score: Score,
     voices: Vec<Voice>,
-    /// Drum notes no kit row answers to.
     unmapped_drums: Vec<u8>,
     unmapped_drum_count: usize,
 }
@@ -146,7 +140,6 @@ pub fn analyse(bytes: &[u8]) -> Result<Analysis, ImportError> {
 /// What the user decides in the dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Choices {
-    /// Whether each voice is kept, in the order of `Analysis::voices`.
     pub ticked: Vec<bool>,
     pub steps_per_beat: u8,
     pub table: MidiTable,

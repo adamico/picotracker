@@ -68,11 +68,8 @@
 //! SOFTWARE.
 //! ```
 
-/// The rate the synth mixes at.
 pub const SAMPLE_RATE: u32 = 22_050;
-/// The length of one Tick.
 pub const SAMPLES_PER_TICK: u32 = 183;
-/// The notes in one sound.
 pub const NOTES: usize = 32;
 
 const RATE: f64 = SAMPLE_RATE as f64;
@@ -107,7 +104,6 @@ const INST_PHASER: u8 = 7;
 pub struct Note {
     pub pitch: i16,
     pub instrument: u8,
-    /// Plays the SFX Instrument in the `instrument` slot instead of a Built-in Instrument.
     pub custom: bool,
     pub volume: u8,
     pub effect: u8,
@@ -118,7 +114,6 @@ pub struct Note {
 pub struct Sound {
     pub notes: [Note; NOTES],
     pub speed: u8,
-    /// The filters, packed as by [`packed_filters`].
     pub filters: u8,
     pub loop_start: u8,
     pub loop_end: u8,

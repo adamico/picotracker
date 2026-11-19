@@ -28,7 +28,6 @@ impl<T: Clone + PartialEq> Swap<T> {
     }
 }
 
-/// Which way a change is being applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Way {
     Back,

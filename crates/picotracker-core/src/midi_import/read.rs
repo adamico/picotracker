@@ -4,7 +4,6 @@ use super::ImportError;
 use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The channel that plays drums, counted from 0.
 pub(super) const DRUM_CHANNEL: u8 = 9;
 
 const SUSTAIN_PEDAL: u8 = 64;
@@ -52,7 +51,6 @@ impl Default for Metre {
     }
 }
 
-/// Data the file holds that Import does not use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Unused {
     PitchBend,
@@ -65,10 +63,8 @@ pub(super) enum Unused {
 pub(super) struct Score {
     pub(super) ticks_per_beat: u32,
     pub(super) sources: Vec<Source>,
-    /// Tempo changes in order: the tick and the microseconds per beat.
     pub(super) tempos: Vec<(u32, u32)>,
     pub(super) metres: Vec<(u32, Metre)>,
-    /// Program changes in order, for each channel.
     pub(super) programs: [Vec<(u32, u8)>; CHANNELS],
     pub(super) volume_ignored: bool,
     pub(super) expression_ignored: bool,
@@ -98,8 +94,7 @@ type NoteRef = (usize, usize);
 #[derive(Default)]
 struct TrackState {
     sounding: BTreeMap<(u8, u8), NoteRef>,
-    /// Notes released while the pedal is down.
-    pedalled: BTreeMap<(u8, u8), NoteRef>,
+    held_by_pedal: BTreeMap<(u8, u8), NoteRef>,
     pedal_down: [bool; CHANNELS],
 }
 
@@ -151,7 +146,6 @@ pub(super) fn read(bytes: &[u8]) -> Result<Score, ImportError> {
 
 struct Reader {
     score: Score,
-    /// The source of each (MIDI track, channel) pair. Drums share one, under track 0.
     source_of: BTreeMap<(usize, u8), usize>,
 }
 
@@ -191,7 +185,7 @@ impl Reader {
                 let held = (channel, key.as_int());
                 if let Some(note) = state.sounding.remove(&held) {
                     if state.pedal_down[usize::from(channel)] {
-                        state.pedalled.insert(held, note);
+                        state.held_by_pedal.insert(held, note);
                     } else {
                         self.end_note(note, tick);
                     }
@@ -226,13 +220,13 @@ impl Reader {
                 state.pedal_down[usize::from(channel)] = down;
                 if !down {
                     let released: Vec<(u8, u8)> = state
-                        .pedalled
+                        .held_by_pedal
                         .keys()
                         .filter(|(held, _)| *held == channel)
                         .copied()
                         .collect();
                     for held in released {
-                        if let Some(note) = state.pedalled.remove(&held) {
+                        if let Some(note) = state.held_by_pedal.remove(&held) {
                             self.end_note(note, tick);
                         }
                     }
@@ -256,9 +250,12 @@ impl Reader {
     ) {
         // A key struck again ends the note it was still playing.
         let held = (channel, key);
-        for note in [state.sounding.remove(&held), state.pedalled.remove(&held)]
-            .into_iter()
-            .flatten()
+        for note in [
+            state.sounding.remove(&held),
+            state.held_by_pedal.remove(&held),
+        ]
+        .into_iter()
+        .flatten()
         {
             self.end_note(note, tick);
         }
@@ -293,7 +290,7 @@ impl Reader {
         for note in state
             .sounding
             .into_values()
-            .chain(state.pedalled.into_values())
+            .chain(state.held_by_pedal.into_values())
         {
             self.end_note(note, tick);
         }

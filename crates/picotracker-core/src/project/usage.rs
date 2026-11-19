@@ -9,7 +9,6 @@ use super::{
 pub struct UnusedItems {
     pub chains: Vec<ChainId>,
     pub phrases: Vec<PhraseId>,
-    /// How many of the Phrases no Chain plays at all, not even a Chain that is going too.
     pub loose_phrases: usize,
 }
 

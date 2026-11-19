@@ -4,8 +4,6 @@ use super::Voice;
 use super::read::{Note, Score, Source};
 use super::table::{drum_row, family_name};
 
-/// A note may overlap the next one by this fraction of a beat and still share its voice, because
-/// played parts rarely let go exactly on time.
 const LEGATO_BEAT_FRACTION: u32 = 8;
 
 /// The voices of every source, in file order, with one source's voices next to each other.
@@ -18,6 +16,8 @@ pub(super) fn split(score: &Score) -> Vec<Voice> {
         .collect()
 }
 
+/// A note may overlap the next one by a fraction of a beat and still share its voice, because
+/// played parts rarely let go exactly on time.
 fn voices_of(score: &Score, index: usize, source: &Source) -> Vec<Voice> {
     let legato = score.ticks_per_beat / LEGATO_BEAT_FRACTION;
     let mut notes: Vec<Note> = source

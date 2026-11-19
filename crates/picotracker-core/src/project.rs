@@ -9,33 +9,21 @@ pub use usage::UnusedItems;
 
 use std::collections::BTreeMap;
 
-/// The most Steps a Phrase can hold.
 pub const MAX_STEPS: usize = 32;
-/// The vertical lanes of the Song.
 pub const TRACKS: usize = 8;
-/// The entries of every Chain.
 pub const CHAIN_ENTRIES: usize = 16;
-/// The rows of the Song, as many as a two-digit hexadecimal row label can name.
 pub const SONG_ROWS: usize = 256;
-/// PICO-8's channels, each of which can carry one Export Track.
 pub const EXPORT_CHANNELS: usize = 4;
-/// The samples of a Waveform Instrument.
 pub const WAVEFORM_SAMPLES: usize = 64;
-/// The lowest number a Custom Instrument can have. Lower numbers are Built-in Instruments.
 pub const FIRST_CUSTOM_INSTRUMENT: u8 = 8;
-/// The longest name a Custom Instrument can have.
 pub const MAX_INSTRUMENT_NAME: usize = 12;
-/// The SFX and the Patterns of a Cart.
 pub const CART_SLOTS: u8 = 64;
-/// The highest DETUNE, REVERB or DAMPEN.
 pub const MAX_FILTER_LEVEL: i32 = 2;
 
-/// The names of the 12 semitones, as a Step's pitch shows them.
 pub const NOTE_NAMES: [&str; 12] = [
     "C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-",
 ];
 
-/// The Chains and the Phrases a Project can name with two hexadecimal digits.
 const ID_COUNT: usize = 256;
 const MIN_TRANSPOSE: i32 = i8::MIN as i32;
 const MAX_TRANSPOSE: i32 = i8::MAX as i32;
@@ -43,14 +31,12 @@ const MAX_TRANSPOSE: i32 = i8::MAX as i32;
 const DEFAULT_LENGTH: usize = 16;
 const DEFAULT_SPEED: u8 = 16;
 const DEFAULT_PITCH: u8 = 24;
-/// The highest pitch PICO-8 plays, D#5.
 pub(crate) const MAX_PITCH: i32 = 63;
 const MAX_BUILT_IN_INSTRUMENT: i32 = 7;
 const MAX_VOLUME: i32 = 7;
 const MAX_EFFECT: i32 = 7;
 const EFFECT_ARPEGGIO_FAST: u8 = 6;
 const EFFECT_ARPEGGIO_SLOW: u8 = 7;
-/// The Steps an arpeggio plays: the group of this many that it falls in.
 pub const ARPEGGIO_GROUP: usize = 4;
 
 /// The first Step of the arpeggio group a Step falls in.
@@ -59,7 +45,6 @@ pub const fn arpeggio_group_start(index: usize) -> usize {
 }
 const MIN_SPEED: i32 = 1;
 const MAX_SPEED: i32 = 255;
-/// BPM is about this number divided by the Speed, assuming 4 Steps per beat.
 const BPM_AT_SPEED_1: f32 = 1807.0;
 
 /// One PICO-8 note. A Step at volume 0 is silent and keeps its pitch and Instrument.
@@ -443,7 +428,6 @@ pub struct WaveformInstrument {
     pub dampen: u8,
 }
 
-/// What a Custom Instrument sounds like.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstrumentSound {
     Sfx(SfxInstrument),
@@ -467,10 +451,8 @@ pub struct Claim {
 /// The one Cart a Project Exports into.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetCart {
-    /// Where the Cart is, relative to the Project file.
     pub path: String,
     pub claim: Claim,
-    /// The hash of the claimed bytes at the last Cart Import or Export, if there has been one.
     pub claimed_bytes_hash: Option<String>,
 }
 
@@ -491,7 +473,6 @@ pub struct Project {
     song: Vec<[Option<ChainId>; TRACKS]>,
     song_loop_row: Option<usize>,
     default_speed: u8,
-    /// The Track on each of PICO-8's channels, numbered 1 to 8.
     export_tracks: [Option<u8>; EXPORT_CHANNELS],
     target_cart: Option<TargetCart>,
     custom_instruments: BTreeMap<u8, CustomInstrument>,

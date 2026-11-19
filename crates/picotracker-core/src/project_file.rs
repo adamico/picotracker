@@ -13,25 +13,20 @@ use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// The version of the `.ptrk` format that this app reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Rewrites the text of one format version as the text of the next.
 pub type Migration = fn(&str) -> Result<String, String>;
 
-/// One migration per older version: the first takes version 1 to version 2.
 const MIGRATIONS: [Migration; FORMAT_VERSION as usize - 1] = [];
 
 const SILENT_TOKEN: &str = "--- -- - -";
 const EMPTY_CELL: &str = "--";
 const SEMITONES_PER_OCTAVE: u8 = 12;
 
-/// Why a `.ptrk` file could not be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectFileError {
-    /// The file comes from a newer version of the app.
     Newer { found: u32 },
-    /// The text is not a Project this app understands.
     Damaged(String),
 }
 
@@ -144,7 +139,6 @@ struct PatternRangeDocument {
 #[derive(Serialize, Deserialize)]
 struct SongRowDocument {
     row: u16,
-    /// The Chain on each Track, such as `00 -- -- 01 -- -- -- --`.
     tracks: String,
 }
 
@@ -172,7 +166,6 @@ struct PhraseDocument {
     detune: u8,
     reverb: u8,
     dampen: u8,
-    /// Step tokens from the first Step. Steps left out hold the default values.
     steps: Vec<String>,
 }
 
