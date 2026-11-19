@@ -26,6 +26,8 @@ const SFX_INSTRUMENTS: u8 = 8;
 const PITCH_WINDOW_TICKS: u32 = 4;
 const CENTS_PER_PITCH: f32 = 100.0;
 const VIBRATO_TICKS: std::ops::Range<u32> = 80..120;
+const NOISE_CASE: &str = "coverage_sfx14";
+const PLAIN_NOISE_TICKS: [std::ops::Range<usize>; 2] = [1..40, 241..320];
 const VIBRATO_CASES: [&str; 6] = [
     "coverage_sfx08",
     "coverage_sfx09",
@@ -345,6 +347,32 @@ fn vibrato_matches_real_pico8_within_the_pitch_limit() {
         })
         .collect();
     assert!(off.is_empty(), "\n{}", off.join("\n"));
+}
+
+/// Plain noise matches real PICO-8's level on average within the level limit. Each Tick of noise
+/// is random, which the wider noise limit allows for, but over many Ticks the randomness evens
+/// out, so the average must match as closely as a tone. The noise coverage SFX's plain notes
+/// are its first four and its arpeggios; its other notes are slides, drops and fades.
+#[test]
+fn plain_noise_matches_real_pico8_level_on_average() {
+    let case = cases::all()
+        .into_iter()
+        .find(|case| case.name == NOISE_CASE)
+        .unwrap();
+    let reference = committed_fingerprint(&case);
+    let ours = fingerprint::measure(&rendered(&case), reference.tick_levels_db.len());
+    let ticks: Vec<usize> = PLAIN_NOISE_TICKS.into_iter().flatten().collect();
+    let average = |levels: &[f32]| {
+        ticks.iter().map(|&tick| levels[tick]).sum::<f32>() / ticks.len() as f32
+    };
+    let (expected, actual) = (
+        average(&reference.tick_levels_db),
+        average(&ours.tick_levels_db),
+    );
+    assert!(
+        (actual - expected).abs() <= SPEC_LIMITS.level_db,
+        "plain noise averages {actual} dB, PICO-8 {expected}"
+    );
 }
 
 fn synth_hash(samples: &[f32]) -> String {
