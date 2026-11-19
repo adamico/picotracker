@@ -14,6 +14,10 @@ _Avoid_: Song file, module
 The top-level arrangement of a Project: rows of Chains, one per Track.
 _Avoid_: Arrangement, sequence
 
+**Song loop row**:
+The Song row that playback jumps back to once the Song reaches its first empty row. A Song with no Song loop row stops there.
+_Avoid_: Loop start (that is PICO-8's flag), loop point
+
 **Track**:
 One of the Song's 8 vertical lanes, played by one voice. Export picks 4 of them for PICO-8's channels.
 _Avoid_: Channel (that is PICO-8's word)
@@ -33,6 +37,10 @@ _Avoid_: Loop (Phrases have no loop points)
 **Phrase**:
 A run of 1 to 32 Steps (16 by default); the unit where notes are written.
 _Avoid_: Pattern (that is PICO-8's word), SFX
+
+**Loose Phrase**:
+A Phrase that holds something but that no Chain uses. Cart Import keeps a Cart's other SFX as loose Phrases, outside the Claim.
+_Avoid_: Orphan Phrase
 
 **Step**:
 One row of a Phrase, equivalent to one PICO-8 note: a pitch with its instrument, volume and effect. A Step at volume 0 is silent and is shown as empty; a note is held by repeating it in the following Steps.
@@ -120,6 +128,10 @@ _Avoid_: Linked cart, output cart
 **Claim**:
 The SFX slots and the range of Patterns in the Project's Target Cart that the Project owns. The SFX part is any set of slots; the Pattern part is one contiguous range. Export writes only inside the Claim.
 _Avoid_: Reservation, allocation
+
+**Claimed-bytes hash**:
+A fingerprint of the Target Cart's bytes inside the Claim, taken at Cart Import and after each Export. When the Cart no longer matches it, those bytes were changed outside the tracker.
+_Avoid_: Checksum
 
 **Import**:
 Reconstructing a Project from outside material: a Cart's SFX and Patterns (Cart Import) or a Standard MIDI File (MIDI Import).
