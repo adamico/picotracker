@@ -8,10 +8,10 @@ use picotracker_core::cart::Cart;
 use picotracker_core::project::Claim;
 use support::HEADER;
 
-/// Filters 0x0a, Speed 0x20, loop 2 to 8, and a first note `18350`: pitch 0x18, instrument 3,
-/// volume 5, effect 0, which is the word 0x0AD8.
 const WRITTEN_SFX_LINE_START: &str = "0a20020818350";
 
+/// Filters 0x0a, Speed 0x20, loop 2 to 8, and a first note `18350`: pitch 0x18, instrument 3,
+/// volume 5, effect 0, which is the word 0x0AD8.
 fn sfx_bytes() -> [u8; 68] {
     let mut sfx = [0; 68];
     sfx[..2].copy_from_slice(&[0xD8, 0x0A]);

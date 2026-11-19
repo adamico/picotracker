@@ -187,7 +187,6 @@ fn random_p8(rng: &mut Rng) -> Vec<u8> {
     text.into_bytes()
 }
 
-/// What a line of a `.p8` file is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Mark,

@@ -2,7 +2,7 @@
 
 mod midi_support;
 
-use midi_support::{STEP, Song};
+use midi_support::{Song, TICKS_PER_STEP};
 use picotracker_core::app::{
     Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, KeyContext,
 };
@@ -31,15 +31,15 @@ fn shows(app: &App, text: &str) -> bool {
 }
 
 fn melody() -> Song {
-    Song::new().note(0, STEP, 1, MIDDLE_C, 127)
+    Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
 }
 
 /// Two sources: a two-note chord on channel 1, and a kick on channel 10.
 fn band() -> Song {
     Song::new()
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .note(0, STEP, 1, MIDDLE_C + 4, 127)
-        .note(0, STEP, 10, 36, 127)
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C + 4, 127)
+        .note(0, TICKS_PER_STEP, 10, 36, 127)
 }
 
 fn dialog_on(song: &Song) -> App {
@@ -169,7 +169,7 @@ fn s_ticks_a_whole_source() {
 #[test]
 fn voices_past_eight_show_as_dropped_and_say_how_to_keep_them() {
     let song = (0..9).fold(Song::new(), |song, voice| {
-        song.note(0, STEP, 1, MIDDLE_C + voice, 127)
+        song.note(0, TICKS_PER_STEP, 1, MIDDLE_C + voice, 127)
     });
 
     let app = dialog_on(&song);
@@ -222,7 +222,7 @@ fn the_instruments_page_edits_the_program_table_for_this_import() {
 
 #[test]
 fn the_drum_kit_edits_instrument_note_and_effect() {
-    let mut app = dialog_on(&Song::new().note(0, STEP, 10, 36, 127));
+    let mut app = dialog_on(&Song::new().note(0, TICKS_PER_STEP, 10, 36, 127));
     press(&mut app, &[Action::Confirm, Action::Confirm]);
 
     press(

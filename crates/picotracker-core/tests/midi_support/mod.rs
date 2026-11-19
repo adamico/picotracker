@@ -6,10 +6,8 @@ use midly::{
     Format, Header, MetaMessage, MidiMessage, PitchBend, Smf, Timing, TrackEvent, TrackEventKind,
 };
 
-/// Ticks in one beat of every file built here.
-pub const BEAT: u32 = 96;
-/// One Step at the default 4 Steps per beat.
-pub const STEP: u32 = BEAT / 4;
+pub const TICKS_PER_BEAT: u32 = 96;
+pub const TICKS_PER_STEP: u32 = TICKS_PER_BEAT / 4;
 
 /// A file under construction: events at absolute ticks, track by track.
 pub struct Song {
@@ -150,7 +148,10 @@ impl Song {
             track
         });
         let smf = Smf {
-            header: Header::new(Format::Parallel, Timing::Metrical(u15::new(BEAT as u16))),
+            header: Header::new(
+                Format::Parallel,
+                Timing::Metrical(u15::new(TICKS_PER_BEAT as u16)),
+            ),
             tracks: tracks.collect(),
         };
         let mut bytes = Vec::new();

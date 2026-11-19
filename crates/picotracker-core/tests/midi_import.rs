@@ -2,13 +2,12 @@
 
 mod midi_support;
 
-use midi_support::{BEAT, STEP, Song};
+use midi_support::{Song, TICKS_PER_BEAT, TICKS_PER_STEP};
 use picotracker_core::midi_import::{self, Analysis, Choices, Imported};
 use picotracker_core::project::{Phrase, Project, Step};
 
 const TILTED_SAW: u8 = 1;
 const MIDDLE_C: u8 = 60;
-/// PICO-8's pitch for MIDI note 60: pitch 33 is A 440, which is MIDI note 69.
 const MIDDLE_C_PITCH: u8 = 24;
 
 fn analysed(song: &Song) -> Analysis {
@@ -36,7 +35,7 @@ fn note(pitch: u8, instrument: u8, volume: u8) -> Step {
 
 #[test]
 fn a_note_becomes_a_step_at_the_matching_pitch_and_volume() {
-    let song = Song::new().note(0, STEP, 1, MIDDLE_C, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -48,7 +47,7 @@ fn a_note_becomes_a_step_at_the_matching_pitch_and_volume() {
 fn velocity_becomes_a_volume_rounded_up() {
     let volumes = [(1, 1), (18, 1), (19, 2), (64, 4), (126, 7), (127, 7)];
     for (velocity, volume) in volumes {
-        let song = Song::new().note(0, STEP, 1, MIDDLE_C, velocity);
+        let song = Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, velocity);
 
         let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -58,10 +57,9 @@ fn velocity_becomes_a_volume_rounded_up() {
 
 #[test]
 fn a_held_note_repeats_and_a_gap_is_silent() {
-    let song =
-        Song::new()
-            .note(0, STEP * 3, 1, MIDDLE_C, 127)
-            .note(STEP * 5, STEP, 1, MIDDLE_C + 2, 127);
+    let song = Song::new()
+        .note(0, TICKS_PER_STEP * 3, 1, MIDDLE_C, 127)
+        .note(TICKS_PER_STEP * 5, TICKS_PER_STEP, 1, MIDDLE_C + 2, 127);
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -76,13 +74,15 @@ fn a_held_note_repeats_and_a_gap_is_silent() {
 
 #[test]
 fn note_starts_snap_to_the_nearest_step_and_lengths_last_at_least_one_step() {
-    let song = Song::new().note(STEP + STEP / 2, 1, 1, MIDDLE_C, 127).note(
-        STEP * 4 + STEP / 2 - 1,
-        1,
-        1,
-        MIDDLE_C + 2,
-        127,
-    );
+    let song = Song::new()
+        .note(TICKS_PER_STEP + TICKS_PER_STEP / 2, 1, 1, MIDDLE_C, 127)
+        .note(
+            TICKS_PER_STEP * 4 + TICKS_PER_STEP / 2 - 1,
+            1,
+            1,
+            MIDDLE_C + 2,
+            127,
+        );
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -97,8 +97,8 @@ fn note_starts_snap_to_the_nearest_step_and_lengths_last_at_least_one_step() {
 fn the_sustain_pedal_holds_a_released_note_until_it_lifts() {
     let song = Song::new()
         .controller(0, 1, 64, 127)
-        .note(0, STEP, 1, MIDDLE_C, 127)
-        .controller(STEP * 3, 1, 64, 0);
+        .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
+        .controller(TICKS_PER_STEP * 3, 1, 64, 0);
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
@@ -108,7 +108,9 @@ fn the_sustain_pedal_holds_a_released_note_until_it_lifts() {
 
 #[test]
 fn the_speed_comes_from_the_tempo_and_the_steps_per_beat() {
-    let song = Song::new().tempo(0, 100).note(0, BEAT, 1, MIDDLE_C, 127);
+    let song = Song::new()
+        .tempo(0, 100)
+        .note(0, TICKS_PER_BEAT, 1, MIDDLE_C, 127);
     let analysis = analysed(&song);
     let mut choices = Choices::defaults_for(&analysis);
 
@@ -126,14 +128,14 @@ fn the_speed_comes_from_the_tempo_and_the_steps_per_beat() {
 
 #[test]
 fn a_file_with_no_tempo_plays_at_120_bpm() {
-    let song = Song::new().note(0, STEP, 1, MIDDLE_C, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
     assert_eq!(phrase(&project(&song), 0, 0, 0).speed(), 15);
 }
 
 #[test]
 fn the_project_has_only_built_in_instruments_no_fill_no_claim_and_no_target_cart() {
-    let song = Song::new().note(0, STEP, 1, MIDDLE_C, 127);
+    let song = Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
     let project = project(&song);
 

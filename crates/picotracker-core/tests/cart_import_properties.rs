@@ -16,7 +16,6 @@ const DAMAGED_CARTS: u64 = 120;
 const CART_BYTES: usize = 160 * 205;
 const SONG_ROWS_CHECKED: usize = 64;
 
-/// Values on either side of every rule about LEN, loops and bit 7.
 const LOOP_BYTES: [u8; 14] = [0, 1, 2, 4, 8, 31, 32, 33, 40, 64, 127, 128, 200, 255];
 const SPEEDS: [u8; 9] = [0, 1, 2, 3, 5, 8, 16, 100, 255];
 

@@ -9,7 +9,6 @@ const UP: Action = Action::Move(Direction::Up);
 const DOWN: Action = Action::Move(Direction::Down);
 const LEFT: Action = Action::Move(Direction::Left);
 const RIGHT: Action = Action::Move(Direction::Right);
-/// The piano key for C in the lower octave of the keyboard.
 const C: Action = Action::PianoKey(0);
 
 /// An app with the Phrase pane focused, after some actions.

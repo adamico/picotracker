@@ -10,7 +10,6 @@ const SNAPSHOT: &str = concat!(
     "/tests/snapshots/font_and_palette.png"
 );
 
-/// The 16 colours as PICO-8's manual lists them.
 const PICO8_PALETTE: [[u8; 3]; 16] = [
     [0, 0, 0],
     [29, 43, 83],

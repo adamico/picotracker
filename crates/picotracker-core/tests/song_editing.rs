@@ -358,11 +358,11 @@ fn set_song_loop_row_moves_the_loop_and_a_second_press_turns_it_off() {
     assert_eq!(app.project().song_loop_row(), Some(0));
     assert_eq!(song_text(&app, 0), "SONG  LOOP 00");
 
-    app.apply(Action::SetSongLoopRow);
+    app.apply(Action::ToggleSongLoopRow);
     assert_eq!(app.project().song_loop_row(), Some(2));
     assert_eq!(song_text(&app, 0), "SONG  LOOP 02");
 
-    app.apply(Action::SetSongLoopRow);
+    app.apply(Action::ToggleSongLoopRow);
     assert_eq!(app.project().song_loop_row(), None);
     assert_eq!(song_text(&app, 0), "SONG  LOOP --");
 }
@@ -377,7 +377,7 @@ fn the_song_editing_keys_are_bound_in_the_pc_tracker_preset() {
     );
     assert_eq!(
         keymap.action_for(KeyPress::new(Key::Char('r'), Modifiers::CTRL)),
-        Some(Action::SetSongLoopRow)
+        Some(Action::ToggleSongLoopRow)
     );
 }
 

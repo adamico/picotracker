@@ -15,16 +15,11 @@ const TAB: Action = Action::FocusNext;
 
 const SPEED: i32 = 8;
 const STEP_SAMPLES: usize = SPEED as usize * SAMPLES_PER_TICK as usize;
-/// Skips the crossfade at the start of a Step.
-const SETTLE: usize = 300;
+const CROSSFADE_SAMPLES: usize = 300;
 
-/// Pitch 21, which sounds at 220 Hz.
 const A1: Option<i32> = Some(21);
-/// Pitch 33, which sounds at 440 Hz.
 const A2: Option<i32> = Some(33);
-/// Pitch 45, which sounds at 880 Hz.
 const A3: Option<i32> = Some(45);
-/// Pitch 57, which sounds at 1760 Hz.
 const A4: Option<i32> = Some(57);
 const REST: Option<i32> = None;
 
@@ -94,7 +89,7 @@ fn hear(project: Project, actions: &[Action], steps: usize) -> Vec<f32> {
 }
 
 fn step_frequency(samples: &[f32], step: usize) -> f32 {
-    let window = &samples[step * STEP_SAMPLES + SETTLE..(step + 1) * STEP_SAMPLES];
+    let window = &samples[step * STEP_SAMPLES + CROSSFADE_SAMPLES..(step + 1) * STEP_SAMPLES];
     let rising: Vec<usize> = window
         .windows(2)
         .enumerate()
@@ -107,7 +102,7 @@ fn step_frequency(samples: &[f32], step: usize) -> f32 {
 }
 
 fn step_peak(samples: &[f32], step: usize) -> f32 {
-    samples[step * STEP_SAMPLES + SETTLE..(step + 1) * STEP_SAMPLES]
+    samples[step * STEP_SAMPLES + CROSSFADE_SAMPLES..(step + 1) * STEP_SAMPLES]
         .iter()
         .fold(0.0, |peak, sample| peak.max(sample.abs()))
 }
