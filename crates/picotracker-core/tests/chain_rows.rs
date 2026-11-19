@@ -1,7 +1,7 @@
 //! The Chain row strip and the flag on Steps a transpose pushes outside PICO-8's pitch range.
 
 use picotracker_core::app::{Action, App};
-use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
+use picotracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
 
 const FIRST_STRIP_LINE: usize = 21;
 const FIRST_ENTRY_LINE: usize = 2;
@@ -197,4 +197,30 @@ fn a_step_past_len_is_not_flagged() {
     let app = App::with_project(project);
 
     assert_eq!(chain_text(&app, 0), "0 01 +0C ----");
+}
+
+/// Phrase 01 with an arpeggio on Step 00 that reads Step 01, a silent D#5, through a +1 transpose.
+fn arpeggio_reading_a_silent_d_sharp_5(length: i32) -> App {
+    let mut project = Project::new();
+    let id = phrase(&mut project, 1, length, 8);
+    *project.phrase_mut(id).step_mut(0) = Step::new(24, 0, 5, 6).unwrap();
+    *project.phrase_mut(id).step_mut(1) = Step::new(63, 0, 0, 0).unwrap();
+    place(&mut project, 0, 0, 0, &[transposed(id, 1)]);
+    App::with_project(project)
+}
+
+#[test]
+fn a_silent_step_an_arpeggio_reads_is_flagged_like_export_rejects_it() {
+    let app = arpeggio_reading_a_silent_d_sharp_5(4);
+
+    assert_eq!(step_text(&app, 0), "00 C-2 00 5 6");
+    assert_eq!(step_text(&app, 1), "01 ... .. . . !");
+    assert_eq!(chain_text(&app, 0), "0 01 +01 ---- !");
+}
+
+#[test]
+fn a_step_past_len_an_arpeggio_reads_flags_the_chain_entry() {
+    let app = arpeggio_reading_a_silent_d_sharp_5(1);
+
+    assert_eq!(chain_text(&app, 0), "0 01 +01 ---- !");
 }

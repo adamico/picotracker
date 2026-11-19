@@ -2,7 +2,9 @@
 //! plays in that time (ADR 0006).
 
 use crate::cart::{Cart, Pattern, SFX_NOTES, Sfx};
-use crate::project::{ARPEGGIO_GROUP, EXPORT_CHANNELS, Filters, MAX_STEPS, Phrase, Step};
+use crate::project::{
+    ARPEGGIO_GROUP, EXPORT_CHANNELS, Filters, MAX_STEPS, Phrase, Step, arpeggio_group_start,
+};
 use std::collections::BTreeSet;
 
 const BIT_7: u8 = 0x80;
@@ -122,7 +124,6 @@ fn carry_arpeggio_pitches(
     played: &[Option<usize>],
     phrase: &mut Phrase,
 ) -> Option<usize> {
-    let group_of = |index: usize| index - index % ARPEGGIO_GROUP;
     let mut pitches = [None; MAX_STEPS];
     for (index, note) in played.iter().enumerate() {
         pitches[index] = note.map(|note| sfx.note(note).pitch);
@@ -134,10 +135,10 @@ fn carry_arpeggio_pitches(
             continue;
         }
         let wanted: [u8; ARPEGGIO_GROUP] =
-            std::array::from_fn(|offset| sfx.note(group_of(note) + offset).pitch);
+            std::array::from_fn(|offset| sfx.note(arpeggio_group_start(note) + offset).pitch);
         let mut keeps_sound = index == note || wanted.iter().all(|pitch| *pitch == wanted[0]);
         for (offset, pitch) in wanted.into_iter().enumerate() {
-            let slot = &mut pitches[group_of(index) + offset];
+            let slot = &mut pitches[arpeggio_group_start(index) + offset];
             keeps_sound &= *slot.get_or_insert(pitch) == pitch;
         }
         if !keeps_sound {
