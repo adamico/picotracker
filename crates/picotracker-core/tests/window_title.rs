@@ -1,6 +1,6 @@
 //! The window title names the Project and marks unsaved changes, as the status line does.
 
-use picotracker_core::app::{Action, App, FileResponse, Launch};
+use picotracker_core::app::{Action, App, FileResponse, Launch, StateContents};
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
 use picotracker_core::settings::{AppState, write_state};
@@ -11,8 +11,8 @@ fn open(app: &mut App, path: &str) {
     let mut state = AppState::default();
     state.remember_project(PathBuf::from(path));
     app.launch(Launch {
-        state_file: PathBuf::from("/state/state.ron"),
-        state: Some(write_state(&state)),
+        state_file: Some(PathBuf::from("/state/state.ron")),
+        state: StateContents::Bytes(write_state(&state).into_bytes()),
         directory: PathBuf::from("/"),
     });
     app.take_file_requests();

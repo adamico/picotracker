@@ -4,7 +4,9 @@
 
 mod support;
 
-use picotracker_core::app::{Action, App, DirectoryEntry, FileRequest, FileResponse, Launch};
+use picotracker_core::app::{
+    Action, App, DirectoryEntry, FileRequest, FileResponse, Launch, StateContents,
+};
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
 use picotracker_core::settings::{AppState, StateRead, read_state, write_state};
@@ -15,13 +17,38 @@ const STATE_FILE: &str = "/state/picotracker/state.ron";
 const HOME: &str = "/home/user";
 
 fn launch(state: Option<String>) -> App {
+    launch_with(state.map_or(StateContents::Missing, |text| {
+        StateContents::Bytes(text.into_bytes())
+    }))
+}
+
+fn launch_with(state: StateContents) -> App {
     let mut app = App::new();
     app.launch(Launch {
-        state_file: PathBuf::from(STATE_FILE),
+        state_file: Some(PathBuf::from(STATE_FILE)),
         state,
         directory: PathBuf::from(HOME),
     });
     app
+}
+
+/// Edits, saves as `s.ptrk` in the launch folder and finishes the write; returns what the app
+/// asks for next.
+fn save_a_new_project(app: &mut App, folder: &str) -> Vec<FileRequest> {
+    app.apply(Action::HexDigit(1));
+    app.apply(Action::SaveAs);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Listed {
+        directory: PathBuf::from(folder),
+        entries: vec![],
+    });
+    app.apply(Action::TypeChar('s'));
+    app.apply(Action::Confirm);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Written {
+        path: PathBuf::from(folder).join("s.ptrk"),
+    });
+    app.take_file_requests()
 }
 
 fn state_remembering(paths: &[&str]) -> String {
@@ -202,39 +229,91 @@ fn a_newer_state_file_is_left_alone_for_the_whole_session() {
             .starts_with("! STATE.RON IS FROM A NEWER PICOTRACKER: USING DEFAULTS THIS SESSION")
     );
 
-    app.apply(Action::HexDigit(1));
-    app.apply(Action::SaveAs);
-    app.take_file_requests();
-    app.receive_file(FileResponse::Listed {
-        directory: PathBuf::from(HOME),
-        entries: vec![],
-    });
-    app.apply(Action::TypeChar('s'));
-    app.apply(Action::Confirm);
-    app.take_file_requests();
-    app.receive_file(FileResponse::Written {
-        path: PathBuf::from(HOME).join("s.ptrk"),
-    });
-
-    assert_eq!(state_written(&app.take_file_requests()), None);
+    assert_eq!(state_written(&save_a_new_project(&mut app, HOME)), None);
 }
 
 #[test]
 fn an_app_that_was_not_launched_with_a_state_file_never_writes_one() {
     let mut app = App::new();
-    app.apply(Action::HexDigit(1));
-    app.apply(Action::SaveAs);
-    app.take_file_requests();
-    app.receive_file(FileResponse::Listed {
-        directory: PathBuf::from("."),
-        entries: vec![],
-    });
-    app.apply(Action::TypeChar('s'));
-    app.apply(Action::Confirm);
-    app.take_file_requests();
-    app.receive_file(FileResponse::Written {
-        path: PathBuf::from("./s.ptrk"),
+
+    assert!(save_a_new_project(&mut app, ".").is_empty());
+}
+
+#[test]
+fn a_state_file_that_is_not_text_is_damaged_and_renamed() {
+    let mut app = launch_with(StateContents::Bytes(vec![0xFF, 0xFE, b'(']));
+
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::Rename {
+            from: PathBuf::from(STATE_FILE),
+            to: PathBuf::from(format!("{STATE_FILE}.bad")),
+        }]
+    );
+    assert!(status_line(&app).starts_with("! STATE.RON WAS DAMAGED"));
+}
+
+#[test]
+fn a_state_file_that_cannot_be_read_is_never_overwritten() {
+    let mut app = launch_with(StateContents::Unreadable {
+        reason: "Permission denied".to_owned(),
     });
 
     assert!(app.take_file_requests().is_empty());
+    assert!(
+        status_line(&app)
+            .starts_with("! CANNOT READ STATE.RON: PERMISSION DENIED. USING DEFAULTS THIS SESSION")
+    );
+    assert_eq!(state_written(&save_a_new_project(&mut app, HOME)), None);
+}
+
+#[test]
+fn a_damaged_state_file_that_cannot_be_renamed_is_never_overwritten() {
+    let mut app = launch(Some("(version: 1, recent_projects: [".to_owned()));
+    app.take_file_requests();
+
+    app.receive_file(FileResponse::Failed {
+        path: PathBuf::from(STATE_FILE),
+        reason: "Read-only file system".to_owned(),
+    });
+
+    assert!(
+        status_line(&app)
+            .starts_with("! CANNOT RENAME STATE.RON TO STATE.RON.BAD: READ-ONLY FILE SYSTEM")
+    );
+    assert_eq!(state_written(&save_a_new_project(&mut app, HOME)), None);
+}
+
+#[test]
+fn a_renamed_damaged_state_file_is_replaced_by_the_next_save() {
+    let mut app = launch(Some("(version: 1, recent_projects: [".to_owned()));
+    app.take_file_requests();
+
+    app.receive_file(FileResponse::Renamed {
+        path: PathBuf::from(format!("{STATE_FILE}.bad")),
+    });
+
+    assert_eq!(
+        state_written(&save_a_new_project(&mut app, HOME)),
+        Some(vec![PathBuf::from(HOME).join("s.ptrk")])
+    );
+}
+
+#[test]
+fn with_no_place_for_a_state_file_the_app_still_starts_in_the_launch_folder() {
+    let mut app = App::new();
+    app.launch(Launch {
+        state_file: None,
+        state: StateContents::Missing,
+        directory: PathBuf::from(HOME),
+    });
+
+    app.apply(Action::OpenProject);
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::List {
+            directory: PathBuf::from(HOME)
+        }]
+    );
+    assert!(save_a_new_project(&mut app, HOME).is_empty());
 }
