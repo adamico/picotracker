@@ -9,9 +9,9 @@ use picotracker_core::app::{
 };
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
-use picotracker_core::settings::{AppState, StateRead, read_state, write_state};
+use picotracker_core::settings::{StateRead, read_state};
 use std::path::PathBuf;
-use support::status_line;
+use support::{state_ron, status_line};
 
 const STATE_FILE: &str = "/state/picotracker/state.ron";
 const HOME: &str = "/home/user";
@@ -51,14 +51,6 @@ fn save_a_new_project(app: &mut App, folder: &str) -> Vec<FileRequest> {
     app.take_file_requests()
 }
 
-fn state_remembering(paths: &[&str]) -> String {
-    let mut state = AppState::default();
-    for path in paths.iter().rev() {
-        state.remember_project(PathBuf::from(path));
-    }
-    write_state(&state)
-}
-
 /// The recent Projects in the `state.ron` the app has just asked to write, if it asked.
 fn state_written(requests: &[FileRequest]) -> Option<Vec<PathBuf>> {
     requests.iter().find_map(|request| match request {
@@ -94,7 +86,7 @@ fn with_no_state_file_the_app_starts_empty_in_the_launch_folder() {
 
 #[test]
 fn the_last_opened_project_is_opened_at_launch() {
-    let mut app = launch(Some(state_remembering(&["/music/b.ptrk", "/music/a.ptrk"])));
+    let mut app = launch(Some(state_ron(&["/music/b.ptrk", "/music/a.ptrk"])));
 
     assert_eq!(
         app.take_file_requests(),
@@ -121,7 +113,7 @@ fn the_last_opened_project_is_opened_at_launch() {
 
 #[test]
 fn a_last_project_that_is_gone_leaves_an_empty_project_and_says_why() {
-    let mut app = launch(Some(state_remembering(&["/music/gone.ptrk"])));
+    let mut app = launch(Some(state_ron(&["/music/gone.ptrk"])));
     app.take_file_requests();
 
     app.receive_file(FileResponse::Failed {
@@ -135,7 +127,7 @@ fn a_last_project_that_is_gone_leaves_an_empty_project_and_says_why() {
 
 #[test]
 fn opening_a_project_remembers_it_first() {
-    let mut app = launch(Some(state_remembering(&["/music/a.ptrk"])));
+    let mut app = launch(Some(state_ron(&["/music/a.ptrk"])));
     app.receive_file(FileResponse::Failed {
         path: PathBuf::from("/music/a.ptrk"),
         reason: "busy".to_owned(),
@@ -204,18 +196,57 @@ fn saving_a_project_remembers_it_first() {
 
 #[test]
 fn a_damaged_state_file_is_renamed_and_the_app_says_so() {
-    let mut app = launch(Some("(version: 1, recent_projects: [".to_owned()));
+    for damaged in [
+        "(version: 1, recent_projects: [",
+        "not ron at all",
+        "(recent_projects: [])",
+    ] {
+        let mut app = launch(Some(damaged.to_owned()));
+
+        assert_eq!(
+            app.take_file_requests(),
+            [FileRequest::Rename {
+                from: PathBuf::from(STATE_FILE),
+                to: PathBuf::from(format!("{STATE_FILE}.bad")),
+            }],
+            "{damaged}"
+        );
+        assert!(
+            status_line(&app)
+                .starts_with("! STATE.RON WAS DAMAGED: RENAMED TO STATE.RON.BAD, USING DEFAULTS"),
+            "{damaged}"
+        );
+    }
+}
+
+#[test]
+fn a_state_file_with_no_recent_projects_field_starts_with_none() {
+    let mut app = launch(Some("(version: 1)".to_owned()));
+
+    assert!(app.take_file_requests().is_empty());
+    assert!(!status_line(&app).starts_with('!'));
+    assert_eq!(
+        state_written(&save_a_new_project(&mut app, HOME)),
+        Some(vec![PathBuf::from(HOME).join("s.ptrk")])
+    );
+}
+
+#[test]
+fn the_state_file_written_names_its_format_version_and_reopens_the_project_at_next_launch() {
+    let mut app = launch(None);
+    let requests = save_a_new_project(&mut app, HOME);
+    let [FileRequest::Write { contents, .. }] = &requests[..] else {
+        panic!("expected one state write, got {requests:?}");
+    };
+    assert!(contents.contains("version: 1"), "{contents}");
+
+    let mut next = launch(Some(contents.clone()));
 
     assert_eq!(
-        app.take_file_requests(),
-        [FileRequest::Rename {
-            from: PathBuf::from(STATE_FILE),
-            to: PathBuf::from(format!("{STATE_FILE}.bad")),
+        next.take_file_requests(),
+        [FileRequest::Read {
+            path: PathBuf::from(HOME).join("s.ptrk")
         }]
-    );
-    assert!(
-        status_line(&app)
-            .starts_with("! STATE.RON WAS DAMAGED: RENAMED TO STATE.RON.BAD, USING DEFAULTS")
     );
 }
 

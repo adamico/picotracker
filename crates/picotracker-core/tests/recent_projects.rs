@@ -1,15 +1,18 @@
 //! The recent Projects at the top of the Open file list.
 
+mod support;
+
 use picotracker_core::app::{
     Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, Launch, StateContents,
 };
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
-use picotracker_core::settings::{AppState, write_state};
 use std::path::PathBuf;
+use support::state_ron;
 
 const DOWN: Action = Action::Move(Direction::Down);
 const HOME: &str = "/home/user";
+const STATE_FILE: &str = "/state/state.ron";
 
 fn right_slot(app: &App, line: usize) -> String {
     let text: String = app
@@ -27,14 +30,10 @@ fn right_slot(app: &App, line: usize) -> String {
 /// Launches with these recent Projects, the most recent first. The last one fails to open, so
 /// the app starts with an untitled Project.
 fn launch_remembering(paths: &[&str]) -> App {
-    let mut state = AppState::default();
-    for path in paths.iter().rev() {
-        state.remember_project(PathBuf::from(path));
-    }
     let mut app = App::new();
     app.launch(Launch {
-        state_file: Some(PathBuf::from("/state/state.ron")),
-        state: StateContents::Bytes(write_state(&state).into_bytes()),
+        state_file: Some(PathBuf::from(STATE_FILE)),
+        state: StateContents::Bytes(state_ron(paths).into_bytes()),
         directory: PathBuf::from(HOME),
     });
     app.take_file_requests();
@@ -142,13 +141,10 @@ fn after_moving_to_another_folder_the_cursor_is_on_its_first_row() {
 
 #[test]
 fn the_open_project_is_not_listed_as_recent() {
-    let mut state = AppState::default();
-    state.remember_project(PathBuf::from("/old/a.ptrk"));
-    state.remember_project(PathBuf::from("/music/b.ptrk"));
     let mut app = App::new();
     app.launch(Launch {
-        state_file: Some(PathBuf::from("/state/state.ron")),
-        state: StateContents::Bytes(write_state(&state).into_bytes()),
+        state_file: Some(PathBuf::from(STATE_FILE)),
+        state: StateContents::Bytes(state_ron(&["/music/b.ptrk", "/old/a.ptrk"]).into_bytes()),
         directory: PathBuf::from(HOME),
     });
     app.take_file_requests();
@@ -186,4 +182,70 @@ fn with_no_recent_projects_the_list_starts_with_the_folder() {
 
     assert_eq!(right_slot(&app, 1), HOME);
     assert_eq!(right_slot(&app, 2), ">../");
+}
+
+/// The recent Projects in the `state.ron` the app has just asked to write, as its text names them.
+fn recent_projects_written(app: &mut App) -> String {
+    let requests = app.take_file_requests();
+    let written = requests.iter().find_map(|request| match request {
+        FileRequest::Write { path, contents } if path == std::path::Path::new(STATE_FILE) => {
+            Some(contents.clone())
+        }
+        _ => None,
+    });
+    let text = written.unwrap_or_else(|| panic!("no state.ron written in {requests:?}"));
+    let listed = text
+        .split_once("recent_projects:")
+        .map_or("", |(_, rest)| rest);
+    listed
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[test]
+fn reopening_a_recent_project_moves_it_to_the_front_without_a_duplicate() {
+    let mut app = launch_remembering(&["/music/a.ptrk", "/music/b.ptrk"]);
+    open_list(&mut app, vec![]);
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    app.take_file_requests();
+
+    app.receive_file(FileResponse::Read {
+        path: PathBuf::from("/music/b.ptrk"),
+        contents: project_file::write(&Project::new()),
+    });
+
+    assert_eq!(
+        recent_projects_written(&mut app),
+        "/music/b.ptrk /music/a.ptrk"
+    );
+}
+
+#[test]
+fn only_the_ten_most_recent_projects_are_kept() {
+    let remembered: Vec<String> = (0..10).map(|n| format!("/music/{n}.ptrk")).collect();
+    let remembered: Vec<&str> = remembered.iter().map(String::as_str).collect();
+    let mut app = launch_remembering(&remembered);
+    app.apply(Action::HexDigit(1));
+    app.apply(Action::SaveAs);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Listed {
+        directory: PathBuf::from(HOME),
+        entries: vec![],
+    });
+    app.apply(Action::TypeChar('s'));
+    app.apply(Action::Confirm);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Written {
+        path: PathBuf::from(HOME).join("s.ptrk"),
+    });
+
+    assert_eq!(
+        recent_projects_written(&mut app),
+        "/home/user/s.ptrk /music/0.ptrk /music/1.ptrk /music/2.ptrk /music/3.ptrk \
+         /music/4.ptrk /music/5.ptrk /music/6.ptrk /music/7.ptrk /music/8.ptrk"
+    );
 }

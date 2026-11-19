@@ -300,3 +300,13 @@ pub fn png_of(memory: &[u8], width: u32, height: u32) -> Vec<u8> {
     writer.finish().unwrap();
     file
 }
+
+/// The text of a `state.ron` remembering these Project files, the most recent first, written by
+/// hand as the spec describes the file: RON with an integer format version.
+pub fn state_ron(recent_projects: &[&str]) -> String {
+    let paths: Vec<String> = recent_projects
+        .iter()
+        .map(|path| format!("\"{path}\""))
+        .collect();
+    format!("(version: 1, recent_projects: [{}])", paths.join(", "))
+}
