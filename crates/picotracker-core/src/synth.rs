@@ -93,7 +93,7 @@ const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
 const CROSSFADE_SAMPLES: f32 = 64.0;
-const TICK_ROUNDING: f64 = 1e-9;
+const TICK_FLOOR_TOLERANCE: f64 = 1e-9;
 const VIBRATO_STEPS: f64 = 8.0;
 const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
 const VIBRATO_SEMITONES: f32 = 0.27;
@@ -656,7 +656,7 @@ impl Voice {
                             _ => &silent,
                         };
                         new_synth.phi = last_synth.phi;
-                        let freq_factor = new_synth.increment / pitch_increment(MIDDLE_KEY);
+                        let increment_factor = new_synth.increment / pitch_increment(MIDDLE_KEY);
                         let main_volume = new_synth.volume;
                         // A silent note of the SFX Instrument silences the voice.
                         new_synth.volume = 0.0;
@@ -664,7 +664,7 @@ impl Voice {
                             sound,
                             &mut self.instrument_state,
                             &mut new_synth,
-                            freq_factor,
+                            increment_factor,
                         );
                         new_synth.volume *= main_volume;
                     }
@@ -736,7 +736,12 @@ impl Voice {
 }
 
 /// Advances a sound by one sample and writes what it plays into `synth`.
-fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, freq_factor: f32) {
+fn update_sound(
+    sound: &Sound,
+    state: &mut SoundState,
+    synth: &mut SynthParam,
+    increment_factor: f32,
+) {
     if !state.playing {
         return;
     }
@@ -780,11 +785,11 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
         let next_note_index = next_offset.floor() as usize;
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
-        let mut increment = pitch_increment(note.pitch) * freq_factor;
+        let mut increment = pitch_increment(note.pitch) * increment_factor;
         // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
         // (speed - 1) / speed of the way.
-        let ticks_into_note = ((offset % 1.0) * f64::from(speed) + TICK_ROUNDING).floor();
-        let progress = (ticks_into_note / f64::from(speed)) as f32;
+        let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
+        let progress = ((ticks_played % f64::from(speed)) / f64::from(speed)) as f32;
 
         if volume > 0.0 {
             match note.effect {
@@ -808,14 +813,14 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                 FX_ARP_FAST | FX_ARP_SLOW => {
                     // Each pitch of the arpeggio lasts whole Ticks: 2 up to speed 8 and 4 above,
                     // twice as long for the slow arpeggio.
-                    let fast_ticks = if speed <= 8 { 2 } else { 4 };
+                    let fast_ticks_per_pitch = if speed <= 8 { 2 } else { 4 };
                     let ticks_per_pitch = if note.effect == FX_ARP_FAST {
-                        fast_ticks
+                        fast_ticks_per_pitch
                     } else {
-                        2 * fast_ticks
+                        2 * fast_ticks_per_pitch
                     };
-                    let ticks = (offset * f64::from(speed) + TICK_ROUNDING).floor() as usize;
-                    let arpeggio_note = (note_index & !3) | ((ticks / ticks_per_pitch) & 3);
+                    let pitch_index = ticks_played as usize / ticks_per_pitch;
+                    let arpeggio_note = (note_index & !3) | (pitch_index & 3);
                     increment = pitch_increment(sound.notes[arpeggio_note].pitch);
                 }
                 _ => {}
