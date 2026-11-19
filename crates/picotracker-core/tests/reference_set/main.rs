@@ -81,7 +81,7 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
 
-const AWAITING_CUSTOM_INSTRUMENTS_40: &[&str] = &["coverage_music4"];
+const AWAITING_IMPORTED_INSTRUMENTS_44: &[&str] = &["coverage_music4"];
 
 const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
@@ -215,7 +215,7 @@ fn tolerance(cart: &Cart) -> Tolerance {
 
 const AWAITED_WORK: [(&str, &[&str]); 3] = [
     ("#39 synth fixes", AWAITING_SYNTH_FIXES_39),
-    ("#40 Custom Instruments", AWAITING_CUSTOM_INSTRUMENTS_40),
+    ("#44 Imported Instruments", AWAITING_IMPORTED_INSTRUMENTS_44),
     ("#54 synth differences", AWAITING_SYNTH_DIFFERENCES_54),
 ];
 
