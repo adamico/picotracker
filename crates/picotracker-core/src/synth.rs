@@ -518,6 +518,8 @@ impl Voice {
                 new_synth.phi = last_synth.phi;
                 let freq_factor = new_synth.freq / key_to_freq(f32::from(MIDDLE_KEY));
                 let main_volume = new_synth.volume;
+                // A silent note of the SFX Instrument silences the voice.
+                new_synth.volume = 0.0;
                 update_sound(
                     &self.sfx_instruments[self.instrument_slot],
                     &mut self.instrument_state,
