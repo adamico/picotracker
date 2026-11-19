@@ -100,6 +100,8 @@ const VIBRATO_SEMITONES: f32 = 0.27;
 const SAW_LEVEL: f32 = 2.0 / 3.0;
 const OUTPUT_GAIN: f32 = 0.9841;
 const NOISE_LEVEL: f32 = 0.844;
+const NOIZ_LEVEL: f32 = 0.25;
+const NOIZ_HOLD_PITCH: i16 = 64;
 const PHASE_UNITS_PER_CYCLE: f32 = 65_536.0;
 const PHASER_SECOND_WAVE_RATIO: f64 = 127.0 / 128.0;
 const TABLE_OCTAVE: i32 = 3;
@@ -273,6 +275,7 @@ struct SynthParam {
     phi: Phase,
     last_advance: f64,
     last_sample: f32,
+    held_samples: i16,
     wave: Option<[i8; WAVEFORM_SAMPLES]>,
 }
 
@@ -358,14 +361,20 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             }
             ret / 9.0
         }
+        INST_NOISE if noiz => {
+            // Measured on PICO-8: NOIZ holds each random level for 64 samples less the pitch.
+            p.held_samples += 1;
+            if p.held_samples >= (NOIZ_HOLD_PITCH - p.key).max(1) {
+                p.held_samples = 0;
+                p.last_sample = rng.next();
+            }
+            NOIZ_LEVEL * p.last_sample
+        }
         INST_NOISE => {
             let scale = (advance - p.last_advance) as f32 * 8.858_923;
             let new_sample = (p.last_sample + scale * rng.next()) / (1.0 + scale);
             let factor = 1.0 - f32::from(p.key) / 63.0;
-            let mut ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
-            if noiz {
-                ret *= 2.0 * (if t < 0.5 { t } else { t - 1.0 });
-            }
+            let ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
             p.last_advance = advance;
             p.last_sample = new_sample;
             ret
@@ -617,6 +626,7 @@ impl Voice {
             phi: last_synth.phi,
             last_advance: last_synth.last_advance,
             last_sample: last_synth.last_sample,
+            held_samples: last_synth.held_samples,
             ..SynthParam::default()
         };
         let mut value = 0.0;
