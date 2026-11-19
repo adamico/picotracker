@@ -107,18 +107,14 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx23",
     "coverage_sfx24",
     "coverage_sfx25",
-    "coverage_sfx27",
     "drop_on_an_sfx_instrument_keeps_the_pitch",
     "drop_on_an_sfx_instrument_retriggers_the_same_pitch",
     "reverb_1_rings_through_silent_steps",
-    "reverb_2_is_cut_when_sfx_ends_at_len",
     "reverb_2_rings_after_len_inside_a_pattern",
     "reverb_2_rings_through_silent_steps",
     "slide_is_linear_in_pitch",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
-    "spd_0_plays_at_speed_1",
     "waveform_instrument_with_dampen",
-    "waveform_instrument_with_detune",
 ];
 
 fn cart_path(case: &Case) -> PathBuf {
