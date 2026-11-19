@@ -147,7 +147,6 @@ pub struct Waveform {
     pub filters: u8,
 }
 
-/// What a note marked `custom` plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Instrument {
     Sfx(Sound),

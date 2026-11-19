@@ -20,14 +20,14 @@ const COARSE_SPEED: i32 = 16;
 const COARSE_LENGTH: i32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StepCell {
+pub(super) enum StepCell {
     Pitch,
     Instrument,
     Volume,
     Effect,
 }
 
-const STEP_CELLS: [(StepCell, usize, &str); 4] = [
+pub(super) const STEP_CELLS: [(StepCell, usize, &str); 4] = [
     (StepCell::Pitch, 3, "..."),
     (StepCell::Instrument, 7, ".."),
     (StepCell::Volume, 10, "."),
@@ -211,6 +211,24 @@ impl PhrasePane {
         step.set_instrument(i32::from(self.instrument));
         step.set_volume(i32::from(self.volume));
         self.step = stepped(self.step, 1, phrase.length());
+    }
+
+    /// The Instrument of the Step under the cursor, when the cursor is on its Instrument column: the
+    /// Step's own, or the current one for new notes when the Step is silent and shows none.
+    pub fn instrument_under_cursor(&self, phrase: &Phrase) -> Option<u8> {
+        (self.step_cell() == Some(StepCell::Instrument)).then(|| {
+            let step = phrase.step(self.step);
+            if step.is_silent() {
+                self.instrument
+            } else {
+                step.instrument()
+            }
+        })
+    }
+
+    /// The octave that piano keys play in.
+    pub fn octave(&self) -> u8 {
+        self.octave
     }
 
     /// Changes the octave that piano keys play in, stopping at 0 and 4.
@@ -457,8 +475,8 @@ impl PhrasePane {
     }
 }
 
-/// Raises or lowers one cell of a Step, stopping at its limits. Custom Instruments are left alone,
-/// because nudging only steps through the Built-in Instruments.
+/// Raises or lowers one cell of a Step, stopping at its limits. A selection nudges Instruments only
+/// among the Built-in Instruments, and Steps on Custom Instruments keep theirs.
 fn nudge_step_cell(step: &mut Step, cell: StepCell, up: bool, coarse: bool) {
     let amount = if coarse && cell == StepCell::Pitch {
         SEMITONES_PER_OCTAVE
@@ -469,7 +487,8 @@ fn nudge_step_cell(step: &mut Step, cell: StepCell, up: bool, coarse: bool) {
     match cell {
         StepCell::Pitch => step.set_pitch(i32::from(step.pitch()) + delta),
         StepCell::Instrument if step.instrument() < FIRST_CUSTOM_INSTRUMENT => {
-            step.set_instrument(i32::from(step.instrument()) + delta);
+            let last_built_in = i32::from(FIRST_CUSTOM_INSTRUMENT) - 1;
+            step.set_instrument((i32::from(step.instrument()) + delta).min(last_built_in));
         }
         StepCell::Instrument => {}
         StepCell::Volume => step.set_volume(i32::from(step.volume()) + delta),
@@ -514,7 +533,7 @@ fn pasted_step(target: Step, source: Step, columns: &RangeInclusive<usize>) -> S
 }
 
 /// The text of each cell of a Step. A silent Step shows as empty.
-fn step_texts(step: Step) -> [String; 4] {
+pub(super) fn step_texts(step: Step) -> [String; 4] {
     if step.is_silent() {
         return STEP_CELLS.map(|(_, _, empty)| empty.to_owned());
     }

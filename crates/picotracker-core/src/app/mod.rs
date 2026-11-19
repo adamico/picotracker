@@ -23,7 +23,7 @@ pub use launching::{Launch, StateContents};
 pub use messages::{LogItem, Report, Severity};
 
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
-use crate::project::CHAIN_ENTRIES;
+use crate::project::{CHAIN_ENTRIES, FIRST_CUSTOM_INSTRUMENT};
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
 use crate::settings::AppState;
@@ -35,6 +35,7 @@ use history::{CursorPlace, History, Merge};
 use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
+use panes::instrument::InstrumentView;
 use panes::log::LogPane;
 use panes::midi_dialog::MidiDialog;
 use panes::overview::OverviewPane;
@@ -53,6 +54,7 @@ const NOTHING_TO_UNDO: &str = "NOTHING TO UNDO";
 const NOTHING_TO_REDO: &str = "NOTHING TO REDO";
 const FOLLOW_ON: &str = "FOLLOW ON";
 const FOLLOW_OFF: &str = "FOLLOW OFF";
+const BUILT_IN_INSTRUMENT: &str = "BUILT-IN INSTRUMENTS HAVE NO SETTINGS";
 const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 
@@ -92,6 +94,7 @@ pub struct App {
     focus_before_log: Focus,
     file_list: Option<FileList>,
     midi_dialog: Option<Box<MidiDialog>>,
+    instrument_view: Option<InstrumentView>,
     waiting: Option<Waiting>,
     file_requests: Vec<FileRequest>,
     audio_requests: Vec<AudioRequest>,
@@ -145,6 +148,7 @@ impl App {
             focus_before_log: Focus::default(),
             file_list: None,
             midi_dialog: None,
+            instrument_view: None,
             waiting: None,
             file_requests: Vec::new(),
             audio_requests: Vec::new(),
@@ -193,6 +197,9 @@ impl App {
                 Purpose::Open | Purpose::Import => KeyContext::Navigation,
                 Purpose::SaveAs => KeyContext::FileName,
             };
+        }
+        if let Some(view) = &self.instrument_view {
+            return view.key_context(&self.project);
         }
         match self.focus {
             Focus::Song => KeyContext::ReferenceValue,
@@ -386,6 +393,9 @@ impl App {
             self.song.finish_typing();
             self.chain.finish_typing();
             self.phrase.finish_typing();
+            if let Some(view) = self.instrument_view.as_mut() {
+                view.finish_typing();
+            }
         }
         if action == Action::Quit {
             self.quit();
@@ -410,6 +420,11 @@ impl App {
         }
         if self.file_list.is_some() {
             self.use_file_list(action);
+            return;
+        }
+        if self.instrument_view.is_some() {
+            self.use_instrument_view(action);
+            self.settle_after_edit();
             return;
         }
         let before_edit = self.step_before_edit(action);
@@ -518,8 +533,16 @@ impl App {
         }
     }
 
-    /// Enter in the Log jumps to the picked item's location.
+    /// Enter on a Step's Instrument column opens the Instrument view, and Enter in the Log jumps to
+    /// the picked item's location.
     fn confirm(&mut self) {
+        if self.focus == Focus::Phrase && self.phrase_under_cursor().is_some() {
+            let shown = self.shown_phrase();
+            if let Some(instrument) = self.phrase.instrument_under_cursor(&shown) {
+                self.open_instrument_view(instrument);
+            }
+            return;
+        }
         if !self.log_has_focus() {
             return;
         }
@@ -540,6 +563,45 @@ impl App {
             self.close_log();
         } else if self.focus == Focus::RightSlot {
             self.set_focus(Focus::Phrase);
+        }
+    }
+
+    fn open_instrument_view(&mut self, instrument: u8) {
+        if instrument < FIRST_CUSTOM_INSTRUMENT {
+            self.remark = Some(BUILT_IN_INSTRUMENT);
+            return;
+        }
+        self.selection_start = None;
+        self.instrument_view = Some(InstrumentView::new(instrument));
+    }
+
+    /// What an action does while the Instrument view is open. Esc closes it, ending an audition.
+    fn use_instrument_view(&mut self, action: Action) {
+        let Some(view) = self.instrument_view.as_mut() else {
+            return;
+        };
+        match action {
+            Action::Cancel => {
+                self.instrument_view = None;
+                if self.playing {
+                    self.play_or_stop();
+                }
+            }
+            Action::PlayFocusedPane if self.playing => self.play_or_stop(),
+            Action::PlayFocusedPane => {
+                let instrument = view.id();
+                let project = self.project_for_player();
+                self.start_playing(AudioRequest::AuditionInstrument {
+                    project,
+                    instrument,
+                });
+            }
+            Action::Undo => self.undo(),
+            Action::Redo => self.redo(),
+            Action::Save => self.save(),
+            Action::OctaveUp => self.phrase.change_octave(1),
+            Action::OctaveDown => self.phrase.change_octave(-1),
+            _ => view.apply(action, &mut self.project, self.phrase.octave()),
         }
     }
 
@@ -706,6 +768,16 @@ impl App {
         if let Some(dialog) = &self.midi_dialog {
             dialog.draw(&mut grid);
             status_line::draw(&mut grid, &StatusLine::Hints(dialog.hints()));
+            return grid;
+        }
+        if let Some(view) = self
+            .instrument_view
+            .as_ref()
+            .filter(|_| self.file_list.is_none())
+        {
+            view.draw(&mut grid, &self.project);
+            let project = self.project_name();
+            status_line::draw(&mut grid, &self.status_line(&project));
             return grid;
         }
         let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
