@@ -83,7 +83,7 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
 
 const AWAITING_CUSTOM_INSTRUMENTS_40: &[&str] = &["coverage_music4"];
 
-const AWAITING_SYNTH_DIFFERENCES_53: &[&str] = &[
+const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
     "bit_7_sfx_beside_another_channel",
     "bit_7_sfx_does_not_set_the_length_beside_looping_channels",
@@ -216,7 +216,7 @@ fn tolerance(cart: &Cart) -> Tolerance {
 const AWAITED_WORK: [(&str, &[&str]); 3] = [
     ("#39 synth fixes", AWAITING_SYNTH_FIXES_39),
     ("#40 Custom Instruments", AWAITING_CUSTOM_INSTRUMENTS_40),
-    ("#53 synth differences", AWAITING_SYNTH_DIFFERENCES_53),
+    ("#54 synth differences", AWAITING_SYNTH_DIFFERENCES_54),
 ];
 
 /// The work a case still waits on before it can match PICO-8: every piece of work whose list
