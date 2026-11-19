@@ -435,4 +435,18 @@ impl App {
             .as_deref()
             .map_or_else(|| UNTITLED.to_owned(), shown_name)
     }
+
+    /// The window's title: the Project's file name as spelt, with a star for unsaved changes.
+    pub fn window_title(&self) -> String {
+        let name = self
+            .project_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map_or_else(
+                || "Untitled".to_owned(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+        let star = if self.has_unsaved_changes() { "*" } else { "" };
+        format!("{name}{star} - picotracker")
+    }
 }

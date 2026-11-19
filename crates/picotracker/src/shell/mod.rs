@@ -41,22 +41,33 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 struct Surface {
     window: Arc<Window>,
     pixels: Pixels<'static>,
+    /// The title the window shows, so it is only set when it changes.
+    title: String,
 }
 
 impl Surface {
-    fn open(event_loop: &ActiveEventLoop) -> Result<Self, Box<dyn Error>> {
+    fn open(event_loop: &ActiveEventLoop, title: String) -> Result<Self, Box<dyn Error>> {
         let attributes = Window::default_attributes()
-            .with_title("picotracker")
+            .with_title(title.clone())
             .with_inner_size(initial_size(event_loop));
         let window = Arc::new(event_loop.create_window(attributes)?);
 
         let size = window.inner_size();
         let texture = SurfaceTexture::new(size.width, size.height, Arc::clone(&window));
         let pixels = Pixels::new(LOGICAL_WIDTH, LOGICAL_HEIGHT, texture)?;
-        Ok(Self { window, pixels })
+        Ok(Self {
+            window,
+            pixels,
+            title,
+        })
     }
 
     fn draw(&mut self, app: &App) -> Result<(), Box<dyn Error>> {
+        let title = app.window_title();
+        if title != self.title {
+            self.window.set_title(&title);
+            self.title = title;
+        }
         let frame = Frame::from_grid(&app.grid());
         self.pixels.frame_mut().copy_from_slice(frame.rgba());
         self.pixels.render()?;
@@ -168,7 +179,7 @@ impl ApplicationHandler for Shell {
         if self.surface.is_some() {
             return;
         }
-        match Surface::open(event_loop) {
+        match Surface::open(event_loop, self.app.window_title()) {
             Ok(surface) => {
                 surface.window.request_redraw();
                 self.surface = Some(surface);
