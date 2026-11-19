@@ -6,18 +6,13 @@ use super::messages::Report;
 use super::selection::CellRange;
 use super::{App, CHAIN_ENTRIES, Chain, Focus, NO_CHAIN_HERE, NO_PHRASE_HERE, Phrase, Project};
 use crate::project::{ChainEntry, ChainId, PhraseId, UnusedItems};
+use crate::wording::counted;
 use std::collections::HashMap;
 
 const NO_FREE_CHAIN: &str = "NO UNUSED CHAIN LEFT";
 const NO_FREE_PHRASE: &str = "NO UNUSED PHRASE LEFT";
 const NEEDS_A_REFERENCE: &str = "USE THE SONG OR CHAIN PANE";
 const NOTHING_TO_PURGE: &str = "NOTHING TO PURGE";
-
-/// A number of things, in the singular or the plural.
-pub(super) fn counted(count: usize, thing: &str) -> String {
-    let plural = if count == 1 { "" } else { "S" };
-    format!("{count} {thing}{plural}")
-}
 
 /// How many Chains and Phrases these are, as messages say it.
 fn counted_items(items: &UnusedItems) -> String {

@@ -7,6 +7,7 @@ use crate::project::{
     Chain, ChainEntry, ChainId, MAX_STEPS, Phrase, PhraseId, Project, SONG_ROWS, SongPlace, Step,
     TRACKS,
 };
+use crate::wording::counted;
 
 /// MIDI note 69 is A 440, which is pitch 33 in PICO-8.
 const MIDI_KEY_OF_PITCH_0: i16 = 36;
@@ -673,12 +674,6 @@ fn collision_warning(
         ),
         place: named.as_ref().and(first),
     }
-}
-
-/// A count with its noun, which takes an S unless there is exactly one.
-fn counted(count: usize, noun: &str) -> String {
-    let plural = if count == 1 { "" } else { "S" };
-    format!("{count} {noun}{plural}")
 }
 
 fn unused_name(unused: &Unused) -> String {

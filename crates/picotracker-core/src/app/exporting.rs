@@ -6,6 +6,7 @@ use super::files::{Waiting, shown_name};
 use super::messages::{LogItem, Report, Severity};
 use crate::export::{self, ExportFailure, Exported};
 use crate::project::{EXPORT_CHANNELS, Project, SongPlace};
+use crate::wording::counted;
 use std::path::{Component, Path, PathBuf};
 
 const NO_TARGET_CART: &str = "EXPORT FAILED: NO TARGET CART";
@@ -108,9 +109,7 @@ fn failure_report(cart_name: &str, failures: &[ExportFailure]) -> Report {
     } else if failures == [ExportFailure::NoExportTracks] {
         "EXPORT FAILED: NO EXPORT TRACKS".to_owned()
     } else {
-        let count = failures.len();
-        let plural = if count == 1 { "" } else { "S" };
-        format!("EXPORT FAILED: {count} PROBLEM{plural}")
+        format!("EXPORT FAILED: {}", counted(failures.len(), "PROBLEM"))
     };
     let items = failures.iter().copied().map(failure_item).collect();
     Report::failure(summary).with_items(items)

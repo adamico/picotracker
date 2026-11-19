@@ -18,3 +18,4 @@ pub mod project_file;
 pub mod screen;
 pub mod settings;
 pub mod synth;
+mod wording;
