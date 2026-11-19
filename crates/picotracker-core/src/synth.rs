@@ -80,6 +80,7 @@ const NOISE_SEED: u32 = 0x1234_5678;
 const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
+const CROSSFADES_PER_SECOND: f64 = 350.0;
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -560,7 +561,7 @@ impl Voice {
             reverb_2 = mix(reverb_2, level(fade_reverb == 2), self.fade);
             dampen_1 = mix(dampen_1, level(fade_dampen == 1), self.fade);
             dampen_2 = mix(dampen_2, level(fade_dampen == 2), self.fade);
-            self.fade -= (130.0 * inverse_rate) as f32;
+            self.fade -= (CROSSFADES_PER_SECOND * inverse_rate) as f32;
         }
 
         let index_1 = self.reverb_index % REVERB_1_SAMPLES;
