@@ -244,16 +244,25 @@ pub fn sound_of(cart: &Cart, slot: u8) -> Sound {
 
 /// Plays these stored notes of an SFX in turn, one Step each, the way a channel moves through them.
 pub fn render_notes(sound: Sound, notes: &[usize]) -> Vec<f32> {
+    render_sounds(&[(sound, notes)])
+}
+
+/// Several sounds one after another on one voice, as a channel plays them Pattern by Pattern:
+/// each starts afresh from its first listed note, while the voice carries its phase, crossfade
+/// and echo over.
+pub fn render_sounds(sounds: &[(Sound, &[usize])]) -> Vec<f32> {
     let mut voice = Voice::new();
-    let step_samples = usize::from(sound.speed.max(1)) * SAMPLES_PER_TICK as usize;
-    let mut samples = Vec::with_capacity(notes.len() * step_samples);
-    for (step, note) in notes.iter().enumerate() {
-        if step == 0 {
-            voice.play(sound, *note);
-        } else {
-            voice.continue_at(sound, *note);
+    let mut samples = Vec::new();
+    for (sound, notes) in sounds {
+        let step_samples = usize::from(sound.speed.max(1)) * SAMPLES_PER_TICK as usize;
+        for (step, note) in notes.iter().enumerate() {
+            if step == 0 {
+                voice.play(*sound, *note);
+            } else {
+                voice.continue_at(*sound, *note);
+            }
+            samples.extend((0..step_samples).map(|_| voice.next_sample()));
         }
-        samples.extend((0..step_samples).map(|_| voice.next_sample()));
     }
     samples
 }
