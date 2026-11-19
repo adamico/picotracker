@@ -13,6 +13,7 @@ const SFX_INSTRUMENTS: u8 = 8;
 const WAVEFORM_INSTRUMENT_FLAG: u8 = 0x80;
 const BASS: u8 = 1;
 const EDITOR_MODE: u8 = 1;
+const CHANNEL_0_PHASE_AT_BOOT: u16 = 26_056;
 
 /// One SFX of a Cart exactly as its bytes hold it, loop bytes included.
 fn sound(cart: &Cart, slot: u8) -> Sound {
@@ -50,11 +51,13 @@ fn instrument(cart: &Cart, slot: u8) -> Instrument {
     })
 }
 
-/// The samples our synth plays for a Cart.
+/// The samples our synth plays for a Cart. `sfx()` keeps the phase its channel holds, so a case
+/// played through it starts at the phase, in 65,536ths of a cycle, that PICO-8 0.2.7 measures on
+/// channel 0 when a Cart starts.
 pub fn render(cart: &Cart, plays: Plays, samples: usize) -> Vec<f32> {
     match plays {
         Plays::Sfx(slot) => {
-            let mut voice = Voice::new();
+            let mut voice = Voice::with_phase(CHANNEL_0_PHASE_AT_BOOT);
             for instrument in 0..SFX_INSTRUMENTS {
                 voice.set_instrument(instrument, self::instrument(cart, instrument));
             }
