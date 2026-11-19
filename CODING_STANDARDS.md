@@ -36,4 +36,8 @@ New tests use the highest seam that can express them:
 4. **Offline synth**: Cart data or a Project to samples.
 5. **Project file**: `.ptrk` text to and from a Project.
 
-Expected data comes from real PICO-8 (saved Carts, measurements) or from a decision in the spec, never from the code under test. The spec decides that sound equality is proved through our synth. An imported Song renders the same samples as the original Cart, and an Exported Cart renders the same samples as the Project. A test that builds its expectation with `Voice` or `Player` for those comparisons follows the rule. A test that reads source text breaks it.
+Expected data comes from real PICO-8 (saved Carts, measurements) or from a decision in the spec, never from the code under test. The spec decides that sound equality is proved through our synth. An imported Song renders the same samples as the original Cart, and an Exported Cart renders the same samples as the Project. A test that builds its expectation with `Voice` or `Player` for those comparisons follows the rule. A test that reads source text breaks it. `docs/testing.md` lists the proof each area needs.
+
+## Spec drift
+
+A change to a behaviour that `docs/spec.md` describes updates that section in the same change. Flag code that contradicts it.
