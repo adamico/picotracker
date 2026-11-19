@@ -7,8 +7,8 @@
 //! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
 //! instead of the port: the pitch of each note in whole phase units, the phase a voice starts from
 //! and keeps, the crossfade between notes, the phase of saw, square and pulse, the level of the
-//! whole output, the saw, noise and Waveform Instruments, the steps of vibrato, and silence on a
-//! silent note of an SFX Instrument.
+//! whole output, the saw, noise and Waveform Instruments, BUZZ and DETUNE, the steps of vibrato,
+//! and silence on a silent note of an SFX Instrument.
 //!
 //! zepto8, `src/synth.cpp`:
 //!
@@ -86,6 +86,8 @@ const RATE: f64 = SAMPLE_RATE as f64;
 const NOIZ_AND_BUZZ: u8 = 0x6;
 const WAVEFORM_FULL_SCALE: f32 = 192.0;
 const WAVEFORM_FIRST_VOICE: f32 = 0.7;
+const DETUNE_FIRST_VOICE: f32 = 5.0 / 6.0;
+const DETUNE_SECOND_VOICE: f32 = 5.0 / 12.0;
 const REVERB_1_SAMPLES: usize = 2 * SAMPLES_PER_TICK as usize;
 const REVERB_2_SAMPLES: usize = 4 * SAMPLES_PER_TICK as usize;
 const NOISE_SEED: u32 = 0x1234_5678;
@@ -103,7 +105,6 @@ const NOISE_LEVEL: f32 = 0.844;
 const NOIZ_LEVEL: f32 = 0.25;
 const NOIZ_HOLD_PITCH: i16 = 64;
 const PHASE_UNITS_PER_CYCLE: f32 = 65_536.0;
-const PHASER_SECOND_WAVE_RATIO: f64 = 127.0 / 128.0;
 const TABLE_OCTAVE: i32 = 3;
 const MAX_OCTAVE_SHIFT: i32 = 32;
 const OCTAVE_PHASE_UNITS: [u32; 12] = [
@@ -198,24 +199,24 @@ fn pitch_increment(pitch: i16) -> f32 {
     phase_units as f32 / PHASE_UNITS_PER_CYCLE
 }
 
-/// How far through their cycles a voice's waves are. The phaser mixes in a second wave that keeps
-/// a phase of its own.
+/// How far through their cycles a voice's waves are. The phaser and DETUNE mix in a second wave
+/// that keeps a phase of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Phase {
     main: f64,
-    phaser: f64,
+    second: f64,
 }
 
 impl Phase {
     const START: Self = Self {
         main: 0.0,
-        phaser: 0.0,
+        second: 0.0,
     };
 
     fn at(cycles: f64) -> Self {
         Self {
             main: cycles,
-            phaser: cycles,
+            second: cycles,
         }
     }
 }
@@ -223,26 +224,49 @@ impl Phase {
 impl std::ops::MulAssign<f64> for Phase {
     fn mul_assign(&mut self, factor: f64) {
         self.main *= factor;
-        self.phaser *= factor;
+        self.second *= factor;
     }
 }
 
 impl std::ops::RemAssign<f64> for Phase {
     fn rem_assign(&mut self, cycles: f64) {
         self.main %= cycles;
-        self.phaser %= cycles;
+        self.second %= cycles;
     }
 }
 
-/// A phase moved on by one sample of an increment, in PICO-8's whole phase units. Measured on
-/// PICO-8, the phaser's second wave moves 127/128 as far, rounded down to a whole unit.
-fn advanced(phi: Phase, increment: f32) -> Phase {
-    let units = f64::from((increment * PHASE_UNITS_PER_CYCLE).floor());
+/// How far the second wave moves for each whole phase unit the main wave moves, as a fraction,
+/// measured on PICO-8. Without DETUNE it keeps up with the main wave, except on the phaser. Under
+/// DETUNE it stands still through noise, though PICO-8's noise moves it without DETUNE in a way
+/// not yet matched. DETUNE 2 reads it twice over, except on the triangle and the phaser.
+fn second_wave_ratio(instrument: u8, detune: u8) -> (u32, u32) {
+    match (instrument, detune) {
+        (INST_PHASER, 0) => (127, 128),
+        (INST_PHASER, 1) => (125, 128),
+        (INST_PHASER, _) => (254, 128),
+        (_, 0) => (1, 1),
+        (INST_NOISE, _) => (0, 1),
+        (INST_TRIANGLE, 1) => (193, 256),
+        (INST_TRIANGLE, _) => (3, 2),
+        _ => (255, 256),
+    }
+}
+
+/// A phase moved on by one sample of an increment, in PICO-8's whole phase units. The second wave
+/// moves by its ratio of those units, rounded down to a whole unit.
+fn advanced(phi: Phase, increment: f32, instrument: u8, filters: u8) -> Phase {
+    let units = (increment * PHASE_UNITS_PER_CYCLE).floor();
+    let (numerator, denominator) = second_wave_ratio(instrument, detune_level(filters));
+    let second_units = (f64::from(units) * f64::from(numerator) / f64::from(denominator)).floor();
     let cycles = |units: f64| units / f64::from(PHASE_UNITS_PER_CYCLE);
     Phase {
-        main: phi.main + cycles(units),
-        phaser: phi.phaser + cycles((units * PHASER_SECOND_WAVE_RATIO).floor()),
+        main: phi.main + cycles(f64::from(units)),
+        second: phi.second + cycles(second_units),
     }
+}
+
+fn detune_level(filters: u8) -> u8 {
+    (filters / 8) % 3
 }
 
 fn mix(a: f32, b: f32, t: f32) -> f32 {
@@ -292,6 +316,25 @@ fn interpolated(wave: &[i8; WAVEFORM_SAMPLES], t: f32) -> f32 {
     between / WAVEFORM_FULL_SCALE
 }
 
+/// A wave rising from -1 to 1 through the first `a` of the cycle and falling back after it.
+fn tilted(a: f32, t: f32) -> f32 {
+    if t < a {
+        2.0 * t / a - 1.0
+    } else {
+        2.0 * (1.0 - t) / (1.0 - a) - 1.0
+    }
+}
+
+/// The triangle from -1 to 1, which BUZZ mixes with a quarter of a tilted wave.
+fn triangle(t: f32, buzz: bool) -> f32 {
+    let ret = 1.0 - (4.0 * t - 2.0).abs();
+    if buzz {
+        ret * 0.75 + tilted(0.875, t) * 0.25
+    } else {
+        ret
+    }
+}
+
 /// PICO-8's square and pulse: low through the cycle and high for its last `duty`.
 fn high_for_the_last(duty: f32, t: f32) -> f32 {
     if t < 1.0 - duty { -0.25 } else { 0.25 }
@@ -306,45 +349,23 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let noiz = p.filters & 0x2 != 0;
     let buzz = p.filters & 0x4 != 0;
     match p.instrument {
-        INST_TRIANGLE => {
-            let mut ret = 1.0 - (4.0 * t - 2.0).abs();
-            if buzz {
-                let a = 0.875;
-                let tilted = if t < a {
-                    2.0 * t / a - 1.0
-                } else {
-                    2.0 * (1.0 - t) / (1.0 - a) - 1.0
-                };
-                ret = ret * 0.75 + tilted * 0.25;
-            }
-            ret * 0.5
-        }
-        INST_TILTED_SAW => {
-            let a = if buzz { 0.975 } else { 0.875 };
-            let ret = if t < a {
-                2.0 * t / a - 1.0
-            } else {
-                2.0 * (1.0 - t) / (1.0 - a) - 1.0
-            };
-            ret * 0.5
-        }
+        INST_TRIANGLE => triangle(t, buzz) * 0.5,
+        INST_TILTED_SAW => tilted(if buzz { 0.9375 } else { 0.875 }, t) * 0.5,
         INST_SAW => {
             // PICO-8's saw rises through the whole cycle and drops as it starts.
             let advance = advance + 0.5;
             let t = (advance % 1.0) as f32;
             let mut ret = if t < 0.5 { t } else { t - 1.0 };
             if buzz {
-                let offset = if ((advance % 2.0) - 1.0).abs() < 0.5 {
-                    0.085
-                } else {
-                    0.0
-                };
-                ret = ret * 0.83 - offset;
+                // Measured on PICO-8: BUZZ lowers the saw by more on every other cycle, counted
+                // from the cycle each Tick starts in.
+                let first_of_two = p.phi.main.floor() % 2.0 == 0.0;
+                ret = ret * 0.75 - if first_of_two { 1.0 / 8.0 } else { 1.0 / 24.0 };
             }
             SAW_LEVEL * ret
         }
-        INST_SQUARE => high_for_the_last(if buzz { 0.4 } else { 0.5 }, t),
-        INST_PULSE => high_for_the_last(if buzz { 0.255 } else { 0.3125 }, t),
+        INST_SQUARE => high_for_the_last(if buzz { 13.0 / 32.0 } else { 0.5 }, t),
+        INST_PULSE => high_for_the_last(if buzz { 7.0 / 32.0 } else { 0.3125 }, t),
         INST_ORGAN => {
             let mut ret = if t < 0.5 {
                 3.0 - (24.0 * t - 6.0).abs()
@@ -352,12 +373,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
                 1.0 - (16.0 * t - 12.0).abs()
             };
             if buzz {
-                ret = if t < 0.5 { ret * 2.0 + 3.0 } else { ret };
-                ret = if t < 0.5 && ret > -1.875 {
-                    ret * 0.2 - 1.0
-                } else {
-                    ret + 0.5
-                };
+                ret = ret * 2.0 / 3.0 + if t < 0.5 { -0.375 } else { 0.375 };
             }
             ret / 9.0
         }
@@ -380,55 +396,15 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             ret
         }
         INST_PHASER => {
-            let mut ret = 2.0 - (8.0 * t - 4.0).abs();
-            ret += 1.0 - (4.0 * (p.phi.phaser % 1.0) as f32 - 2.0).abs();
-            if buzz {
-                ret += 0.25 - (((advance * 2.0 + 0.5) % 1.0) as f32 - 0.5).abs();
-                ret += 0.125 - (0.5 * ((advance * 4.0) % 1.0) as f32 - 0.25).abs();
-            }
-            ret / 6.0
+            (2.0 * triangle(t, buzz) + triangle((p.phi.second % 1.0) as f32, buzz)) / 6.0
         }
         _ => 0.0,
     }
 }
 
-fn detune_factor(instrument: u8, detune: u8) -> f32 {
-    let first = detune == 1;
-    match instrument {
-        INST_TRIANGLE => {
-            if first {
-                3.0 / 4.0
-            } else {
-                3.0 / 2.0
-            }
-        }
-        INST_ORGAN => {
-            if first {
-                200.0 / 199.0
-            } else {
-                800.0 / 199.0
-            }
-        }
-        INST_PHASER => {
-            if first {
-                49.0 / 50.0
-            } else {
-                400.0 / 199.0
-            }
-        }
-        _ => {
-            if first {
-                200.0 / 199.0
-            } else {
-                400.0 / 199.0
-            }
-        }
-    }
-}
-
 /// How far DETUNE moves the second voice of a Waveform Instrument, whatever its instrument digit.
-/// DETUNE 1 is measured on PICO-8, a little below the first voice; DETUNE 2 follows the port's
-/// ratio for most Built-in Instruments.
+/// DETUNE 1 is measured on PICO-8, a little below the first voice; DETUNE 2 follows the zepto8
+/// port.
 fn waveform_detune_factor(detune: u8) -> f32 {
     if detune == 1 {
         199.0 / 200.0
@@ -439,25 +415,26 @@ fn waveform_detune_factor(detune: u8) -> f32 {
 
 fn synth_sample(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let mut wave = waveform(p, rng);
-    let detune = (p.filters / 8) % 3;
+    let detune = detune_level(p.filters);
     let plays_waveform = p.wave.is_some();
-    if detune != 0 && (plays_waveform || p.instrument != INST_NOISE) {
+    // DETUNE on the phaser only moves its own second wave.
+    let has_second_voice = plays_waveform || !matches!(p.instrument, INST_NOISE | INST_PHASER);
+    if detune != 0 && has_second_voice {
         let mut second = *p;
         if plays_waveform {
             second.phi *= f64::from(waveform_detune_factor(detune));
         } else {
-            second.phi *= f64::from(detune_factor(p.instrument, detune));
-            if detune == 2 && p.instrument == INST_ORGAN {
-                second.instrument = INST_TRIANGLE;
-            }
+            let reads_twice_over = detune == 2 && p.instrument != INST_TRIANGLE;
+            second.phi.main = p.phi.second * if reads_twice_over { 2.0 } else { 1.0 };
         }
         let detuned = waveform(&mut second, rng);
         // Measured on PICO-8: a Waveform Instrument mixes its detuned voice in at 0.3 and its
-        // first voice at 0.7, so that DETUNE leaves its peak level as it was.
+        // first voice at 0.7, so that DETUNE leaves its peak level as it was. A Built-in
+        // Instrument mixes them at 5/6 and 5/12.
         wave = if plays_waveform {
             wave * WAVEFORM_FIRST_VOICE + detuned * (1.0 - WAVEFORM_FIRST_VOICE)
         } else {
-            wave + detuned * 0.5
+            wave * DETUNE_FIRST_VOICE + detuned * DETUNE_SECOND_VOICE
         };
     }
     (wave * p.volume).clamp(-1.0, 1.0)
@@ -667,8 +644,13 @@ impl Voice {
                         if wave.bass {
                             new_synth.increment *= 0.5;
                         }
-                        new_synth.phi = advanced(last_synth.phi, new_synth.increment);
                         new_synth.filters = wave.filters & !NOIZ_AND_BUZZ;
+                        new_synth.phi = advanced(
+                            last_synth.phi,
+                            new_synth.increment,
+                            new_synth.instrument,
+                            new_synth.filters,
+                        );
                         new_synth.wave = Some(wave.samples);
                     }
                     sfx => {
@@ -717,7 +699,12 @@ impl Voice {
         if self.fade > 0.0 {
             // PICO-8 is already one sample into the crossfade on the first sample that changes.
             self.fade -= 1.0 / CROSSFADE_SAMPLES;
-            self.fade_synth.phi = advanced(self.fade_synth.phi, self.fade_synth.increment);
+            self.fade_synth.phi = advanced(
+                self.fade_synth.phi,
+                self.fade_synth.increment,
+                self.fade_synth.instrument,
+                self.fade_synth.filters,
+            );
             let faded = synth_sample(&mut self.fade_synth, &mut self.rng);
             value = mix(value, faded, self.fade);
             let fade_reverb = (self.fade_synth.filters / 24) % 3;
@@ -819,6 +806,9 @@ fn update_sound(
         // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
         // (speed - 1) / speed of the way.
         let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
+        let next_ticks = next_offset * f64::from(speed);
+        let ends_a_tick =
+            next_ticks - (next_ticks + TICK_FLOOR_TOLERANCE).floor() < TICK_FLOOR_TOLERANCE;
         let progress = ((ticks_played % f64::from(speed)) / f64::from(speed)) as f32;
 
         if volume > 0.0 {
@@ -861,7 +851,13 @@ fn update_sound(
             synth.custom = note.custom;
             synth.filters = sound.filters;
             synth.volume = volume;
-            synth.phi = advanced(synth.phi, increment);
+            synth.phi = advanced(synth.phi, increment, note.instrument, sound.filters);
+            // Measured on PICO-8: the last sample of each Tick takes its waves back to the cycle
+            // they are in.
+            if ends_a_tick {
+                synth.last_advance -= synth.phi.main.floor();
+                synth.phi %= 1.0;
+            }
         }
 
         if next_note_index != note_index {
