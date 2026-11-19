@@ -23,6 +23,19 @@ const RENDERED_SPARE_TICKS: u32 = 8;
 const NOISE: u8 = 6;
 const WAVEFORM_INSTRUMENT_FLAG: u8 = 0x80;
 const SFX_INSTRUMENTS: u8 = 8;
+const PITCH_WINDOW_TICKS: u32 = 4;
+const CENTS_PER_PITCH: f32 = 100.0;
+const VIBRATO_TICKS: std::ops::Range<u32> = 80..120;
+const NOISE_CASE: &str = "coverage_sfx14";
+const PLAIN_NOISE_TICKS: [std::ops::Range<usize>; 2] = [1..40, 241..320];
+const VIBRATO_CASES: [&str; 6] = [
+    "coverage_sfx08",
+    "coverage_sfx09",
+    "coverage_sfx10",
+    "coverage_sfx11",
+    "coverage_sfx12",
+    "coverage_sfx13",
+];
 
 /// The limits from the spec for matching a recording of real PICO-8. Loosening any of them needs
 /// an A/B listening check by the owner, noted in the commit.
@@ -72,7 +85,6 @@ const AWAITING_CUSTOM_INSTRUMENTS_40: &[&str] = &[
     "coverage_music4",
     "waveform_instrument_at_c2",
     "waveform_instrument_at_c3",
-    "waveform_instrument_bytes_without_the_flag",
     "waveform_instrument_ignores_its_own_noiz_and_buzz",
     "waveform_instrument_ignores_noiz_and_buzz_on_the_playing_sfx",
     "waveform_instrument_with_bass",
@@ -109,18 +121,11 @@ const AWAITING_SYNTH_DIFFERENCES_53: &[&str] = &[
     "coverage_sfx23",
     "coverage_sfx24",
     "coverage_sfx25",
-    "coverage_sfx26",
     "coverage_sfx27",
     "coverage_sfx28",
-    "coverage_sfx29",
-    "coverage_sfx30",
     "drop_on_an_sfx_instrument_keeps_the_pitch",
     "drop_on_an_sfx_instrument_retriggers_the_same_pitch",
-    "len_40_sets_the_pattern_length",
-    "len_64_sets_the_pattern_length",
     "len_on_another_channel_keeps_playing",
-    "loop_past_note_31_does_not_set_the_length",
-    "loop_start_past_loop_end_plays_every_note",
     "looping_channels_play_32_times_the_slowest_speed",
     "repeated_note_does_not_click",
     "repeated_note_does_not_click_across_patterns",
@@ -129,19 +134,14 @@ const AWAITING_SYNTH_DIFFERENCES_53: &[&str] = &[
     "reverb_2_rings_after_len_inside_a_pattern",
     "reverb_2_rings_through_silent_steps",
     "sfx_instrument_nested_one_level",
-    "sfx_stops_at_len",
     "silent_looping_step_after_1_step",
-    "silent_looping_step_after_31_steps",
-    "silent_looping_step_after_8_steps",
     "silent_looping_step_at_a_faster_speed",
     "silent_looping_steps_on_two_channels",
     "slide_is_linear_in_pitch",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
-    "spd_0_in_a_pattern_plays_at_speed_1",
     "spd_0_plays_at_speed_1",
     "waveform_instrument_at_c2",
     "waveform_instrument_at_c3",
-    "waveform_instrument_bytes_without_the_flag",
     "waveform_instrument_ignores_its_own_noiz_and_buzz",
     "waveform_instrument_ignores_noiz_and_buzz_on_the_playing_sfx",
     "waveform_instrument_with_bass",
@@ -312,6 +312,66 @@ fn every_case_matches_real_pico8_within_the_spec_limits() {
             .collect()
     });
     assert!(problems.is_empty(), "\n{}", problems.join("\n"));
+}
+
+/// Where a case's fingerprint and ours give a tone for the same window of Ticks, how far apart
+/// they are in cents.
+fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Option<f32>)> {
+    let reference = committed_fingerprint(case);
+    let ours = fingerprint::measure(&rendered(case), reference.tick_levels_db.len());
+    let windows = (ticks.start / PITCH_WINDOW_TICKS)..(ticks.end / PITCH_WINDOW_TICKS);
+    windows
+        .filter_map(|window| {
+            let expected = reference.window_pitches[window as usize]?;
+            let cents = ours.window_pitches[window as usize]
+                .map(|actual| CENTS_PER_PITCH * (actual - expected));
+            Some((window * PITCH_WINDOW_TICKS, cents))
+        })
+        .collect()
+}
+
+/// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch. The
+/// whole coverage cases still wait on #39's slide, so this checks their vibrato Steps on their own.
+/// The phaser is left out: its beat moves its measured pitch by several cents even without
+/// vibrato.
+#[test]
+fn vibrato_matches_real_pico8_within_the_pitch_limit() {
+    let off: Vec<String> = cases::all()
+        .iter()
+        .filter(|case| VIBRATO_CASES.contains(&case.name))
+        .flat_map(|case| {
+            window_pitch_cents(case, VIBRATO_TICKS)
+                .into_iter()
+                .filter(|(_, cents)| !cents.is_some_and(|c| c.abs() <= SPEC_LIMITS.pitch_cents))
+                .map(|(tick, cents)| format!("{} tick {tick}: {cents:?} cents", case.name))
+        })
+        .collect();
+    assert!(off.is_empty(), "\n{}", off.join("\n"));
+}
+
+/// Plain noise matches real PICO-8's level on average within the level limit. Each Tick of noise
+/// is random, which the wider noise limit allows for, but over many Ticks the randomness evens
+/// out, so the average must match as closely as a tone. The noise coverage SFX's plain notes
+/// are its first four and its arpeggios; its other notes are slides, drops and fades.
+#[test]
+fn plain_noise_matches_real_pico8_level_on_average() {
+    let case = cases::all()
+        .into_iter()
+        .find(|case| case.name == NOISE_CASE)
+        .unwrap();
+    let reference = committed_fingerprint(&case);
+    let ours = fingerprint::measure(&rendered(&case), reference.tick_levels_db.len());
+    let ticks: Vec<usize> = PLAIN_NOISE_TICKS.into_iter().flatten().collect();
+    let average =
+        |levels: &[f32]| ticks.iter().map(|&tick| levels[tick]).sum::<f32>() / ticks.len() as f32;
+    let (expected, actual) = (
+        average(&reference.tick_levels_db),
+        average(&ours.tick_levels_db),
+    );
+    assert!(
+        (actual - expected).abs() <= SPEC_LIMITS.level_db,
+        "plain noise averages {actual} dB, PICO-8 {expected}"
+    );
 }
 
 fn synth_hash(samples: &[f32]) -> String {

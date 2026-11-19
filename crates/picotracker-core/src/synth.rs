@@ -4,6 +4,11 @@
 //! `src/filter.cpp` and `src/pico8/sfx.cpp`), with the REVERB 2 fix from fake-08 at commit
 //! `814991a` (`source/Audio.cpp`, lines 764 and 765). The notices of both projects follow.
 //!
+//! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
+//! instead of the port: the crossfade between notes, the phase of saw, square and pulse, the
+//! level of the whole output, the saw and noise, the steps of vibrato, and silence on a silent
+//! note of an SFX Instrument.
+//!
 //! zepto8, `src/synth.cpp`:
 //!
 //! ```text
@@ -80,6 +85,13 @@ const NOISE_SEED: u32 = 0x1234_5678;
 const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
+const CROSSFADES_PER_SECOND: f64 = 350.0;
+const VIBRATO_STEPS: f64 = 8.0;
+const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
+const VIBRATO_SEMITONES: f32 = 0.27;
+const SAW_LEVEL: f32 = 2.0 / 3.0;
+const OUTPUT_GAIN: f32 = 0.9841;
+const NOISE_LEVEL: f32 = 0.844;
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -172,6 +184,11 @@ struct SynthParam {
     last_sample: f32,
 }
 
+/// PICO-8's square and pulse: low through the cycle and high for its last `duty`.
+fn high_for_the_last(duty: f32, t: f32) -> f32 {
+    if t < 1.0 - duty { -0.25 } else { 0.25 }
+}
+
 fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let advance = p.phi;
     let t = advance % 1.0;
@@ -201,6 +218,9 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             ret * 0.5
         }
         INST_SAW => {
+            // PICO-8's saw rises through the whole cycle and drops as it starts.
+            let advance = advance + 0.5;
+            let t = advance % 1.0;
             let mut ret = if t < 0.5 { t } else { t - 1.0 };
             if buzz {
                 let offset = if ((advance % 2.0) - 1.0).abs() < 0.5 {
@@ -210,22 +230,10 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
                 };
                 ret = ret * 0.83 - offset;
             }
-            0.653 * ret
+            SAW_LEVEL * ret
         }
-        INST_SQUARE => {
-            if t < (if buzz { 0.4 } else { 0.5 }) {
-                0.25
-            } else {
-                -0.25
-            }
-        }
-        INST_PULSE => {
-            if t < (if buzz { 0.255 } else { 0.316 }) {
-                0.25
-            } else {
-                -0.25
-            }
-        }
+        INST_SQUARE => high_for_the_last(if buzz { 0.4 } else { 0.5 }, t),
+        INST_PULSE => high_for_the_last(if buzz { 0.255 } else { 0.316 }, t),
         INST_ORGAN => {
             let mut ret = if t < 0.5 {
                 3.0 - (24.0 * t - 6.0).abs()
@@ -246,7 +254,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             let scale = (advance - p.last_advance) * 8.858_923;
             let new_sample = (p.last_sample + scale * rng.next()) / (1.0 + scale);
             let factor = 1.0 - f32::from(p.key) / 63.0;
-            let mut ret = new_sample * 1.5 * (1.0 + factor * factor);
+            let mut ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
             if noiz {
                 ret *= 2.0 * (if t < 0.5 { t } else { t - 1.0 });
             }
@@ -517,6 +525,8 @@ impl Voice {
                 new_synth.phi = last_synth.phi;
                 let freq_factor = new_synth.freq / key_to_freq(f32::from(MIDDLE_KEY));
                 let main_volume = new_synth.volume;
+                // A silent note of the SFX Instrument silences the voice.
+                new_synth.volume = 0.0;
                 update_sound(
                     &self.sfx_instruments[self.instrument_slot],
                     &mut self.instrument_state,
@@ -560,7 +570,7 @@ impl Voice {
             reverb_2 = mix(reverb_2, level(fade_reverb == 2), self.fade);
             dampen_1 = mix(dampen_1, level(fade_dampen == 1), self.fade);
             dampen_2 = mix(dampen_2, level(fade_dampen == 2), self.fade);
-            self.fade -= (130.0 * inverse_rate) as f32;
+            self.fade -= (CROSSFADES_PER_SECOND * inverse_rate) as f32;
         }
 
         let index_1 = self.reverb_index % REVERB_1_SAMPLES;
@@ -585,7 +595,7 @@ impl Voice {
             value = mix(value, damped, dampen_2);
         }
 
-        f32::from((32767.99 * value.clamp(-0.99, 0.99)) as i16) / 32768.0
+        f32::from((32767.99 * (OUTPUT_GAIN * value).clamp(-0.99, 0.99)) as i16) / 32768.0
     }
 }
 
@@ -642,8 +652,12 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                     }
                 }
                 FX_VIBRATO => {
-                    let t = (((7.5 * offset / offset_per_second) % 1.0) as f32 - 0.5).abs() - 0.25;
-                    freq = mix(freq, freq * 1.059_463_1, t);
+                    // A triangle in pitch held for two Ticks at a time: up from the note's pitch,
+                    // down through it and back, over eight steps.
+                    let ticks = offset * f64::from(speed);
+                    let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
+                    let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
+                    freq *= (t * VIBRATO_SEMITONES / 12.0).exp2();
                 }
                 FX_DROP => freq *= 1.0 - progress,
                 FX_FADE_IN => volume *= progress,
