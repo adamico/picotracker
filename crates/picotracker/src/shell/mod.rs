@@ -24,7 +24,6 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
-/// How often the window checks where playback has got to.
 const PLAYBACK_REFRESH: Duration = Duration::from_millis(16);
 
 /// Opens the window and runs until it closes.
@@ -41,7 +40,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 struct Surface {
     window: Arc<Window>,
     pixels: Pixels<'static>,
-    /// The title the window shows, so it is only set when it changes.
     title: String,
 }
 
@@ -92,9 +90,7 @@ struct Shell {
     keymap: Keymap,
     modifiers: ModifiersState,
     surface: Option<Surface>,
-    /// The sound output. The app still runs without one.
     audio: Option<AudioOutput>,
-    /// When the app was last told how much time has passed.
     last_tick: Instant,
     failure: Option<Box<dyn Error>>,
 }

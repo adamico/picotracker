@@ -13,10 +13,8 @@ use std::time::{Duration, Instant};
 
 const REQUEST_QUEUE: usize = 64;
 const REPORT_QUEUE: usize = 8;
-/// How often the synth thread tells the UI where playback has got to.
-const REPORT_INTERVAL: Duration = Duration::from_millis(33);
-/// Frames queued for the device: a stop is heard within this many seconds.
-const QUEUED_SECONDS: f32 = 0.02;
+const PLAYHEAD_REPORT_INTERVAL: Duration = Duration::from_millis(33);
+const DEVICE_QUEUE_SECONDS: f32 = 0.02;
 const MIN_QUEUED_FRAMES: usize = 256;
 const SYNTH_THREAD_NAP: Duration = Duration::from_millis(1);
 
@@ -39,7 +37,8 @@ impl AudioOutput {
         let format = supported.sample_format();
         let config: StreamConfig = supported.into();
 
-        let queued = ((config.sample_rate as f32 * QUEUED_SECONDS) as usize).max(MIN_QUEUED_FRAMES);
+        let queued =
+            ((config.sample_rate as f32 * DEVICE_QUEUE_SECONDS) as usize).max(MIN_QUEUED_FRAMES);
         let (frames, device_frames) = RingBuffer::new(queued);
         let (requests, player_requests) = RingBuffer::new(REQUEST_QUEUE);
         let (player_reports, reports) = RingBuffer::new(REPORT_QUEUE);
@@ -124,7 +123,7 @@ fn run_synth(
                 break;
             }
         }
-        if last_report.elapsed() >= REPORT_INTERVAL {
+        if last_report.elapsed() >= PLAYHEAD_REPORT_INTERVAL {
             // A full queue only means the UI is busy: the next report says the same and more.
             let _ = reports.push(player.report());
             last_report = Instant::now();
