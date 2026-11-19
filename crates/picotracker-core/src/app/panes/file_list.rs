@@ -13,9 +13,8 @@ pub const PROJECT_EXTENSION: &str = ".ptrk";
 const PARENT: &str = "..";
 const MAX_NAME: usize = 32;
 const SLOT_WIDTH: usize = 22;
-const DIRECTORY_ROW: usize = 1;
-const FIRST_ROW: usize = 2;
 const NAME_LABEL: &str = "NAME ";
+const RECENT_HEADING: &str = "RECENT";
 
 const FOLDER: Style = Style::fg(Colour::Blue);
 const POINTER: Style = Style::fg(Colour::Yellow);
@@ -59,15 +58,20 @@ struct Row {
     is_directory: bool,
 }
 
-/// A folder's contents, with a name field when saving.
+/// A folder's contents, with a name field when saving and the recent Projects when opening.
 #[derive(Debug)]
 pub struct FileList {
     purpose: Purpose,
     directory: PathBuf,
     rows: Vec<Row>,
-    /// The picked row. When saving, row 0 is the name field.
+    /// Project files to offer above the folder, the most recent first.
+    recent: Vec<PathBuf>,
+    /// The picked row, counting the name field when saving, then the recent Projects, then the
+    /// folder's rows.
     picked: usize,
     name: String,
+    /// Whether a folder has been shown yet.
+    listed: bool,
 }
 
 impl FileList {
@@ -76,9 +80,17 @@ impl FileList {
             purpose,
             directory,
             rows: vec![parent_row()],
+            recent: Vec::new(),
             picked: 0,
             name,
+            listed: false,
         }
+    }
+
+    /// Offers these Project files above the folder, with the cursor on the first.
+    pub fn with_recent(mut self, recent: Vec<PathBuf>) -> Self {
+        self.recent = recent;
+        self
     }
 
     pub fn purpose(&self) -> Purpose {
@@ -100,7 +112,9 @@ impl FileList {
         rows.insert(0, parent_row());
         self.directory = directory;
         self.rows = rows;
-        self.picked = 0;
+        // The first listing starts on the newest recent Project. Later ones start on the folder.
+        self.picked = if self.listed { self.recent.len() } else { 0 };
+        self.listed = true;
     }
 
     /// Rows above the folder's contents: the name field when saving.
@@ -108,9 +122,14 @@ impl FileList {
         usize::from(self.purpose == Purpose::SaveAs)
     }
 
+    /// Rows above the folder's contents: the name field and the recent Projects.
+    fn top_rows(&self) -> usize {
+        self.name_rows() + self.recent.len()
+    }
+
     pub fn move_cursor(&mut self, direction: Direction) {
         let (_, rows) = direction.delta();
-        self.picked = stepped(self.picked, rows, self.rows.len() + self.name_rows());
+        self.picked = stepped(self.picked, rows, self.rows.len() + self.top_rows());
     }
 
     /// Types one character of the file name, if a file name can hold it.
@@ -132,7 +151,10 @@ impl FileList {
         let Some(index) = self.picked.checked_sub(self.name_rows()) else {
             return self.save_choice();
         };
-        let row = &self.rows[index];
+        if let Some(recent) = self.recent.get(index) {
+            return Choice::Open(recent.clone());
+        }
+        let row = &self.rows[index - self.recent.len()];
         if row.name == PARENT {
             Choice::Folder(parent_of(&self.directory))
         } else if row.is_directory {
@@ -173,15 +195,21 @@ impl FileList {
             Purpose::Import => "IMPORT FILE",
         };
         draw_title(grid, area.column, 0, title, true);
+        let mut row = 1;
+        if !self.recent.is_empty() {
+            grid.put(area.column, row, RECENT_HEADING, HEADING);
+            row += 1;
+            for (index, path) in self.recent.iter().enumerate() {
+                self.draw_pointer(grid, area, row, self.name_rows() + index);
+                let name = path.file_name().unwrap_or(path.as_os_str());
+                grid.put(area.column + 1, row, &name.to_string_lossy(), VALUE);
+                row += 1;
+            }
+        }
         let directory = self.directory.to_string_lossy();
-        grid.put(
-            area.column,
-            DIRECTORY_ROW,
-            tail(&directory, SLOT_WIDTH + 1),
-            HEADING,
-        );
+        grid.put(area.column, row, tail(&directory, SLOT_WIDTH + 1), HEADING);
+        row += 1;
 
-        let mut row = FIRST_ROW;
         if self.purpose == Purpose::SaveAs {
             self.draw_pointer(grid, area, row, 0);
             let name = format!("{NAME_LABEL}{}_", self.name);
@@ -190,10 +218,10 @@ impl FileList {
         }
 
         let visible = area.rows - row;
-        let picked_row = self.picked.saturating_sub(self.name_rows());
+        let picked_row = self.picked.saturating_sub(self.top_rows());
         let first = (picked_row + 1).saturating_sub(visible);
         for (index, entry) in self.rows.iter().enumerate().skip(first).take(visible) {
-            self.draw_pointer(grid, area, row, index + self.name_rows());
+            self.draw_pointer(grid, area, row, index + self.top_rows());
             let (text, style) = if entry.is_directory {
                 (format!("{}/", entry.name), FOLDER)
             } else {

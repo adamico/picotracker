@@ -343,7 +343,18 @@ impl App {
             .and_then(Path::file_name)
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
         let directory = self.directory.clone();
-        self.file_list = Some(FileList::new(purpose, directory.clone(), name));
+        let recent = match purpose {
+            Purpose::Open => self
+                .app_state
+                .recent_projects()
+                .iter()
+                .filter(|recent| Some(recent.as_path()) != self.project_path.as_deref())
+                .cloned()
+                .collect(),
+            Purpose::SaveAs | Purpose::Import => Vec::new(),
+        };
+        let list = FileList::new(purpose, directory.clone(), name).with_recent(recent);
+        self.file_list = Some(list);
         self.list_folder(directory);
     }
 
