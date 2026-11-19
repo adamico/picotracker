@@ -23,7 +23,39 @@ pub fn carry_out(request: FileRequest) -> FileResponse {
         },
         FileRequest::Write { path, contents } => written(path, contents.as_bytes()),
         FileRequest::WriteBytes { path, contents } => written(path, &contents),
+        FileRequest::Rename { from, to } => match fs::rename(&from, &to) {
+            Ok(()) => FileResponse::Renamed { path: to },
+            Err(error) => failed(from, &error),
+        },
     }
+}
+
+/// Where `state.ron` lives: under `$XDG_STATE_HOME` on Linux, or the platform's per-user folder.
+pub fn state_file() -> Option<PathBuf> {
+    Some(state_folder()?.join("picotracker").join("state.ron"))
+}
+
+#[cfg(target_os = "windows")]
+fn state_folder() -> Option<PathBuf> {
+    absolute_from_env("LOCALAPPDATA")
+}
+
+#[cfg(target_os = "macos")]
+fn state_folder() -> Option<PathBuf> {
+    Some(absolute_from_env("HOME")?.join("Library/Application Support"))
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn state_folder() -> Option<PathBuf> {
+    absolute_from_env("XDG_STATE_HOME")
+        .or_else(|| Some(absolute_from_env("HOME")?.join(".local/state")))
+}
+
+/// A folder named by an environment variable. The XDG rules ignore relative paths.
+fn absolute_from_env(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
 }
 
 fn written(path: PathBuf, contents: &[u8]) -> FileResponse {
@@ -53,7 +85,14 @@ fn list(directory: &Path) -> io::Result<Vec<DirectoryEntry>> {
 }
 
 /// Writes beside the file and then swaps it in, so that a failed write leaves the old file whole.
+/// Creates the file's folder first, which `state.ron` needs on first launch.
 fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
+    if let Some(folder) = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+    {
+        fs::create_dir_all(folder)?;
+    }
     let mut temporary: OsString = path.as_os_str().to_owned();
     temporary.push(".tmp");
     fs::write(&temporary, contents)?;

@@ -8,6 +8,7 @@ mod files;
 mod focus;
 mod history;
 mod importing;
+mod launching;
 mod layout;
 mod messages;
 mod panes;
@@ -17,12 +18,14 @@ mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
 pub use files::{DirectoryEntry, FileRequest, FileResponse};
+pub use launching::Launch;
 pub use messages::{LogItem, Report, Severity};
 
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::CHAIN_ENTRIES;
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
+use crate::settings::AppState;
 use cell_edits::Clipboard;
 use change_speed::SpeedEntry;
 use files::{Question, Waiting};
@@ -68,6 +71,10 @@ pub struct App {
     directory: PathBuf,
     /// Set once the user has chosen to quit.
     quitting: bool,
+    /// What the app remembers between sessions.
+    app_state: AppState,
+    /// Where `state.ron` is written, unless the app must not write it this session.
+    state_file: Option<PathBuf>,
     focus: Focus,
     song: SongPane,
     chain: ChainPane,
@@ -136,6 +143,8 @@ impl App {
             project_path: None,
             directory: PathBuf::from("."),
             quitting: false,
+            app_state: AppState::default(),
+            state_file: None,
             focus: Focus::default(),
             song: SongPane::default(),
             chain: ChainPane::default(),

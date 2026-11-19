@@ -26,6 +26,8 @@ pub enum FileRequest {
     Write { path: PathBuf, contents: String },
     /// Replace a file with these bytes.
     WriteBytes { path: PathBuf, contents: Vec<u8> },
+    /// Give a file another name.
+    Rename { from: PathBuf, to: PathBuf },
 }
 
 /// One thing a folder holds.
@@ -51,6 +53,10 @@ pub enum FileResponse {
         contents: Vec<u8>,
     },
     Written {
+        path: PathBuf,
+    },
+    /// The file now has this name.
+    Renamed {
         path: PathBuf,
     },
     /// A request for this path could not be carried out.
@@ -144,6 +150,7 @@ impl App {
                 self.finish_reading_bytes(path, &contents)
             }
             FileResponse::Written { path } => self.finish_writing(&path),
+            FileResponse::Renamed { .. } => {}
             FileResponse::Failed { path, reason } => self.file_failed(&path, &reason),
         }
     }
@@ -158,8 +165,9 @@ impl App {
         match project_file::parse(contents) {
             Ok(project) => {
                 self.directory = folder_of(&path);
-                self.replace_project(project, Some(path));
+                self.replace_project(project, Some(path.clone()));
                 self.report(Report::info(format!("OPENED {name}")));
+                self.remember_project(path);
             }
             Err(error) => self.report(Report::failure(format!(
                 "CANNOT OPEN {name}: {}",
@@ -195,7 +203,8 @@ impl App {
                 self.saved_project = *project;
                 self.directory = folder_of(&written);
                 self.report(Report::info(format!("SAVED {}", shown_name(&written))));
-                self.project_path = Some(written);
+                self.project_path = Some(written.clone());
+                self.remember_project(written);
             }
             Some(Waiting::ExportWriting(written, finished)) if written == path => {
                 self.finish_writing_target(finished);
