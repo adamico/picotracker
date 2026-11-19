@@ -324,6 +324,33 @@ fn a_silent_step_pushed_out_of_range_is_clamped() {
 }
 
 #[test]
+fn a_silent_step_an_arpeggio_reads_pushed_out_of_range_is_named() {
+    let mut project = one_row_project();
+    let phrase = project.phrase_mut(PhraseId::new(0));
+    *phrase.step_mut(0) = Step::new(24, 0, 5, 6).unwrap();
+    *phrase.step_mut(1) = Step::new(63, 0, 0, 0).unwrap();
+    project
+        .chain_mut(ChainId::new(0))
+        .entry_mut(0)
+        .as_mut()
+        .unwrap()
+        .set_transpose(1);
+
+    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+
+    assert_eq!(
+        failures,
+        [ExportFailure::NoteOutOfRange {
+            phrase: 0,
+            step: 1,
+            track: 0,
+            song_row: 0,
+            chain_row: 0,
+        }]
+    );
+}
+
+#[test]
 fn an_empty_song_has_nothing_to_export() {
     let mut project = Project::new();
     project.set_export_track(0, Some(1));

@@ -9,13 +9,12 @@ use crate::cart::{
     Cart, CartError, FILTERS_BYTE, LOOP_START_BYTE, SFX_BYTES, SLOTS, SPEED_BYTE, note_word,
 };
 use crate::project::{
-    CHAIN_ENTRIES, ChainEntry, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, Phrase,
-    Project, SONG_ROWS,
+    CHAIN_ENTRIES, ChainEntry, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, MAX_PITCH,
+    MAX_STEPS, Phrase, Project, SONG_ROWS,
 };
 use std::collections::BTreeSet;
 use std::fmt;
 
-const MAX_PITCH: i32 = 63;
 const FULL_LENGTH: usize = 32;
 
 const TRACKER_MODE_BIT: u8 = 0x01;
@@ -274,7 +273,7 @@ fn compile_song(
                 continue;
             };
             let phrase = project.phrase(entry.phrase());
-            for step in out_of_range_steps(phrase, entry.transpose()) {
+            for step in phrase.out_of_range_steps(entry.transpose()) {
                 failures.push(ExportFailure::NoteOutOfRange {
                     phrase: entry.phrase().number(),
                     step,
@@ -321,17 +320,6 @@ fn plays_custom_instrument(phrase: &Phrase) -> bool {
     (0..phrase.length())
         .map(|index| phrase.step(index))
         .any(|step| !step.is_silent() && step.instrument() >= FIRST_CUSTOM_INSTRUMENT)
-}
-
-/// The Steps whose pitch is heard outside PICO-8's range after a transpose: audible Steps inside
-/// LEN, and any Step an arpeggio reads.
-fn out_of_range_steps(phrase: &Phrase, transpose: i8) -> impl Iterator<Item = usize> {
-    let read = phrase.steps_read_by_arpeggios();
-    (0..MAX_STEPS).filter(move |&index| {
-        let pitch = i32::from(phrase.step(index).pitch()) + i32::from(transpose);
-        let audible = index < phrase.length() && phrase.step_is_out_of_range(index, transpose);
-        audible || (read[index] && !(0..=MAX_PITCH).contains(&pitch))
-    })
 }
 
 /// The 68 bytes of the SFX that plays a Phrase at a transpose. Steps past LEN are never heard, so

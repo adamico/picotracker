@@ -43,7 +43,8 @@ const MAX_TRANSPOSE: i32 = i8::MAX as i32;
 const DEFAULT_LENGTH: usize = 16;
 const DEFAULT_SPEED: u8 = 16;
 const DEFAULT_PITCH: u8 = 24;
-const MAX_PITCH: i32 = 63;
+/// The highest pitch PICO-8 plays, D#5.
+pub(crate) const MAX_PITCH: i32 = 63;
 const MAX_BUILT_IN_INSTRUMENT: i32 = 7;
 const MAX_VOLUME: i32 = 7;
 const MAX_EFFECT: i32 = 7;
@@ -51,6 +52,11 @@ const EFFECT_ARPEGGIO_FAST: u8 = 6;
 const EFFECT_ARPEGGIO_SLOW: u8 = 7;
 /// The Steps an arpeggio plays: the group of this many that it falls in.
 pub const ARPEGGIO_GROUP: usize = 4;
+
+/// The first Step of the arpeggio group a Step falls in.
+pub const fn arpeggio_group_start(index: usize) -> usize {
+    index - index % ARPEGGIO_GROUP
+}
 const MIN_SPEED: i32 = 1;
 const MAX_SPEED: i32 = 255;
 /// BPM is about this number divided by the Speed, assuming 4 Steps per beat.
@@ -271,7 +277,9 @@ impl Phrase {
         self.length as u32 * u32::from(self.speed)
     }
 
-    /// Whether a Step sounds outside PICO-8's pitch range 0 to 63 after this transpose.
+    /// Whether a Step's pitch is heard outside PICO-8's pitch range 0 to 63 after this transpose:
+    /// an audible Step inside LEN, or any Step an arpeggio reads, even a silent one or one past LEN.
+    /// Export refuses exactly these Steps, because clamping them would change the sound.
     ///
     /// # Panics
     ///
@@ -279,22 +287,30 @@ impl Phrase {
     pub fn step_is_out_of_range(&self, index: usize, transpose: i8) -> bool {
         let step = self.steps[index];
         let pitch = i32::from(step.pitch) + i32::from(transpose);
-        !step.is_silent() && !(0..=MAX_PITCH).contains(&pitch)
+        let heard =
+            (index < self.length && !step.is_silent()) || self.steps_read_by_arpeggios()[index];
+        heard && !(0..=MAX_PITCH).contains(&pitch)
+    }
+
+    /// The Steps whose pitch is heard outside PICO-8's pitch range after this transpose, as
+    /// [`Phrase::step_is_out_of_range`] decides.
+    pub fn out_of_range_steps(&self, transpose: i8) -> impl Iterator<Item = usize> + '_ {
+        (0..MAX_STEPS).filter(move |&index| self.step_is_out_of_range(index, transpose))
     }
 
     /// Which Steps an arpeggio inside LEN takes its pitches from. These can lie past LEN.
     pub fn steps_read_by_arpeggios(&self) -> [bool; MAX_STEPS] {
         let mut read = [false; MAX_STEPS];
         for index in (0..self.length).filter(|&index| self.steps[index].plays_arpeggio()) {
-            let group = index - index % ARPEGGIO_GROUP;
+            let group = arpeggio_group_start(index);
             read[group..group + ARPEGGIO_GROUP].fill(true);
         }
         read
     }
 
-    /// Whether any Step inside LEN sounds outside PICO-8's pitch range after this transpose.
+    /// Whether any Step's pitch is heard outside PICO-8's pitch range after this transpose.
     pub fn is_out_of_range(&self, transpose: i8) -> bool {
-        (0..self.length).any(|index| self.step_is_out_of_range(index, transpose))
+        self.out_of_range_steps(transpose).next().is_some()
     }
 
     /// Whether every Step inside LEN is silent.
