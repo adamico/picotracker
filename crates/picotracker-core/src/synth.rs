@@ -93,6 +93,7 @@ const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
 const CROSSFADE_SAMPLES: f32 = 64.0;
+const TICK_ROUNDING: f64 = 1e-9;
 const VIBRATO_STEPS: f64 = 8.0;
 const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
 const VIBRATO_SEMITONES: f32 = 0.27;
@@ -674,7 +675,7 @@ impl Voice {
 
         // Crossfade over abrupt changes, so that they do not click.
         let increment_threshold = new_synth.increment.min(last_synth.increment) * 0.01;
-        if (new_synth.volume - last_synth.volume).abs() > 0.1
+        if new_synth.volume != last_synth.volume
             || (new_synth.increment - last_synth.increment).abs() > increment_threshold
             || new_synth.instrument != last_synth.instrument
         {
@@ -744,8 +745,12 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
     let offset = state.offset;
     let offset_per_second = RATE / (f64::from(SAMPLES_PER_TICK) * f64::from(speed));
     let offset_per_sample = offset_per_second * inverse_rate;
-    let mut next_offset = offset + offset_per_sample;
-    let next_time = state.time + offset_per_sample;
+    // A sound moves on by whole samples, so its position stays on that grid rather than drifting
+    // by rounding and crossing a note a sample late.
+    let samples_per_note = f64::from(SAMPLES_PER_TICK) * f64::from(speed);
+    let on_sample_grid = |position: f64| (position * samples_per_note).round() / samples_per_note;
+    let mut next_offset = on_sample_grid(offset + offset_per_sample);
+    let next_time = on_sample_grid(state.time + offset_per_sample);
 
     let loop_start = f64::from(sound.loop_start);
     let loop_end = f64::from(sound.loop_end);
@@ -776,7 +781,10 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
         let mut increment = pitch_increment(note.pitch) * freq_factor;
-        let progress = (offset % 1.0) as f32;
+        // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
+        // (speed - 1) / speed of the way.
+        let ticks_into_note = ((offset % 1.0) * f64::from(speed) + TICK_ROUNDING).floor();
+        let progress = (ticks_into_note / f64::from(speed)) as f32;
 
         if volume > 0.0 {
             match note.effect {
@@ -798,10 +806,16 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                 FX_FADE_IN => volume *= progress,
                 FX_FADE_OUT => volume *= 1.0 - progress,
                 FX_ARP_FAST | FX_ARP_SLOW => {
-                    let rate = if speed <= 8 { 32 } else { 16 };
-                    let divisor = if note.effect == FX_ARP_FAST { 4 } else { 8 };
-                    let position = f64::from(rate / divisor) * 7.5 * offset / offset_per_second;
-                    let arpeggio_note = (note_index & !3) | (position as usize & 3);
+                    // Each pitch of the arpeggio lasts whole Ticks: 2 up to speed 8 and 4 above,
+                    // twice as long for the slow arpeggio.
+                    let fast_ticks = if speed <= 8 { 2 } else { 4 };
+                    let ticks_per_pitch = if note.effect == FX_ARP_FAST {
+                        fast_ticks
+                    } else {
+                        2 * fast_ticks
+                    };
+                    let ticks = (offset * f64::from(speed) + TICK_ROUNDING).floor() as usize;
+                    let arpeggio_note = (note_index & !3) | ((ticks / ticks_per_pitch) & 3);
                     increment = pitch_increment(sound.notes[arpeggio_note].pitch);
                 }
                 _ => {}
