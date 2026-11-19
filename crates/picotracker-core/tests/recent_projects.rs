@@ -1,7 +1,7 @@
 //! The recent Projects at the top of the Open file list.
 
 use picotracker_core::app::{
-    Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, Launch,
+    Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, Launch, StateContents,
 };
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
@@ -33,8 +33,8 @@ fn launch_remembering(paths: &[&str]) -> App {
     }
     let mut app = App::new();
     app.launch(Launch {
-        state_file: PathBuf::from("/state/state.ron"),
-        state: Some(write_state(&state)),
+        state_file: Some(PathBuf::from("/state/state.ron")),
+        state: StateContents::Bytes(write_state(&state).into_bytes()),
         directory: PathBuf::from(HOME),
     });
     app.take_file_requests();
@@ -147,8 +147,8 @@ fn the_open_project_is_not_listed_as_recent() {
     state.remember_project(PathBuf::from("/music/b.ptrk"));
     let mut app = App::new();
     app.launch(Launch {
-        state_file: PathBuf::from("/state/state.ron"),
-        state: Some(write_state(&state)),
+        state_file: Some(PathBuf::from("/state/state.ron")),
+        state: StateContents::Bytes(write_state(&state).into_bytes()),
         directory: PathBuf::from(HOME),
     });
     app.take_file_requests();

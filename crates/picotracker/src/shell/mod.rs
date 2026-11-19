@@ -8,7 +8,7 @@ mod files;
 mod keys;
 
 use audio::AudioOutput;
-use picotracker_core::app::{Action, App, Launch};
+use picotracker_core::app::{Action, App, Launch, StateContents};
 use picotracker_core::keymap::Keymap;
 use picotracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use picotracker_core::screen::viewport::integer_scale;
@@ -119,10 +119,10 @@ impl Shell {
     /// Gives the app what `state.ron` holds and starts in the folder the app was launched from.
     fn launch(&mut self) {
         let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let Some(state_file) = files::state_file() else {
-            return;
-        };
-        let state = std::fs::read_to_string(&state_file).ok();
+        let state_file = files::state_file();
+        let state = state_file
+            .as_deref()
+            .map_or(StateContents::Missing, files::read_state);
         self.app.launch(Launch {
             state_file,
             state,

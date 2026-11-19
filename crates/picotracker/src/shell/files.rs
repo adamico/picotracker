@@ -1,6 +1,6 @@
 //! Carries out the App core's file requests on the real file system.
 
-use picotracker_core::app::{DirectoryEntry, FileRequest, FileResponse};
+use picotracker_core::app::{DirectoryEntry, FileRequest, FileResponse, StateContents};
 use std::ffi::OsString;
 use std::fs;
 use std::io;
@@ -26,6 +26,18 @@ pub fn carry_out(request: FileRequest) -> FileResponse {
         FileRequest::Rename { from, to } => match fs::rename(&from, &to) {
             Ok(()) => FileResponse::Renamed { path: to },
             Err(error) => failed(from, &error),
+        },
+    }
+}
+
+/// Reads `state.ron`. Only a missing file counts as no file: any other error leaves the file to
+/// the App core to keep safe.
+pub fn read_state(path: &Path) -> StateContents {
+    match fs::read(path) {
+        Ok(bytes) => StateContents::Bytes(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => StateContents::Missing,
+        Err(error) => StateContents::Unreadable {
+            reason: error.to_string(),
         },
     }
 }

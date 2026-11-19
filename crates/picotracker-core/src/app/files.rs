@@ -106,6 +106,12 @@ pub(super) enum Waiting {
     ExportReading(PathBuf),
     /// The Target Cart, being replaced by an Export.
     ExportWriting(PathBuf, FinishedExport),
+    /// A damaged `state.ron`, being renamed to its `.bad` name. Until that works, `state.ron` is
+    /// not written.
+    SettingAside {
+        state_file: PathBuf,
+        bad_file: PathBuf,
+    },
 }
 
 /// The file name of a path in capitals, as messages show it.
@@ -150,7 +156,7 @@ impl App {
                 self.finish_reading_bytes(path, &contents)
             }
             FileResponse::Written { path } => self.finish_writing(&path),
-            FileResponse::Renamed { .. } => {}
+            FileResponse::Renamed { path } => self.finish_setting_aside(&path),
             FileResponse::Failed { path, reason } => self.file_failed(&path, &reason),
         }
     }
@@ -236,6 +242,9 @@ impl App {
             {
                 format!("CANNOT EXPORT TO {name}: {reason}")
             }
+            Some(Waiting::SettingAside { state_file, .. }) if state_file == path => format!(
+                "CANNOT RENAME {name} TO {name}.BAD: {reason}. RECENT PROJECTS ARE NOT SAVED THIS SESSION"
+            ),
             other => {
                 self.waiting = other;
                 return;
