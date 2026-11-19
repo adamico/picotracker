@@ -41,6 +41,8 @@ jobs:
         run: cargo fmt --all --check
       - name: Lints
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Constants, enums and struct fields carry no comments
+        run: python3 -I scripts/check-item-comments.py crates
       - name: Tests
         run: cargo test --workspace --locked
       - name: The core has no window or audio dependency
