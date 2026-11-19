@@ -81,6 +81,7 @@ pub enum KeyContext {
     PhraseValue,
     ReferenceValue,
     FileName,
+    InstrumentName,
     MidiImport,
     SpeedEntry,
 }

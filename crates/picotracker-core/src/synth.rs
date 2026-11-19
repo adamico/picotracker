@@ -73,12 +73,19 @@
 //! SOFTWARE.
 //! ```
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 pub const SAMPLE_RATE: u32 = 22_050;
 pub const SAMPLES_PER_TICK: u32 = 183;
 pub const NOTES: usize = 32;
+pub const WAVEFORM_SAMPLES: usize = 64;
 
 const RATE: f64 = SAMPLE_RATE as f64;
-const SFX_INSTRUMENTS: usize = 8;
+const NOIZ_AND_BUZZ: u8 = 0x6;
+const WAVEFORM_FULL_SCALE: f32 = 198.0;
+const WAVEFORM_FIRST_VOICE: f32 = 0.7;
+const WAVEFORM_START: f32 = 0.5;
 const REVERB_1_SAMPLES: usize = 2 * SAMPLES_PER_TICK as usize;
 const REVERB_2_SAMPLES: usize = 4 * SAMPLES_PER_TICK as usize;
 const NOISE_SEED: u32 = 0x1234_5678;
@@ -143,6 +150,24 @@ impl Default for Sound {
     }
 }
 
+/// A Custom Instrument made of one looping wave of signed samples. Its filters are packed like
+/// byte 64 of a PICO-8 SFX, and NOIZ and BUZZ have no effect on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Waveform {
+    pub samples: [i8; WAVEFORM_SAMPLES],
+    pub bass: bool,
+    pub filters: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Instrument {
+    Sfx(Sound),
+    Waveform(Waveform),
+}
+
+/// The Custom Instruments a voice can play, by the instrument number their notes hold.
+pub type Instruments = BTreeMap<u8, Instrument>;
+
 /// Packs the filters the way byte 64 of a PICO-8 SFX holds them.
 pub const fn packed_filters(noiz: bool, buzz: bool, detune: u8, reverb: u8, dampen: u8) -> u8 {
     (noiz as u8) * 2 + (buzz as u8) * 4 + detune * 8 + reverb * 24 + dampen * 72
@@ -182,6 +207,22 @@ struct SynthParam {
     phi: f32,
     last_advance: f32,
     last_sample: f32,
+    wave: Option<[i8; WAVEFORM_SAMPLES]>,
+}
+
+/// One cycle of a Waveform Instrument, read between its samples by linear interpolation. As
+/// measured on PICO-8, a cycle starts half way through the samples, and the loudest sample plays
+/// at about 0.64 of full scale.
+fn interpolated(wave: &[i8; WAVEFORM_SAMPLES], t: f32) -> f32 {
+    let position = ((t + WAVEFORM_START) % 1.0) * WAVEFORM_SAMPLES as f32;
+    let index = (position as usize).min(WAVEFORM_SAMPLES - 1);
+    let next = (index + 1) % WAVEFORM_SAMPLES;
+    let between = mix(
+        f32::from(wave[index]),
+        f32::from(wave[next]),
+        position - index as f32,
+    );
+    between / WAVEFORM_FULL_SCALE
 }
 
 /// PICO-8's square and pulse: low through the cycle and high for its last `duty`.
@@ -192,6 +233,9 @@ fn high_for_the_last(duty: f32, t: f32) -> f32 {
 fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let advance = p.phi;
     let t = advance % 1.0;
+    if let Some(wave) = &p.wave {
+        return interpolated(wave, t);
+    }
     let noiz = p.filters & 0x2 != 0;
     let buzz = p.filters & 0x4 != 0;
     match p.instrument {
@@ -309,16 +353,39 @@ fn detune_factor(instrument: u8, detune: u8) -> f32 {
     }
 }
 
+/// How far DETUNE moves the second voice of a Waveform Instrument, whatever its instrument digit.
+/// DETUNE 1 is measured on PICO-8, a little below the first voice; DETUNE 2 follows the port's
+/// ratio for most Built-in Instruments.
+fn waveform_detune_factor(detune: u8) -> f32 {
+    if detune == 1 {
+        199.0 / 200.0
+    } else {
+        400.0 / 199.0
+    }
+}
+
 fn synth_sample(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let mut wave = waveform(p, rng);
     let detune = (p.filters / 8) % 3;
-    if detune != 0 && p.instrument != INST_NOISE {
+    let plays_waveform = p.wave.is_some();
+    if detune != 0 && (plays_waveform || p.instrument != INST_NOISE) {
         let mut second = *p;
-        second.phi *= detune_factor(p.instrument, detune);
-        if detune == 2 && p.instrument == INST_ORGAN {
-            second.instrument = INST_TRIANGLE;
+        if plays_waveform {
+            second.phi *= waveform_detune_factor(detune);
+        } else {
+            second.phi *= detune_factor(p.instrument, detune);
+            if detune == 2 && p.instrument == INST_ORGAN {
+                second.instrument = INST_TRIANGLE;
+            }
         }
-        wave += waveform(&mut second, rng) * 0.5;
+        let detuned = waveform(&mut second, rng);
+        // Measured on PICO-8: a Waveform Instrument mixes its detuned voice in at 0.3 and its
+        // first voice at 0.7, so that DETUNE leaves its peak level as it was.
+        wave = if plays_waveform {
+            wave * WAVEFORM_FIRST_VOICE + detuned * (1.0 - WAVEFORM_FIRST_VOICE)
+        } else {
+            wave + detuned * 0.5
+        };
     }
     (wave * p.volume).clamp(-1.0, 1.0)
 }
@@ -400,8 +467,8 @@ impl SoundState {
 pub struct Voice {
     sound: Sound,
     state: SoundState,
-    sfx_instruments: [Sound; SFX_INSTRUMENTS],
-    instrument_slot: usize,
+    instruments: Arc<Instruments>,
+    instrument_number: u8,
     instrument_state: SoundState,
     last_main_instrument: u8,
     last_main_key: i16,
@@ -428,8 +495,8 @@ impl Voice {
         Self {
             sound: Sound::default(),
             state: SoundState::STOPPED,
-            sfx_instruments: [Sound::default(); SFX_INSTRUMENTS],
-            instrument_slot: 0,
+            instruments: Arc::default(),
+            instrument_number: 0,
             instrument_state: SoundState::STOPPED,
             last_main_instrument: NO_INSTRUMENT,
             last_main_key: NO_KEY,
@@ -447,7 +514,18 @@ impl Voice {
 
     /// Sets the sound that notes marked `custom` play for an instrument slot from 0 to 7.
     pub fn set_sfx_instrument(&mut self, slot: usize, sound: Sound) {
-        self.sfx_instruments[slot % SFX_INSTRUMENTS] = sound;
+        self.set_instrument(slot as u8, Instrument::Sfx(sound));
+    }
+
+    /// Sets what notes marked `custom` play for one instrument number.
+    pub fn set_instrument(&mut self, number: u8, instrument: Instrument) {
+        Arc::make_mut(&mut self.instruments).insert(number, instrument);
+    }
+
+    /// Replaces every instrument that notes marked `custom` play. A number with no instrument
+    /// plays silence.
+    pub fn set_instruments(&mut self, instruments: Arc<Instruments>) {
+        self.instruments = instruments;
     }
 
     /// Starts a sound from one of its notes.
@@ -475,9 +553,9 @@ impl Voice {
 
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
     pub fn stop(&mut self) {
-        let sfx_instruments = self.sfx_instruments;
+        let instruments = std::mem::take(&mut self.instruments);
         *self = Self::new();
-        self.sfx_instruments = sfx_instruments;
+        self.instruments = instruments;
     }
 
     /// Whether a sound is still playing.
@@ -516,24 +594,42 @@ impl Voice {
                     restart_instrument = true;
                 }
                 if restart_instrument {
-                    self.instrument_slot = usize::from(new_synth.instrument) % SFX_INSTRUMENTS;
+                    self.instrument_number = new_synth.instrument;
                     self.instrument_state = SoundState {
                         playing: true,
                         ..SoundState::STOPPED
                     };
                 }
-                new_synth.phi = last_synth.phi;
-                let freq_factor = new_synth.freq / key_to_freq(f32::from(MIDDLE_KEY));
-                let main_volume = new_synth.volume;
-                // A silent note of the SFX Instrument silences the voice.
-                new_synth.volume = 0.0;
-                update_sound(
-                    &self.sfx_instruments[self.instrument_slot],
-                    &mut self.instrument_state,
-                    &mut new_synth,
-                    freq_factor,
-                );
-                new_synth.volume *= main_volume;
+                match self.instruments.get(&self.instrument_number) {
+                    Some(Instrument::Waveform(wave)) => {
+                        if wave.bass {
+                            new_synth.freq *= 0.5;
+                        }
+                        new_synth.phi =
+                            last_synth.phi + (f64::from(new_synth.freq) * inverse_rate) as f32;
+                        new_synth.filters = wave.filters & !NOIZ_AND_BUZZ;
+                        new_synth.wave = Some(wave.samples);
+                    }
+                    sfx => {
+                        let silent = Sound::default();
+                        let sound = match sfx {
+                            Some(Instrument::Sfx(sound)) => sound,
+                            _ => &silent,
+                        };
+                        new_synth.phi = last_synth.phi;
+                        let freq_factor = new_synth.freq / key_to_freq(f32::from(MIDDLE_KEY));
+                        let main_volume = new_synth.volume;
+                        // A silent note of the SFX Instrument silences the voice.
+                        new_synth.volume = 0.0;
+                        update_sound(
+                            sound,
+                            &mut self.instrument_state,
+                            &mut new_synth,
+                            freq_factor,
+                        );
+                        new_synth.volume *= main_volume;
+                    }
+                }
             }
             value = synth_sample(&mut new_synth, &mut self.rng);
         }

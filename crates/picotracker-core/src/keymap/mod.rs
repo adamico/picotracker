@@ -45,7 +45,7 @@ impl Keymap {
     /// The action a key press triggers with the cursor in this context, if any. Keys that type
     /// characters depend on the context, and they do not repeat while held.
     pub fn action_in(&self, press: KeyPress, context: KeyContext) -> Option<Action> {
-        if context == KeyContext::FileName
+        if matches!(context, KeyContext::FileName | KeyContext::InstrumentName)
             && let Some(action) = file_name_action(press)
         {
             return Some(action);
@@ -60,7 +60,7 @@ impl Keymap {
     }
 }
 
-/// What a key does while a file name is being typed. Characters keep their case, and they repeat
+/// What a key does while a file name or an Instrument name is being typed. Characters keep their case, and they repeat
 /// while held, as they do in any text field.
 fn file_name_action(press: KeyPress) -> Option<Action> {
     if press.modifiers.ctrl || press.modifiers.alt {
