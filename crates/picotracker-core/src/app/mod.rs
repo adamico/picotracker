@@ -66,6 +66,8 @@ pub struct App {
     project_path: Option<PathBuf>,
     /// The folder the file list starts in.
     directory: PathBuf,
+    /// Set once the user has chosen to quit.
+    quitting: bool,
     focus: Focus,
     song: SongPane,
     chain: ChainPane,
@@ -133,6 +135,7 @@ impl App {
             clipboard: None,
             project_path: None,
             directory: PathBuf::from("."),
+            quitting: false,
             focus: Focus::default(),
             song: SongPane::default(),
             chain: ChainPane::default(),
@@ -388,6 +391,10 @@ impl App {
             self.song.finish_typing();
             self.chain.finish_typing();
             self.phrase.finish_typing();
+        }
+        if action == Action::Quit {
+            self.quit();
+            return;
         }
         if self.midi_dialog.is_some() {
             self.use_midi_dialog(action);

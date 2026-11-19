@@ -8,7 +8,7 @@ mod files;
 mod keys;
 
 use audio::AudioOutput;
-use picotracker_core::app::App;
+use picotracker_core::app::{Action, App};
 use picotracker_core::keymap::Keymap;
 use picotracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use picotracker_core::screen::viewport::integer_scale;
@@ -108,6 +108,21 @@ impl Shell {
         event_loop.exit();
     }
 
+    /// Applies one action, carries out what it asks for, and closes the window if it quits.
+    fn apply(&mut self, event_loop: &ActiveEventLoop, action: Action) {
+        self.app.apply(action);
+        if self.app.wants_to_quit() {
+            event_loop.exit();
+            return;
+        }
+        self.send_audio_requests();
+        self.run_file_requests();
+        self.send_audio_requests();
+        if let Some(surface) = self.surface.as_ref() {
+            surface.window.request_redraw();
+        }
+    }
+
     /// Passes the app's audio requests to the synth thread.
     fn send_audio_requests(&mut self) {
         for request in self.app.take_audio_requests() {
@@ -170,7 +185,7 @@ impl ApplicationHandler for Shell {
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => self.apply(event_loop, Action::Quit),
             WindowEvent::Resized(size) if size.width > 0 && size.height > 0 => {
                 let Some(surface) = self.surface.as_mut() else {
                     return;
@@ -194,13 +209,7 @@ impl ApplicationHandler for Shell {
                 let action = keys::key_press(&event, self.modifiers)
                     .and_then(|press| self.keymap.action_in(press, context));
                 if let Some(action) = action {
-                    self.app.apply(action);
-                    self.send_audio_requests();
-                    self.run_file_requests();
-                    self.send_audio_requests();
-                    if let Some(surface) = self.surface.as_ref() {
-                        surface.window.request_redraw();
-                    }
+                    self.apply(event_loop, action);
                 }
             }
             WindowEvent::KeyboardInput { .. } => {

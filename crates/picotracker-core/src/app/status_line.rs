@@ -30,7 +30,7 @@ const QUESTION: Style = Style {
     bg: Colour::Blue,
 };
 
-const KEY_HINTS: &str = "^N NEW  ^O OPEN  ^I IMPORT  ^S SAVE  ^L LOG  SPACE PLAY";
+const KEY_HINTS: &str = "^N NEW  ^O OPEN  ^I IMPORT  ^S SAVE  ^L LOG  SPACE PLAY  ^Q QUIT";
 
 /// What the status line shows.
 pub enum StatusLine<'a> {
