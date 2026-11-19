@@ -81,6 +81,9 @@ const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
 const CROSSFADES_PER_SECOND: f64 = 350.0;
+const VIBRATO_STEPS: f64 = 8.0;
+const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
+const VIBRATO_SEMITONES: f32 = 0.27;
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -645,8 +648,12 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                     }
                 }
                 FX_VIBRATO => {
-                    let t = (((7.5 * offset / offset_per_second) % 1.0) as f32 - 0.5).abs() - 0.25;
-                    freq = mix(freq, freq * 1.059_463_1, t);
+                    // A triangle in pitch held for two Ticks at a time: up from the note's pitch,
+                    // down through it and back, over eight steps.
+                    let ticks = offset * f64::from(speed);
+                    let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
+                    let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
+                    freq *= (t * VIBRATO_SEMITONES / 12.0).exp2();
                 }
                 FX_DROP => freq *= 1.0 - progress,
                 FX_FADE_IN => volume *= progress,

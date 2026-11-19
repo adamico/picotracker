@@ -23,6 +23,17 @@ const RENDERED_SPARE_TICKS: u32 = 8;
 const NOISE: u8 = 6;
 const WAVEFORM_INSTRUMENT_FLAG: u8 = 0x80;
 const SFX_INSTRUMENTS: u8 = 8;
+const PITCH_WINDOW_TICKS: u32 = 4;
+const CENTS_PER_PITCH: f32 = 100.0;
+const VIBRATO_TICKS: std::ops::Range<u32> = 80..120;
+const VIBRATO_CASES: [&str; 6] = [
+    "coverage_sfx08",
+    "coverage_sfx09",
+    "coverage_sfx10",
+    "coverage_sfx11",
+    "coverage_sfx12",
+    "coverage_sfx13",
+];
 
 /// The limits from the spec for matching a recording of real PICO-8. Loosening any of them needs
 /// an A/B listening check by the owner, noted in the commit.
@@ -300,6 +311,41 @@ fn every_case_matches_real_pico8_within_the_spec_limits() {
             .collect()
     });
     assert!(problems.is_empty(), "\n{}", problems.join("\n"));
+}
+
+/// Where a case's fingerprint and ours give a tone for the same window of Ticks, how far apart
+/// they are in cents.
+fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Option<f32>)> {
+    let reference = committed_fingerprint(case);
+    let ours = fingerprint::measure(&rendered(case), reference.tick_levels_db.len());
+    let windows = (ticks.start / PITCH_WINDOW_TICKS)..(ticks.end / PITCH_WINDOW_TICKS);
+    windows
+        .filter_map(|window| {
+            let expected = reference.window_pitches[window as usize]?;
+            let cents = ours.window_pitches[window as usize]
+                .map(|actual| CENTS_PER_PITCH * (actual - expected));
+            Some((window * PITCH_WINDOW_TICKS, cents))
+        })
+        .collect()
+}
+
+/// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch. The
+/// whole coverage cases still wait on #39's slide, so this checks their vibrato Steps on their own.
+/// The phaser is left out: its beat moves its measured pitch by several cents even without
+/// vibrato.
+#[test]
+fn vibrato_matches_real_pico8_within_the_pitch_limit() {
+    let off: Vec<String> = cases::all()
+        .iter()
+        .filter(|case| VIBRATO_CASES.contains(&case.name))
+        .flat_map(|case| {
+            window_pitch_cents(case, VIBRATO_TICKS)
+                .into_iter()
+                .filter(|(_, cents)| !cents.is_some_and(|c| c.abs() <= SPEC_LIMITS.pitch_cents))
+                .map(|(tick, cents)| format!("{} tick {tick}: {cents:?} cents", case.name))
+        })
+        .collect();
+    assert!(off.is_empty(), "\n{}", off.join("\n"));
 }
 
 fn synth_hash(samples: &[f32]) -> String {
