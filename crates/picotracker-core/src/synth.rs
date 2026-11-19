@@ -101,6 +101,7 @@ const SAW_LEVEL: f32 = 2.0 / 3.0;
 const OUTPUT_GAIN: f32 = 0.9841;
 const NOISE_LEVEL: f32 = 0.844;
 const PHASE_UNITS_PER_CYCLE: f32 = 65_536.0;
+const PHASER_SECOND_WAVE_RATIO: f64 = 127.0 / 128.0;
 const TABLE_OCTAVE: i32 = 3;
 const MAX_OCTAVE_SHIFT: i32 = 32;
 const OCTAVE_PHASE_UNITS: [u32; 12] = [
@@ -195,9 +196,51 @@ fn pitch_increment(pitch: i16) -> f32 {
     phase_units as f32 / PHASE_UNITS_PER_CYCLE
 }
 
-/// A phase moved on by one sample of an increment, in PICO-8's whole phase units.
-fn advanced(phi: f64, increment: f32) -> f64 {
-    phi + f64::from((increment * PHASE_UNITS_PER_CYCLE).floor() / PHASE_UNITS_PER_CYCLE)
+/// How far through their cycles a voice's waves are. The phaser mixes in a second wave that keeps
+/// a phase of its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Phase {
+    main: f64,
+    phaser: f64,
+}
+
+impl Phase {
+    const START: Self = Self {
+        main: 0.0,
+        phaser: 0.0,
+    };
+
+    fn at(cycles: f64) -> Self {
+        Self {
+            main: cycles,
+            phaser: cycles,
+        }
+    }
+}
+
+impl std::ops::MulAssign<f64> for Phase {
+    fn mul_assign(&mut self, factor: f64) {
+        self.main *= factor;
+        self.phaser *= factor;
+    }
+}
+
+impl std::ops::RemAssign<f64> for Phase {
+    fn rem_assign(&mut self, cycles: f64) {
+        self.main %= cycles;
+        self.phaser %= cycles;
+    }
+}
+
+/// A phase moved on by one sample of an increment, in PICO-8's whole phase units. Measured on
+/// PICO-8, the phaser's second wave moves 127/128 as far, rounded down to a whole unit.
+fn advanced(phi: Phase, increment: f32) -> Phase {
+    let units = f64::from((increment * PHASE_UNITS_PER_CYCLE).floor());
+    let cycles = |units: f64| units / f64::from(PHASE_UNITS_PER_CYCLE);
+    Phase {
+        main: phi.main + cycles(units),
+        phaser: phi.phaser + cycles((units * PHASER_SECOND_WAVE_RATIO).floor()),
+    }
 }
 
 fn mix(a: f32, b: f32, t: f32) -> f32 {
@@ -227,7 +270,7 @@ struct SynthParam {
     key: i16,
     increment: f32,
     volume: f32,
-    phi: f64,
+    phi: Phase,
     last_advance: f64,
     last_sample: f32,
     wave: Option<[i8; WAVEFORM_SAMPLES]>,
@@ -252,7 +295,7 @@ fn high_for_the_last(duty: f32, t: f32) -> f32 {
 }
 
 fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
-    let advance = p.phi;
+    let advance = p.phi.main;
     let t = (advance % 1.0) as f32;
     if let Some(wave) = &p.wave {
         return interpolated(wave, t);
@@ -329,7 +372,7 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
         }
         INST_PHASER => {
             let mut ret = 2.0 - (8.0 * t - 4.0).abs();
-            ret += 1.0 - (4.0 * ((advance * 109.0 / 110.0) % 1.0) as f32 - 2.0).abs();
+            ret += 1.0 - (4.0 * (p.phi.phaser % 1.0) as f32 - 2.0).abs();
             if buzz {
                 ret += 0.25 - (((advance * 2.0 + 0.5) % 1.0) as f32 - 0.5).abs();
                 ret += 0.125 - (0.5 * ((advance * 4.0) % 1.0) as f32 - 0.25).abs();
@@ -499,7 +542,7 @@ impl Voice {
     /// and playing a sound keeps the phase the voice has.
     pub fn with_phase(phase_units: u16) -> Self {
         let mut voice = Self::new();
-        voice.last_synth.phi = f64::from(phase_units) / f64::from(PHASE_UNITS_PER_CYCLE);
+        voice.last_synth.phi = Phase::at(f64::from(phase_units) / f64::from(PHASE_UNITS_PER_CYCLE));
         voice
     }
 
@@ -539,7 +582,7 @@ impl Voice {
     /// [`play`]: Self::play
     pub fn play_pattern(&mut self, sound: Sound, from_note: usize) {
         if self.last_synth.volume == 0.0 && self.fade <= 0.0 {
-            self.last_synth.phi = 0.0;
+            self.last_synth.phi = Phase::START;
         }
         self.play(sound, from_note);
     }
@@ -579,7 +622,13 @@ impl Voice {
         let mut value = 0.0;
 
         let base_offset = self.state.offset;
+        let plays_a_note = self.state.playing;
         update_sound(&self.sound, &mut self.state, &mut new_synth, 1.0);
+        // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
+        // next note starts there.
+        if plays_a_note && new_synth.volume == 0.0 {
+            new_synth.phi = Phase::START;
+        }
 
         let mut restart_instrument = new_synth.instrument != self.last_main_instrument
             || new_synth.key != self.last_main_key;
