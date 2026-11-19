@@ -261,7 +261,9 @@ impl App {
             return;
         }
         self.previewing = true;
+        let project = self.project_for_player();
         self.audio_requests.push(AudioRequest::PreviewStep {
+            project,
             phrase,
             step: index,
             transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
