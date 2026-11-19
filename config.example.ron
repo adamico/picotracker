@@ -1,0 +1,54 @@
+// Example settings for picotracker.
+//
+// picotracker runs without this file, because its defaults are built in, and it never
+// creates or changes this file. To rebind keys, copy it to:
+//
+//     $XDG_CONFIG_HOME/picotracker/config.ron
+//
+// which is usually ~/.config/picotracker/config.ron, then edit the copy.
+(
+    // The version of this file's format. Leave it as it is.
+    version: 1,
+
+    // The key preset: PcTracker (the default) or M8Style.
+    preset: PcTracker,
+
+    // Only the keys you want to change. Anything not listed keeps the preset's key, so
+    // later versions can add new default keys without losing your changes.
+    //
+    // Remove the // in front of a line to use it, then change the key.
+    keys: {
+        // Project
+        // "NewProject": "Ctrl+N",
+        // "OpenProject": "Ctrl+O",
+        // "Save": "Ctrl+S",
+        // "SaveAs": "Ctrl+Shift+S",
+        // "Import": "Ctrl+I",
+        // "Export": "Ctrl+E",
+
+        // Editing
+        // "NewUnused": "Ctrl+Shift+N",
+        // "StartSelection": "Ctrl+B",
+        // "Copy": "Ctrl+C",
+        // "Cut": "Ctrl+X",
+        // "Paste": "Ctrl+V",
+        // "Clone": "Ctrl+D",
+        // "DeepClone": "Ctrl+Shift+D",
+        // "Undo": "Ctrl+Z",
+        // "Redo": "Ctrl+Y",
+        // "InsertRow": "Insert",
+        // "DeleteRow": "Ctrl+Delete",
+        // "ChangeSpeed": "Ctrl+Shift+T",
+        // "PurgeUnused": "Ctrl+Shift+P",
+
+        // Views
+        // "ToggleCart": "Ctrl+T",
+        // "ToggleLog": "Ctrl+L",
+
+        // Playback
+        // "PlayFocusedPane": "Space",
+        // "PlaySongFromCursor": "Shift+Space",
+        // "ClearMutesAndSolos": "F9",
+        // "ToggleFollow": "F10",
+    },
+)
