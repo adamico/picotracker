@@ -81,17 +81,7 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
 
-const AWAITING_CUSTOM_INSTRUMENTS_40: &[&str] = &[
-    "coverage_music4",
-    "waveform_instrument_at_c2",
-    "waveform_instrument_at_c3",
-    "waveform_instrument_ignores_its_own_noiz_and_buzz",
-    "waveform_instrument_ignores_noiz_and_buzz_on_the_playing_sfx",
-    "waveform_instrument_with_bass",
-    "waveform_instrument_with_dampen",
-    "waveform_instrument_with_detune",
-    "waveform_instrument_with_reverb",
-];
+const AWAITING_CUSTOM_INSTRUMENTS_40: &[&str] = &["coverage_music4"];
 
 const AWAITING_SYNTH_DIFFERENCES_53: &[&str] = &[
     "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
@@ -143,7 +133,6 @@ const AWAITING_SYNTH_DIFFERENCES_53: &[&str] = &[
     "waveform_instrument_at_c2",
     "waveform_instrument_at_c3",
     "waveform_instrument_ignores_its_own_noiz_and_buzz",
-    "waveform_instrument_ignores_noiz_and_buzz_on_the_playing_sfx",
     "waveform_instrument_with_bass",
     "waveform_instrument_with_dampen",
     "waveform_instrument_with_detune",
