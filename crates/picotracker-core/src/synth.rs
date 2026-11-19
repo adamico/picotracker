@@ -411,55 +411,14 @@ fn synth_sample(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     (wave * p.volume).clamp(-1.0, 1.0)
 }
 
-/// The biquad filter behind DAMPEN.
-#[derive(Clone, Copy, Debug)]
-struct Biquad {
-    c1: f32,
-    c2: f32,
-    c3: f32,
-    c4: f32,
-    c5: f32,
-    last_in: f32,
-    older_in: f32,
-    last_out: f32,
-    older_out: f32,
-}
-
-impl Biquad {
-    fn high_shelf(freq: f32, q: f32, gain: f32) -> Self {
-        let w0 = std::f32::consts::TAU * freq / SAMPLE_RATE as f32;
-        let cos_w0 = w0.cos();
-        let a = 10f32.powf(gain / 40.0);
-        let alpha = (w0.sin() / 2.0) * ((a + 1.0 / a) * (1.0 / q - 1.0) + 2.0).sqrt();
-        let root = 2.0 * a.sqrt() * alpha;
-        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + root;
-        let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
-        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - root;
-        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + root);
-        let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
-        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - root);
-        Self {
-            c1: b0 / a0,
-            c2: b1 / a0,
-            c3: b2 / a0,
-            c4: a1 / a0,
-            c5: a2 / a0,
-            last_in: 0.0,
-            older_in: 0.0,
-            last_out: 0.0,
-            older_out: 0.0,
-        }
-    }
-
-    fn run(&mut self, input: f32) -> f32 {
-        let output = self.c1 * input + self.c2 * self.last_in + self.c3 * self.older_in
-            - self.c4 * self.last_out
-            - self.c5 * self.older_out;
-        self.older_in = self.last_in;
-        self.last_in = input;
-        self.older_out = self.last_out;
-        self.last_out = output;
-        output
+/// How much of the last output sample a DAMPEN level keeps. Measured on PICO-8: DAMPEN is a
+/// one-pole low-pass, `out = keep * last_out + (1 - keep) * in`, that keeps 1/2 at DAMPEN 1 and
+/// 3/4 at DAMPEN 2, and runs on DAMPEN 0 by keeping nothing.
+fn dampen_keep(filters: u8) -> f32 {
+    match (filters / 72) % 3 {
+        1 => 0.5,
+        2 => 0.75,
+        _ => 0.0,
     }
 }
 
@@ -499,8 +458,9 @@ pub struct Voice {
     reverb_1: Vec<f32>,
     reverb_2: Vec<f32>,
     reverb_index: usize,
-    dampen_1: Biquad,
-    dampen_2: Biquad,
+    dampen_filters: u8,
+    damped: f32,
+    tick_sample: u32,
     rng: Rng,
 }
 
@@ -527,8 +487,9 @@ impl Voice {
             reverb_1: vec![0.0; REVERB_1_SAMPLES],
             reverb_2: vec![0.0; REVERB_2_SAMPLES],
             reverb_index: 0,
-            dampen_1: Biquad::high_shelf(2400.0, 1.0, -6.0),
-            dampen_2: Biquad::high_shelf(1000.0, 1.0, -12.0),
+            dampen_filters: 0,
+            damped: 0.0,
+            tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
     }
@@ -560,6 +521,8 @@ impl Voice {
 
     /// Starts a sound from one of its notes.
     pub fn play(&mut self, sound: Sound, from_note: usize) {
+        self.dampen_filters = sound.filters;
+        self.tick_sample = 0;
         self.sound = sound;
         self.state = SoundState {
             playing: true,
@@ -688,12 +651,9 @@ impl Voice {
         self.last_synth = new_synth;
 
         let reverb = (new_synth.filters / 24) % 3;
-        let dampen = (new_synth.filters / 72) % 3;
         let level = |on: bool| if on { 1.0_f32 } else { 0.0 };
         let mut reverb_1 = level(reverb == 1);
         let mut reverb_2 = level(reverb == 2);
-        let mut dampen_1 = level(dampen == 1);
-        let mut dampen_2 = level(dampen == 2);
 
         if self.fade > 0.0 {
             // PICO-8 is already one sample into the crossfade on the first sample that changes.
@@ -702,11 +662,8 @@ impl Voice {
             let faded = synth_sample(&mut self.fade_synth, &mut self.rng);
             value = mix(value, faded, self.fade);
             let fade_reverb = (self.fade_synth.filters / 24) % 3;
-            let fade_dampen = (self.fade_synth.filters / 72) % 3;
             reverb_1 = mix(reverb_1, level(fade_reverb == 1), self.fade);
             reverb_2 = mix(reverb_2, level(fade_reverb == 2), self.fade);
-            dampen_1 = mix(dampen_1, level(fade_dampen == 1), self.fade);
-            dampen_2 = mix(dampen_2, level(fade_dampen == 2), self.fade);
         }
 
         let index_1 = self.reverb_index % REVERB_1_SAMPLES;
@@ -722,14 +679,21 @@ impl Voice {
         self.reverb_2[index_2] = value;
         self.reverb_index = self.reverb_index.wrapping_add(1);
 
-        let damped = self.dampen_1.run(value);
-        if dampen_1 > 0.0 {
-            value = mix(value, damped, dampen_1);
+        // Measured on PICO-8: DAMPEN takes the level a sound starts with, and changes only on the
+        // last sample of each Tick, to the level playing then, so that a Custom Instrument's own
+        // DAMPEN comes in at the end of its first Tick. It changes at once, with no crossfade,
+        // and a silent note keeps the sound's own level.
+        self.tick_sample += 1;
+        if self.tick_sample == SAMPLES_PER_TICK {
+            self.tick_sample = 0;
+            self.dampen_filters = if new_synth.volume > 0.0 {
+                new_synth.filters
+            } else {
+                self.sound.filters
+            };
         }
-        let damped = self.dampen_2.run(value);
-        if dampen_2 > 0.0 {
-            value = mix(value, damped, dampen_2);
-        }
+        self.damped = mix(value, self.damped, dampen_keep(self.dampen_filters));
+        value = self.damped;
 
         f32::from((32767.99 * (OUTPUT_GAIN * value).clamp(-0.99, 0.99)) as i16) / 32768.0
     }

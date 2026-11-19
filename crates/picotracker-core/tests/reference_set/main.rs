@@ -114,7 +114,6 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "reverb_2_rings_through_silent_steps",
     "slide_is_linear_in_pitch",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
-    "waveform_instrument_with_dampen",
 ];
 
 fn cart_path(case: &Case) -> PathBuf {
