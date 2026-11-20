@@ -28,13 +28,14 @@ const CENTS_PER_PITCH: f32 = 100.0;
 const VIBRATO_TICKS: std::ops::Range<u32> = 80..120;
 const NOISE_CASE: &str = "coverage_sfx14";
 const PLAIN_NOISE_TICKS: [std::ops::Range<usize>; 2] = [1..40, 241..320];
-const VIBRATO_CASES: [&str; 6] = [
+const VIBRATO_CASES: [&str; 7] = [
     "coverage_sfx08",
     "coverage_sfx09",
     "coverage_sfx10",
     "coverage_sfx11",
     "coverage_sfx12",
     "coverage_sfx13",
+    "coverage_sfx15",
 ];
 
 /// The limits from the spec for matching a recording of real PICO-8. Loosening any of them needs
@@ -63,6 +64,7 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
     "coverage_sfx11",
     "coverage_sfx12",
     "coverage_sfx13",
+    "coverage_sfx15",
     "coverage_sfx14",
     "coverage_sfx15",
     "coverage_sfx21",
@@ -85,13 +87,8 @@ const AWAITING_IMPORTED_INSTRUMENTS_44: &[&str] = &["coverage_music4"];
 
 const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
-    "bit_7_sfx_beside_another_channel",
-    "bit_7_sfx_does_not_set_the_length_beside_looping_channels",
-    "bit_7_sfx_is_silent_after_note_31",
     "coverage_music0",
     "coverage_music1",
-    "coverage_music2",
-    "coverage_music3",
     "coverage_music4",
     "coverage_sfx08",
     "coverage_sfx09",
@@ -99,6 +96,7 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx11",
     "coverage_sfx12",
     "coverage_sfx13",
+    "coverage_sfx15",
     "coverage_sfx14",
     "coverage_sfx15",
     "coverage_sfx16",
@@ -108,35 +106,14 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx20",
     "coverage_sfx21",
     "coverage_sfx22",
-    "coverage_sfx23",
-    "coverage_sfx24",
     "coverage_sfx25",
-    "coverage_sfx27",
-    "coverage_sfx28",
     "drop_on_an_sfx_instrument_keeps_the_pitch",
     "drop_on_an_sfx_instrument_retriggers_the_same_pitch",
-    "len_on_another_channel_keeps_playing",
-    "looping_channels_play_32_times_the_slowest_speed",
-    "repeated_note_does_not_click",
-    "repeated_note_does_not_click_across_patterns",
     "reverb_1_rings_through_silent_steps",
-    "reverb_2_is_cut_when_sfx_ends_at_len",
     "reverb_2_rings_after_len_inside_a_pattern",
     "reverb_2_rings_through_silent_steps",
-    "sfx_instrument_nested_one_level",
-    "silent_looping_step_after_1_step",
-    "silent_looping_step_at_a_faster_speed",
-    "silent_looping_steps_on_two_channels",
     "slide_is_linear_in_pitch",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
-    "spd_0_plays_at_speed_1",
-    "waveform_instrument_at_c2",
-    "waveform_instrument_at_c3",
-    "waveform_instrument_ignores_its_own_noiz_and_buzz",
-    "waveform_instrument_with_bass",
-    "waveform_instrument_with_dampen",
-    "waveform_instrument_with_detune",
-    "waveform_instrument_with_reverb",
 ];
 
 fn cart_path(case: &Case) -> PathBuf {
@@ -321,8 +298,6 @@ fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Opt
 
 /// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch. The
 /// whole coverage cases still wait on #39's slide, so this checks their vibrato Steps on their own.
-/// The phaser is left out: its beat moves its measured pitch by several cents even without
-/// vibrato.
 #[test]
 fn vibrato_matches_real_pico8_within_the_pitch_limit() {
     let off: Vec<String> = cases::all()

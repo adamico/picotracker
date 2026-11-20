@@ -355,7 +355,7 @@ fn render_cart(cart: &TestCart) -> Vec<f32> {
             .next()
             .map_or(0, |sound| 32 * usize::from(sound.speed));
         for (voice, sound) in voices.iter_mut().zip(&sounds) {
-            voice.play(sound.unwrap_or_default(), 0);
+            voice.play_restarting_if_silent(sound.unwrap_or_default(), 0);
         }
         for tick in 0..length {
             for _ in 0..SAMPLES_PER_TICK {
