@@ -11,9 +11,9 @@ mod fingerprint;
 mod render;
 mod wav;
 
-use cases::Case;
+use cases::{Case, Plays};
 use fingerprint::{Fingerprint, Tolerance};
-use picotracker_core::cart::{Cart, SLOTS};
+use picotracker_core::cart::{Cart, CartNote, SFX_NOTES, SLOTS};
 use picotracker_core::synth::SAMPLES_PER_TICK;
 use std::path::{Path, PathBuf};
 
@@ -61,11 +61,7 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_music0",
     "coverage_music1",
     "coverage_sfx15",
-    "coverage_sfx14",
-    "coverage_sfx16",
-    "coverage_sfx17",
     "coverage_sfx18",
-    "coverage_sfx19",
     "coverage_sfx20",
 ];
 
@@ -113,17 +109,14 @@ fn level_limit_db(cart: &Cart) -> f32 {
         if slot < SFX_INSTRUMENTS && sfx.loop_start() & WAVEFORM_INSTRUMENT_FLAG != 0 {
             continue;
         }
-        let notes: Vec<_> = (0..32)
+        let notes: Vec<_> = (0..SFX_NOTES)
             .map(|index| sfx.note(index))
             .filter(|note| note.volume > 0)
             .collect();
         if notes.is_empty() {
             continue;
         }
-        if notes
-            .iter()
-            .any(|note| !note.custom && note.instrument == NOISE)
-        {
+        if notes.iter().copied().any(is_noise_note) {
             limit = limit.max(SPEC_LIMITS.noise_level_db);
         }
         let filters = sfx.filters();
@@ -135,11 +128,34 @@ fn level_limit_db(cart: &Cart) -> f32 {
     limit
 }
 
-fn tolerance(cart: &Cart) -> Tolerance {
+/// Whether a note sounds the Built-in noise instrument.
+fn is_noise_note(note: CartNote) -> bool {
+    !note.custom && note.instrument == NOISE && note.volume > 0
+}
+
+/// The Ticks of each Built-in noise note in a case played as an SFX, counted from its first note
+/// as the fingerprint counts them from the first audible sample, for an SFX that starts on a
+/// sounding note and plays its notes once without looping. Our noise sequence is not PICO-8's,
+/// so each Tick of noise comes out at a different random level; after the owner's A/B listening
+/// check for #54, a noise note is held to the level limit on its average instead.
+fn noise_note_spans(case: &Case, cart: &Cart) -> Vec<std::ops::Range<usize>> {
+    let Plays::Sfx(slot) = case.plays else {
+        return Vec::new();
+    };
+    let sfx = cart.sfx(slot);
+    let ticks_per_note = usize::from(sfx.speed().max(1));
+    (0..SFX_NOTES)
+        .filter(|&index| is_noise_note(sfx.note(index)))
+        .map(|index| index * ticks_per_note..(index + 1) * ticks_per_note)
+        .collect()
+}
+
+fn tolerance(case: &Case, cart: &Cart) -> Tolerance {
     Tolerance {
         duration_percent: SPEC_LIMITS.duration_percent,
         pitch_cents: SPEC_LIMITS.pitch_cents,
         level_db: level_limit_db(cart),
+        level_averaged_tick_spans: noise_note_spans(case, cart),
     }
 }
 
@@ -191,7 +207,7 @@ fn problem(case: &Case) -> Option<String> {
     let differences = fingerprint::differences(
         &rendered(case),
         &committed_fingerprint(case),
-        tolerance(&cart),
+        &tolerance(case, &cart),
     );
     let awaited = awaited_work(case.name);
     if awaited.is_empty() && !differences.is_empty() {
@@ -264,9 +280,11 @@ fn vibrato_matches_real_pico8_within_the_pitch_limit() {
 }
 
 /// Plain noise matches real PICO-8's level on average within the level limit. Each Tick of noise
-/// is random, which the wider noise limit allows for, but over many Ticks the randomness evens
-/// out, so the average must match as closely as a tone. The noise coverage SFX's plain notes
-/// are its first four and its arpeggios; its other notes are slides, drops and fades.
+/// is random, which the wider noise limit on each noise note's power-averaged level allows for,
+/// but over many Ticks the randomness evens out, so the mean of these Ticks' levels in dB must
+/// match as closely as a tone. The noise
+/// coverage SFX's plain notes are its first four and its arpeggios; its other notes are slides,
+/// drops and fades.
 #[test]
 fn plain_noise_matches_real_pico8_level_on_average() {
     let case = cases::all()
