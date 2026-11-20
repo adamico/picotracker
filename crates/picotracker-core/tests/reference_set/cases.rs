@@ -286,6 +286,7 @@ pub fn all() -> Vec<Case> {
     cases.extend(synth_fixes());
     cases.extend(waveform_instruments());
     cases.extend(last_measured_behaviours());
+    cases.extend(every_pitch());
     cases
 }
 
@@ -751,5 +752,19 @@ fn last_measured_behaviours() -> Vec<Case> {
             &[looping_tilted(16), looping_tilted(4)],
             512,
         ),
+    ]
+}
+
+/// Every pitch from 0 to 63 held for 16 Ticks, in two SFX of 32 notes.
+fn every_pitch() -> Vec<Case> {
+    let rising = |from: u8| {
+        let notes: Vec<TestNote> = (from..from + 32)
+            .map(|pitch| note(pitch, TRIANGLE, 5, 0))
+            .collect();
+        plain(&notes, 16)
+    };
+    vec![
+        sfx_case("every_pitch_from_0_to_31", rising(0), 520),
+        sfx_case("every_pitch_from_32_to_63", rising(32), 520),
     ]
 }

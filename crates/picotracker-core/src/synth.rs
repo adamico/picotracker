@@ -5,9 +5,10 @@
 //! `814991a` (`source/Audio.cpp`, lines 764 and 765). The notices of both projects follow.
 //!
 //! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
-//! instead of the port: the crossfade between notes, the phase of saw, square and pulse, the
-//! level of the whole output, the saw and noise, the steps of vibrato, and silence on a silent
-//! note of an SFX Instrument.
+//! instead of the port: the pitch of each note in whole phase units, the phase a voice starts from
+//! and keeps, the crossfade between notes, the phase of saw, square and pulse, the level of the
+//! whole output, the saw, noise and Waveform Instruments, BUZZ and DETUNE, the steps of vibrato,
+//! and silence on a silent note of an SFX Instrument.
 //!
 //! zepto8, `src/synth.cpp`:
 //!
@@ -83,22 +84,32 @@ pub const WAVEFORM_SAMPLES: usize = 64;
 
 const RATE: f64 = SAMPLE_RATE as f64;
 const NOIZ_AND_BUZZ: u8 = 0x6;
-const WAVEFORM_FULL_SCALE: f32 = 198.0;
+const WAVEFORM_FULL_SCALE: f32 = 192.0;
 const WAVEFORM_FIRST_VOICE: f32 = 0.7;
-const WAVEFORM_START: f32 = 0.5;
+const DETUNE_FIRST_VOICE: f32 = 5.0 / 6.0;
+const DETUNE_SECOND_VOICE: f32 = 5.0 / 12.0;
 const REVERB_1_SAMPLES: usize = 2 * SAMPLES_PER_TICK as usize;
 const REVERB_2_SAMPLES: usize = 4 * SAMPLES_PER_TICK as usize;
 const NOISE_SEED: u32 = 0x1234_5678;
 const MIDDLE_KEY: i16 = 24;
 const NO_INSTRUMENT: u8 = 0xff;
 const NO_KEY: i16 = i16::MAX;
-const CROSSFADES_PER_SECOND: f64 = 350.0;
+const CROSSFADE_SAMPLES: f32 = 64.0;
+const TICK_FLOOR_TOLERANCE: f64 = 1e-9;
 const VIBRATO_STEPS: f64 = 8.0;
 const VIBRATO_TICKS_PER_STEP: f64 = 2.0;
 const VIBRATO_SEMITONES: f32 = 0.27;
 const SAW_LEVEL: f32 = 2.0 / 3.0;
 const OUTPUT_GAIN: f32 = 0.9841;
 const NOISE_LEVEL: f32 = 0.844;
+const NOIZ_LEVEL: f32 = 0.25;
+const NOIZ_HOLD_PITCH: i16 = 64;
+const PHASE_UNITS_PER_CYCLE: f32 = 65_536.0;
+const TABLE_OCTAVE: i32 = 3;
+const MAX_OCTAVE_SHIFT: i32 = 32;
+const OCTAVE_PHASE_UNITS: [u32; 12] = [
+    1554, 1646, 1744, 1848, 1958, 2074, 2199, 2330, 2469, 2615, 2770, 2924,
+];
 
 const FX_SLIDE: u8 = 1;
 const FX_VIBRATO: u8 = 2;
@@ -173,8 +184,97 @@ pub const fn packed_filters(noiz: bool, buzz: bool, detune: u8, reverb: u8, damp
     (noiz as u8) * 2 + (buzz as u8) * 4 + detune * 8 + reverb * 24 + dampen * 72
 }
 
-fn key_to_freq(key: f32) -> f32 {
-    440.0 * ((key - 33.0) / 12.0).exp2()
+/// How far through its cycle a pitch moves in one sample, as PICO-8 plays it. PICO-8 keeps a phase
+/// in 65,536ths of a cycle and moves it by a whole number of them each sample, taken from one
+/// octave of pitches and halved or doubled for each octave below or above it. Measured on PICO-8,
+/// these lie a little below equal temperament, and B lies 7 cents below.
+fn pitch_increment(pitch: i16) -> f32 {
+    let octaves_up = i32::from(pitch.div_euclid(12)) - TABLE_OCTAVE;
+    let phase_units = u64::from(OCTAVE_PHASE_UNITS[pitch.rem_euclid(12) as usize]);
+    let phase_units = if octaves_up >= 0 {
+        phase_units << octaves_up.min(MAX_OCTAVE_SHIFT)
+    } else {
+        phase_units >> (-octaves_up).min(MAX_OCTAVE_SHIFT)
+    };
+    phase_units as f32 / PHASE_UNITS_PER_CYCLE
+}
+
+/// How far through their cycles a voice's waves are. The phaser and DETUNE mix in a second wave
+/// that keeps a phase of its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Phase {
+    main: f64,
+    second: f64,
+}
+
+impl Phase {
+    const START: Self = Self {
+        main: 0.0,
+        second: 0.0,
+    };
+
+    fn at(cycles: f64) -> Self {
+        Self {
+            main: cycles,
+            second: cycles,
+        }
+    }
+}
+
+impl std::ops::MulAssign<f64> for Phase {
+    fn mul_assign(&mut self, factor: f64) {
+        self.main *= factor;
+        self.second *= factor;
+    }
+}
+
+impl std::ops::RemAssign<f64> for Phase {
+    fn rem_assign(&mut self, cycles: f64) {
+        self.main %= cycles;
+        self.second %= cycles;
+    }
+}
+
+/// How far the second wave moves for each whole phase unit the main wave moves, as a fraction,
+/// measured on PICO-8. Without DETUNE it keeps up with the main wave, except on the phaser. Under
+/// DETUNE it stands still through noise, though PICO-8's noise moves it without DETUNE in a way
+/// not yet matched. DETUNE 2 reads it twice over, except on the triangle and the phaser.
+fn second_wave_ratio(instrument: u8, detune: u8) -> (u32, u32) {
+    match (instrument, detune) {
+        (INST_PHASER, 0) => (127, 128),
+        (INST_PHASER, 1) => (125, 128),
+        (INST_PHASER, _) => (254, 128),
+        (_, 0) => (1, 1),
+        (INST_NOISE, _) => (0, 1),
+        (INST_TRIANGLE, 1) => (193, 256),
+        (INST_TRIANGLE, _) => (3, 2),
+        _ => (255, 256),
+    }
+}
+
+/// A phase moved on by one sample of an increment, in PICO-8's whole phase units. The second wave
+/// moves by its ratio of those units, rounded down to a whole unit.
+fn advanced(phi: Phase, increment: f32, instrument: u8, filters: u8) -> Phase {
+    let units = (increment * PHASE_UNITS_PER_CYCLE).floor();
+    let (numerator, denominator) = second_wave_ratio(instrument, detune_level(filters));
+    let second_units = (f64::from(units) * f64::from(numerator) / f64::from(denominator)).floor();
+    let cycles = |units: f64| units / f64::from(PHASE_UNITS_PER_CYCLE);
+    Phase {
+        main: phi.main + cycles(f64::from(units)),
+        second: phi.second + cycles(second_units),
+    }
+}
+
+fn detune_level(filters: u8) -> u8 {
+    (filters / 8) % 3
+}
+
+fn reverb_level(filters: u8) -> u8 {
+    (filters / 24) % 3
+}
+
+fn dampen_level(filters: u8) -> u8 {
+    (filters / 72) % 3
 }
 
 fn mix(a: f32, b: f32, t: f32) -> f32 {
@@ -202,19 +302,18 @@ struct SynthParam {
     custom: bool,
     filters: u8,
     key: i16,
-    freq: f32,
+    increment: f32,
     volume: f32,
-    phi: f32,
-    last_advance: f32,
+    phi: Phase,
+    last_advance: f64,
     last_sample: f32,
+    held_samples: i16,
     wave: Option<[i8; WAVEFORM_SAMPLES]>,
 }
 
-/// One cycle of a Waveform Instrument, read between its samples by linear interpolation. As
-/// measured on PICO-8, a cycle starts half way through the samples, and the loudest sample plays
-/// at about 0.64 of full scale.
+/// One cycle of a Waveform Instrument, read between its samples by linear interpolation.
 fn interpolated(wave: &[i8; WAVEFORM_SAMPLES], t: f32) -> f32 {
-    let position = ((t + WAVEFORM_START) % 1.0) * WAVEFORM_SAMPLES as f32;
+    let position = t * WAVEFORM_SAMPLES as f32;
     let index = (position as usize).min(WAVEFORM_SAMPLES - 1);
     let next = (index + 1) % WAVEFORM_SAMPLES;
     let between = mix(
@@ -225,137 +324,95 @@ fn interpolated(wave: &[i8; WAVEFORM_SAMPLES], t: f32) -> f32 {
     between / WAVEFORM_FULL_SCALE
 }
 
+/// A wave rising from -1 to 1 through the first `a` of the cycle and falling back after it.
+fn tilted(a: f32, t: f32) -> f32 {
+    if t < a {
+        2.0 * t / a - 1.0
+    } else {
+        2.0 * (1.0 - t) / (1.0 - a) - 1.0
+    }
+}
+
+/// The triangle from -1 to 1, which BUZZ mixes with a quarter of a tilted wave.
+fn triangle(t: f32, buzz: bool) -> f32 {
+    let shape = 1.0 - (4.0 * t - 2.0).abs();
+    if buzz {
+        shape * 0.75 + tilted(0.875, t) * 0.25
+    } else {
+        shape
+    }
+}
+
 /// PICO-8's square and pulse: low through the cycle and high for its last `duty`.
 fn high_for_the_last(duty: f32, t: f32) -> f32 {
     if t < 1.0 - duty { -0.25 } else { 0.25 }
 }
 
 fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
-    let advance = p.phi;
-    let t = advance % 1.0;
+    let advance = p.phi.main;
+    let t = (advance % 1.0) as f32;
     if let Some(wave) = &p.wave {
         return interpolated(wave, t);
     }
     let noiz = p.filters & 0x2 != 0;
     let buzz = p.filters & 0x4 != 0;
     match p.instrument {
-        INST_TRIANGLE => {
-            let mut ret = 1.0 - (4.0 * t - 2.0).abs();
-            if buzz {
-                let a = 0.875;
-                let tilted = if t < a {
-                    2.0 * t / a - 1.0
-                } else {
-                    2.0 * (1.0 - t) / (1.0 - a) - 1.0
-                };
-                ret = ret * 0.75 + tilted * 0.25;
-            }
-            ret * 0.5
-        }
-        INST_TILTED_SAW => {
-            let a = if buzz { 0.975 } else { 0.875 };
-            let ret = if t < a {
-                2.0 * t / a - 1.0
-            } else {
-                2.0 * (1.0 - t) / (1.0 - a) - 1.0
-            };
-            ret * 0.5
-        }
+        INST_TRIANGLE => triangle(t, buzz) * 0.5,
+        INST_TILTED_SAW => tilted(if buzz { 0.9375 } else { 0.875 }, t) * 0.5,
         INST_SAW => {
             // PICO-8's saw rises through the whole cycle and drops as it starts.
             let advance = advance + 0.5;
-            let t = advance % 1.0;
-            let mut ret = if t < 0.5 { t } else { t - 1.0 };
+            let t = (advance % 1.0) as f32;
+            let mut shape = if t < 0.5 { t } else { t - 1.0 };
             if buzz {
-                let offset = if ((advance % 2.0) - 1.0).abs() < 0.5 {
-                    0.085
-                } else {
-                    0.0
-                };
-                ret = ret * 0.83 - offset;
+                // Measured on PICO-8: BUZZ lowers the saw by more on every other cycle, counted
+                // from the cycle each Tick starts in.
+                let first_of_two = p.phi.main.floor() % 2.0 == 0.0;
+                shape = shape * 0.75 - if first_of_two { 1.0 / 8.0 } else { 1.0 / 24.0 };
             }
-            SAW_LEVEL * ret
+            SAW_LEVEL * shape
         }
-        INST_SQUARE => high_for_the_last(if buzz { 0.4 } else { 0.5 }, t),
-        INST_PULSE => high_for_the_last(if buzz { 0.255 } else { 0.316 }, t),
+        INST_SQUARE => high_for_the_last(if buzz { 13.0 / 32.0 } else { 0.5 }, t),
+        INST_PULSE => high_for_the_last(if buzz { 7.0 / 32.0 } else { 0.3125 }, t),
         INST_ORGAN => {
-            let mut ret = if t < 0.5 {
+            let mut shape = if t < 0.5 {
                 3.0 - (24.0 * t - 6.0).abs()
             } else {
                 1.0 - (16.0 * t - 12.0).abs()
             };
             if buzz {
-                ret = if t < 0.5 { ret * 2.0 + 3.0 } else { ret };
-                ret = if t < 0.5 && ret > -1.875 {
-                    ret * 0.2 - 1.0
-                } else {
-                    ret + 0.5
-                };
+                shape = shape * 2.0 / 3.0 + if t < 0.5 { -0.375 } else { 0.375 };
             }
-            ret / 9.0
+            shape / 9.0
+        }
+        INST_NOISE if noiz => {
+            // Measured on PICO-8: NOIZ holds each random level for 64 samples less the pitch.
+            p.held_samples += 1;
+            if p.held_samples >= (NOIZ_HOLD_PITCH - p.key).max(1) {
+                p.held_samples = 0;
+                p.last_sample = rng.next();
+            }
+            NOIZ_LEVEL * p.last_sample
         }
         INST_NOISE => {
-            let scale = (advance - p.last_advance) * 8.858_923;
+            let scale = (advance - p.last_advance) as f32 * 8.858_923;
             let new_sample = (p.last_sample + scale * rng.next()) / (1.0 + scale);
             let factor = 1.0 - f32::from(p.key) / 63.0;
-            let mut ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
-            if noiz {
-                ret *= 2.0 * (if t < 0.5 { t } else { t - 1.0 });
-            }
+            let shape = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
             p.last_advance = advance;
             p.last_sample = new_sample;
-            ret
+            shape
         }
         INST_PHASER => {
-            let mut ret = 2.0 - (8.0 * t - 4.0).abs();
-            ret += 1.0 - (4.0 * ((advance * 109.0 / 110.0) % 1.0) - 2.0).abs();
-            if buzz {
-                ret += 0.25 - (((advance * 2.0 + 0.5) % 1.0) - 0.5).abs();
-                ret += 0.125 - (0.5 * ((advance * 4.0) % 1.0) - 0.25).abs();
-            }
-            ret / 6.0
+            (2.0 * triangle(t, buzz) + triangle((p.phi.second % 1.0) as f32, buzz)) / 6.0
         }
         _ => 0.0,
     }
 }
 
-fn detune_factor(instrument: u8, detune: u8) -> f32 {
-    let first = detune == 1;
-    match instrument {
-        INST_TRIANGLE => {
-            if first {
-                3.0 / 4.0
-            } else {
-                3.0 / 2.0
-            }
-        }
-        INST_ORGAN => {
-            if first {
-                200.0 / 199.0
-            } else {
-                800.0 / 199.0
-            }
-        }
-        INST_PHASER => {
-            if first {
-                49.0 / 50.0
-            } else {
-                400.0 / 199.0
-            }
-        }
-        _ => {
-            if first {
-                200.0 / 199.0
-            } else {
-                400.0 / 199.0
-            }
-        }
-    }
-}
-
 /// How far DETUNE moves the second voice of a Waveform Instrument, whatever its instrument digit.
-/// DETUNE 1 is measured on PICO-8, a little below the first voice; DETUNE 2 follows the port's
-/// ratio for most Built-in Instruments.
+/// DETUNE 1 is measured on PICO-8, a little below the first voice; DETUNE 2 follows the zepto8
+/// port.
 fn waveform_detune_factor(detune: u8) -> f32 {
     if detune == 1 {
         199.0 / 200.0
@@ -366,79 +423,39 @@ fn waveform_detune_factor(detune: u8) -> f32 {
 
 fn synth_sample(p: &mut SynthParam, rng: &mut Rng) -> f32 {
     let mut wave = waveform(p, rng);
-    let detune = (p.filters / 8) % 3;
+    let detune = detune_level(p.filters);
     let plays_waveform = p.wave.is_some();
-    if detune != 0 && (plays_waveform || p.instrument != INST_NOISE) {
+    // DETUNE on the phaser only moves its own second wave.
+    let has_second_voice = plays_waveform || !matches!(p.instrument, INST_NOISE | INST_PHASER);
+    if detune != 0 && has_second_voice {
         let mut second = *p;
         if plays_waveform {
-            second.phi *= waveform_detune_factor(detune);
+            second.phi *= f64::from(waveform_detune_factor(detune));
         } else {
-            second.phi *= detune_factor(p.instrument, detune);
-            if detune == 2 && p.instrument == INST_ORGAN {
-                second.instrument = INST_TRIANGLE;
-            }
+            let reads_twice_over = detune == 2 && p.instrument != INST_TRIANGLE;
+            second.phi.main = p.phi.second * if reads_twice_over { 2.0 } else { 1.0 };
         }
         let detuned = waveform(&mut second, rng);
         // Measured on PICO-8: a Waveform Instrument mixes its detuned voice in at 0.3 and its
-        // first voice at 0.7, so that DETUNE leaves its peak level as it was.
+        // first voice at 0.7, so that DETUNE leaves its peak level as it was. A Built-in
+        // Instrument mixes them at 5/6 and 5/12.
         wave = if plays_waveform {
             wave * WAVEFORM_FIRST_VOICE + detuned * (1.0 - WAVEFORM_FIRST_VOICE)
         } else {
-            wave + detuned * 0.5
+            wave * DETUNE_FIRST_VOICE + detuned * DETUNE_SECOND_VOICE
         };
     }
     (wave * p.volume).clamp(-1.0, 1.0)
 }
 
-/// The biquad filter behind DAMPEN.
-#[derive(Clone, Copy, Debug)]
-struct Biquad {
-    c1: f32,
-    c2: f32,
-    c3: f32,
-    c4: f32,
-    c5: f32,
-    last_in: f32,
-    older_in: f32,
-    last_out: f32,
-    older_out: f32,
-}
-
-impl Biquad {
-    fn high_shelf(freq: f32, q: f32, gain: f32) -> Self {
-        let w0 = std::f32::consts::TAU * freq / SAMPLE_RATE as f32;
-        let cos_w0 = w0.cos();
-        let a = 10f32.powf(gain / 40.0);
-        let alpha = (w0.sin() / 2.0) * ((a + 1.0 / a) * (1.0 / q - 1.0) + 2.0).sqrt();
-        let root = 2.0 * a.sqrt() * alpha;
-        let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + root;
-        let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
-        let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - root;
-        let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + root);
-        let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
-        let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - root);
-        Self {
-            c1: b0 / a0,
-            c2: b1 / a0,
-            c3: b2 / a0,
-            c4: a1 / a0,
-            c5: a2 / a0,
-            last_in: 0.0,
-            older_in: 0.0,
-            last_out: 0.0,
-            older_out: 0.0,
-        }
-    }
-
-    fn run(&mut self, input: f32) -> f32 {
-        let output = self.c1 * input + self.c2 * self.last_in + self.c3 * self.older_in
-            - self.c4 * self.last_out
-            - self.c5 * self.older_out;
-        self.older_in = self.last_in;
-        self.last_in = input;
-        self.older_out = self.last_out;
-        self.last_out = output;
-        output
+/// How much of the last output sample a DAMPEN level keeps. Measured on PICO-8: DAMPEN is a
+/// one-pole low-pass, `out = keep * last_out + (1 - keep) * in`, that keeps 1/2 at DAMPEN 1 and
+/// 3/4 at DAMPEN 2, and runs on DAMPEN 0 by keeping nothing.
+fn dampen_keep(dampen: u8) -> f32 {
+    match dampen {
+        1 => 0.5,
+        2 => 0.75,
+        _ => 0.0,
     }
 }
 
@@ -448,7 +465,7 @@ struct SoundState {
     playing: bool,
     offset: f64,
     time: f64,
-    previous_key: f32,
+    previous_key: i16,
     previous_volume: f32,
 }
 
@@ -457,7 +474,7 @@ impl SoundState {
         playing: false,
         offset: 0.0,
         time: 0.0,
-        previous_key: MIDDLE_KEY as f32,
+        previous_key: MIDDLE_KEY,
         previous_volume: 0.0,
     };
 }
@@ -478,8 +495,9 @@ pub struct Voice {
     reverb_1: Vec<f32>,
     reverb_2: Vec<f32>,
     reverb_index: usize,
-    dampen_1: Biquad,
-    dampen_2: Biquad,
+    latched_dampen: u8,
+    low_pass_output: f32,
+    tick_sample: u32,
     rng: Rng,
 }
 
@@ -506,10 +524,20 @@ impl Voice {
             reverb_1: vec![0.0; REVERB_1_SAMPLES],
             reverb_2: vec![0.0; REVERB_2_SAMPLES],
             reverb_index: 0,
-            dampen_1: Biquad::high_shelf(2400.0, 1.0, -6.0),
-            dampen_2: Biquad::high_shelf(1000.0, 1.0, -12.0),
+            latched_dampen: 0,
+            low_pass_output: 0.0,
+            tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
+    }
+
+    /// A silent voice whose wave is `phase_units` 65,536ths of the way through its cycle. A new
+    /// voice starts at the start of its cycle, as every channel does when PICO-8 starts a song,
+    /// and playing a sound keeps the phase the voice has.
+    pub fn with_phase(phase_units: u16) -> Self {
+        let mut voice = Self::new();
+        voice.last_synth.phi = Phase::at(f64::from(phase_units) / f64::from(PHASE_UNITS_PER_CYCLE));
+        voice
     }
 
     /// Sets the sound that notes marked `custom` play for an instrument slot from 0 to 7.
@@ -530,6 +558,8 @@ impl Voice {
 
     /// Starts a sound from one of its notes.
     pub fn play(&mut self, sound: Sound, from_note: usize) {
+        self.latched_dampen = dampen_level(sound.filters);
+        self.tick_sample = 0;
         self.sound = sound;
         self.state = SoundState {
             playing: true,
@@ -540,6 +570,17 @@ impl Voice {
         self.last_main_key = NO_KEY;
     }
 
+    /// Starts a sound the way PICO-8's music starts a channel's SFX at each Pattern: as [`play`],
+    /// except that a silent voice also starts its wave at the start of its cycle.
+    ///
+    /// [`play`]: Self::play
+    pub fn play_restarting_if_silent(&mut self, sound: Sound, from_note: usize) {
+        if self.last_synth.volume == 0.0 && self.fade <= 0.0 {
+            self.last_synth.phi = Phase::START;
+        }
+        self.play(sound, from_note);
+    }
+
     /// Moves on to one note of a sound as the next Step of what is already playing, so that a
     /// slide carries over from the note just played and nothing retriggers.
     pub fn continue_at(&mut self, sound: Sound, note: usize) {
@@ -547,7 +588,7 @@ impl Voice {
         self.sound = sound;
         self.state.playing = true;
         self.state.offset = note.min(NOTES - 1) as f64;
-        self.state.previous_key = f32::from(played.pitch);
+        self.state.previous_key = played.pitch;
         self.state.previous_volume = f32::from(played.volume) / 7.0;
     }
 
@@ -565,18 +606,24 @@ impl Voice {
 
     /// The next sample at 22,050 Hz.
     pub fn next_sample(&mut self) -> f32 {
-        let inverse_rate = 1.0 / RATE;
         let last_synth = self.last_synth;
         let mut new_synth = SynthParam {
             phi: last_synth.phi,
             last_advance: last_synth.last_advance,
             last_sample: last_synth.last_sample,
+            held_samples: last_synth.held_samples,
             ..SynthParam::default()
         };
         let mut value = 0.0;
 
         let base_offset = self.state.offset;
+        let plays_a_note = self.state.playing;
         update_sound(&self.sound, &mut self.state, &mut new_synth, 1.0);
+        // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
+        // next note starts there.
+        if plays_a_note && new_synth.volume == 0.0 {
+            new_synth.phi = Phase::START;
+        }
 
         let mut restart_instrument = new_synth.instrument != self.last_main_instrument
             || new_synth.key != self.last_main_key;
@@ -603,11 +650,15 @@ impl Voice {
                 match self.instruments.get(&self.instrument_number) {
                     Some(Instrument::Waveform(wave)) => {
                         if wave.bass {
-                            new_synth.freq *= 0.5;
+                            new_synth.increment *= 0.5;
                         }
-                        new_synth.phi =
-                            last_synth.phi + (f64::from(new_synth.freq) * inverse_rate) as f32;
                         new_synth.filters = wave.filters & !NOIZ_AND_BUZZ;
+                        new_synth.phi = advanced(
+                            last_synth.phi,
+                            new_synth.increment,
+                            new_synth.instrument,
+                            new_synth.filters,
+                        );
                         new_synth.wave = Some(wave.samples);
                     }
                     sfx => {
@@ -617,7 +668,7 @@ impl Voice {
                             _ => &silent,
                         };
                         new_synth.phi = last_synth.phi;
-                        let freq_factor = new_synth.freq / key_to_freq(f32::from(MIDDLE_KEY));
+                        let increment_factor = new_synth.increment / pitch_increment(MIDDLE_KEY);
                         let main_volume = new_synth.volume;
                         // A silent note of the SFX Instrument silences the voice.
                         new_synth.volume = 0.0;
@@ -625,7 +676,7 @@ impl Voice {
                             sound,
                             &mut self.instrument_state,
                             &mut new_synth,
-                            freq_factor,
+                            increment_factor,
                         );
                         new_synth.volume *= main_volume;
                     }
@@ -635,9 +686,9 @@ impl Voice {
         }
 
         // Crossfade over abrupt changes, so that they do not click.
-        let freq_threshold = new_synth.freq.min(last_synth.freq) * 0.01;
-        if (new_synth.volume - last_synth.volume).abs() > 0.1
-            || (new_synth.freq - last_synth.freq).abs() > freq_threshold
+        let increment_threshold = new_synth.increment.min(last_synth.increment) * 0.01;
+        if new_synth.volume != last_synth.volume
+            || (new_synth.increment - last_synth.increment).abs() > increment_threshold
             || new_synth.instrument != last_synth.instrument
         {
             if self.fade <= 0.0 {
@@ -648,25 +699,25 @@ impl Voice {
         }
         self.last_synth = new_synth;
 
-        let reverb = (new_synth.filters / 24) % 3;
-        let dampen = (new_synth.filters / 72) % 3;
+        let reverb = reverb_level(new_synth.filters);
         let level = |on: bool| if on { 1.0_f32 } else { 0.0 };
         let mut reverb_1 = level(reverb == 1);
         let mut reverb_2 = level(reverb == 2);
-        let mut dampen_1 = level(dampen == 1);
-        let mut dampen_2 = level(dampen == 2);
 
         if self.fade > 0.0 {
-            self.fade_synth.phi += (f64::from(self.fade_synth.freq) * inverse_rate) as f32;
+            // PICO-8 is already one sample into the crossfade on the first sample that changes.
+            self.fade -= 1.0 / CROSSFADE_SAMPLES;
+            self.fade_synth.phi = advanced(
+                self.fade_synth.phi,
+                self.fade_synth.increment,
+                self.fade_synth.instrument,
+                self.fade_synth.filters,
+            );
             let faded = synth_sample(&mut self.fade_synth, &mut self.rng);
             value = mix(value, faded, self.fade);
-            let fade_reverb = (self.fade_synth.filters / 24) % 3;
-            let fade_dampen = (self.fade_synth.filters / 72) % 3;
+            let fade_reverb = reverb_level(self.fade_synth.filters);
             reverb_1 = mix(reverb_1, level(fade_reverb == 1), self.fade);
             reverb_2 = mix(reverb_2, level(fade_reverb == 2), self.fade);
-            dampen_1 = mix(dampen_1, level(fade_dampen == 1), self.fade);
-            dampen_2 = mix(dampen_2, level(fade_dampen == 2), self.fade);
-            self.fade -= (CROSSFADES_PER_SECOND * inverse_rate) as f32;
         }
 
         let index_1 = self.reverb_index % REVERB_1_SAMPLES;
@@ -682,21 +733,45 @@ impl Voice {
         self.reverb_2[index_2] = value;
         self.reverb_index = self.reverb_index.wrapping_add(1);
 
-        let damped = self.dampen_1.run(value);
-        if dampen_1 > 0.0 {
-            value = mix(value, damped, dampen_1);
+        // Measured on PICO-8: DAMPEN takes the level a sound starts with, and changes only on the
+        // last sample of each Tick, to the level playing then, so that a Custom Instrument's own
+        // DAMPEN comes in at the end of its first Tick. It changes at once, with no crossfade,
+        // and a silent note keeps the sound's own level. A sound that has ended keeps only the
+        // level of a Custom Instrument it ended on.
+        self.tick_sample += 1;
+        if self.tick_sample == SAMPLES_PER_TICK {
+            self.tick_sample = 0;
+            let filters = if !self.state.playing {
+                if new_synth.custom {
+                    new_synth.filters
+                } else {
+                    0
+                }
+            } else if new_synth.volume > 0.0 {
+                new_synth.filters
+            } else {
+                self.sound.filters
+            };
+            self.latched_dampen = dampen_level(filters);
         }
-        let damped = self.dampen_2.run(value);
-        if dampen_2 > 0.0 {
-            value = mix(value, damped, dampen_2);
-        }
+        self.low_pass_output = mix(
+            value,
+            self.low_pass_output,
+            dampen_keep(self.latched_dampen),
+        );
+        value = self.low_pass_output;
 
         f32::from((32767.99 * (OUTPUT_GAIN * value).clamp(-0.99, 0.99)) as i16) / 32768.0
     }
 }
 
 /// Advances a sound by one sample and writes what it plays into `synth`.
-fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, freq_factor: f32) {
+fn update_sound(
+    sound: &Sound,
+    state: &mut SoundState,
+    synth: &mut SynthParam,
+    increment_factor: f32,
+) {
     if !state.playing {
         return;
     }
@@ -705,8 +780,12 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
     let offset = state.offset;
     let offset_per_second = RATE / (f64::from(SAMPLES_PER_TICK) * f64::from(speed));
     let offset_per_sample = offset_per_second * inverse_rate;
-    let mut next_offset = offset + offset_per_sample;
-    let next_time = state.time + offset_per_sample;
+    // A sound moves on by whole samples, so its position stays on that grid rather than drifting
+    // by rounding and crossing a note a sample late.
+    let samples_per_note = f64::from(SAMPLES_PER_TICK) * f64::from(speed);
+    let on_sample_grid = |position: f64| (position * samples_per_note).round() / samples_per_note;
+    let mut next_offset = on_sample_grid(offset + offset_per_sample);
+    let next_time = on_sample_grid(state.time + offset_per_sample);
 
     let loop_start = f64::from(sound.loop_start);
     let loop_end = f64::from(sound.loop_end);
@@ -736,13 +815,19 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
         let next_note_index = next_offset.floor() as usize;
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
-        let mut freq = key_to_freq(f32::from(note.pitch)) * freq_factor;
-        let progress = (offset % 1.0) as f32;
+        let mut increment = pitch_increment(note.pitch) * increment_factor;
+        // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
+        // (speed - 1) / speed of the way.
+        let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
+        let next_ticks = next_offset * f64::from(speed);
+        let ends_a_tick =
+            next_ticks - (next_ticks + TICK_FLOOR_TOLERANCE).floor() < TICK_FLOOR_TOLERANCE;
+        let progress = ((ticks_played % f64::from(speed)) / f64::from(speed)) as f32;
 
         if volume > 0.0 {
             match note.effect {
                 FX_SLIDE => {
-                    freq = mix(key_to_freq(state.previous_key), freq, progress);
+                    increment = mix(pitch_increment(state.previous_key), increment, progress);
                     if state.previous_volume > 0.0 {
                         volume = mix(state.previous_volume, volume, progress);
                     }
@@ -753,31 +838,43 @@ fn update_sound(sound: &Sound, state: &mut SoundState, synth: &mut SynthParam, f
                     let ticks = offset * f64::from(speed);
                     let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
                     let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
-                    freq *= (t * VIBRATO_SEMITONES / 12.0).exp2();
+                    increment *= (t * VIBRATO_SEMITONES / 12.0).exp2();
                 }
-                FX_DROP => freq *= 1.0 - progress,
+                FX_DROP => increment *= 1.0 - progress,
                 FX_FADE_IN => volume *= progress,
                 FX_FADE_OUT => volume *= 1.0 - progress,
                 FX_ARP_FAST | FX_ARP_SLOW => {
-                    let rate = if speed <= 8 { 32 } else { 16 };
-                    let divisor = if note.effect == FX_ARP_FAST { 4 } else { 8 };
-                    let position = f64::from(rate / divisor) * 7.5 * offset / offset_per_second;
-                    let arpeggio_note = (note_index & !3) | (position as usize & 3);
-                    freq = key_to_freq(f32::from(sound.notes[arpeggio_note].pitch));
+                    // Each pitch of the arpeggio lasts whole Ticks: 2 up to speed 8 and 4 above,
+                    // twice as long for the slow arpeggio.
+                    let fast_ticks_per_pitch = if speed <= 8 { 2 } else { 4 };
+                    let ticks_per_pitch = if note.effect == FX_ARP_FAST {
+                        fast_ticks_per_pitch
+                    } else {
+                        2 * fast_ticks_per_pitch
+                    };
+                    let pitch_index = ticks_played as usize / ticks_per_pitch;
+                    let arpeggio_note = (note_index & !3) | (pitch_index & 3);
+                    increment = pitch_increment(sound.notes[arpeggio_note].pitch);
                 }
                 _ => {}
             }
             synth.key = note.pitch;
-            synth.freq = freq;
+            synth.increment = increment;
             synth.instrument = note.instrument;
             synth.custom = note.custom;
             synth.filters = sound.filters;
             synth.volume = volume;
-            synth.phi += (f64::from(freq) * inverse_rate) as f32;
+            synth.phi = advanced(synth.phi, increment, note.instrument, sound.filters);
+            // Measured on PICO-8: the last sample of each Tick takes its waves back to the cycle
+            // they are in.
+            if ends_a_tick {
+                synth.last_advance -= synth.phi.main.floor();
+                synth.phi %= 1.0;
+            }
         }
 
         if next_note_index != note_index {
-            state.previous_key = f32::from(note.pitch);
+            state.previous_key = note.pitch;
             state.previous_volume = f32::from(note.volume) / 7.0;
         }
     }
