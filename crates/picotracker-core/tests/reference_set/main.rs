@@ -64,14 +64,11 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
     "coverage_sfx25",
     "coverage_music1",
     "coverage_music4",
-    "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
-    "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
 
 const AWAITING_IMPORTED_INSTRUMENTS_44: &[&str] = &["coverage_music4"];
 
 const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
-    "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
     "coverage_music0",
     "coverage_music1",
     "coverage_music4",
@@ -85,7 +82,6 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx21",
     "coverage_sfx22",
     "coverage_sfx25",
-    "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
 
 fn cart_path(case: &Case) -> PathBuf {

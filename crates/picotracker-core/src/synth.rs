@@ -918,7 +918,8 @@ fn update_sound(
                     };
                     let pitch_index = ticks_played as usize / ticks_per_pitch;
                     let arpeggio_note = (note_index & !3) | (pitch_index & 3);
-                    increment = pitch_increment(sound.notes[arpeggio_note].pitch);
+                    increment = pitch_increment(sound.notes[arpeggio_note].pitch + pitch_shift)
+                        * increment_factor;
                 }
                 _ => {}
             }
