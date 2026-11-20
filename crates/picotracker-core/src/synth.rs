@@ -530,6 +530,7 @@ pub struct Voice {
     resting_filters: u8,
     rest_samples_left: Option<u64>,
     resting: bool,
+    silent_instrument_key: Option<(u8, i16)>,
     tick_sample: u32,
     rng: Rng,
 }
@@ -562,6 +563,7 @@ impl Voice {
             resting_filters: 0,
             rest_samples_left: None,
             resting: false,
+            silent_instrument_key: None,
             tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
@@ -596,6 +598,7 @@ impl Voice {
     pub fn play(&mut self, sound: Sound, from_note: usize) {
         self.resting_filters = 0;
         self.resting = false;
+        self.silent_instrument_key = None;
         self.latched_dampen = dampen_level(sound.filters);
         self.tick_sample = 0;
         self.sound = sound;
@@ -635,10 +638,13 @@ impl Voice {
     }
 
     /// Falls silent the way a PICO-8 channel does when its SFX ends at LEN inside a Pattern: as
-    /// playing a silent sound, except that the echo of the sound it ends rings on.
+    /// playing a silent sound, except that the echo of the sound it ends rings on, under that
+    /// sound's DAMPEN. Measured on PICO-8, the channel plays as if it looped on a silent note.
     pub fn rest(&mut self) {
         let filters = self.sound.filters;
+        let latched_dampen = self.latched_dampen;
         self.play(Sound::default(), 0);
+        self.latched_dampen = latched_dampen;
         self.resting_filters = filters;
         self.rest_samples_left = None;
         self.resting = true;
@@ -657,6 +663,44 @@ impl Voice {
             .max(0.0);
         self.resting_filters = self.sound.filters;
         self.rest_samples_left = Some(left as u64);
+    }
+
+    /// The phase step and waveform a silent note marked `custom` runs the waves on with under
+    /// REVERB. Measured on PICO-8, they are the ones its Custom Instrument would play, whatever
+    /// the note's digit: a Waveform Instrument runs them as a plain wave at the note's pitch, an
+    /// octave down with Bass, and an SFX Instrument plays through its notes at its own speed,
+    /// from its first note at the start of a run of silent notes at one pitch. A number with no
+    /// instrument runs a blank SFX, the triangle at pitch 0.
+    fn advance_silent_instrument(&mut self, silent: Note) -> (f32, u8) {
+        let sound = match self.instruments.get(&silent.instrument) {
+            Some(Instrument::Waveform(wave)) => {
+                let octave = if wave.bass { 0.5 } else { 1.0 };
+                return (pitch_increment(silent.pitch) * octave, INST_SAW);
+            }
+            Some(Instrument::Sfx(sound)) => *sound,
+            None => Sound::default(),
+        };
+        let key = (silent.instrument, silent.pitch);
+        if self.silent_instrument_key != Some(key) {
+            self.silent_instrument_key = Some(key);
+            self.instrument_number = silent.instrument;
+            self.instrument_state = SoundState {
+                playing: true,
+                ..SoundState::STOPPED
+            };
+        }
+        let note = sound.notes[(self.instrument_state.offset as usize).min(NOTES - 1)];
+        update_sound(
+            &sound,
+            &mut self.instrument_state,
+            &mut SynthParam::default(),
+            0.0,
+            1.0,
+        );
+        (
+            pitch_increment(note.pitch + silent.pitch - MIDDLE_KEY),
+            note.instrument,
+        )
     }
 
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
@@ -692,19 +736,24 @@ impl Voice {
         // Measured on PICO-8: a silent note, or a fade-in's silent first Tick, sets the wave back
         // to the start of its cycle, so the next note starts there, while the phaser's second
         // wave holds still where it was. Under REVERB the waves instead run on through it at its
-        // pitch.
+        // pitch, or as its Custom Instrument would play them.
+        let mut runs_a_silent_instrument = false;
         if plays_a_note && new_synth.volume == 0.0 {
             if reverb_level(self.sound.filters) > 0 {
                 let silent = self.sound.notes[(base_offset as usize).min(NOTES - 1)];
-                new_synth.phi = advanced(
-                    new_synth.phi,
-                    pitch_increment(silent.pitch),
-                    silent.instrument,
-                    self.sound.filters,
-                );
+                let (increment, instrument) = if silent.custom {
+                    runs_a_silent_instrument = true;
+                    self.advance_silent_instrument(silent)
+                } else {
+                    (pitch_increment(silent.pitch), silent.instrument)
+                };
+                new_synth.phi = advanced(new_synth.phi, increment, instrument, self.sound.filters);
             } else {
                 new_synth.phi = last_synth.phi.main_restarted();
             }
+        }
+        if !runs_a_silent_instrument {
+            self.silent_instrument_key = None;
         }
 
         let plays_a_custom_note = new_synth.custom;
@@ -852,9 +901,6 @@ impl Voice {
             // fake-08's fix: zepto8 scales this echo by the REVERB 1 level.
             value += reverb_2 * self.reverb_2[index_2] * 0.5;
         }
-        self.reverb_1[index_1] = value;
-        self.reverb_2[index_2] = value;
-        self.reverb_index = self.reverb_index.wrapping_add(1);
 
         // Measured on PICO-8: DAMPEN takes the level a sound starts with, and changes only on the
         // last sample of each Tick, to the level playing then, so that a Custom Instrument's own
@@ -865,7 +911,9 @@ impl Voice {
         self.tick_sample += 1;
         if self.tick_sample == SAMPLES_PER_TICK {
             self.tick_sample = 0;
-            self.latched_dampen = if !self.state.playing {
+            self.latched_dampen = if self.resting {
+                dampen_level(self.resting_filters)
+            } else if !self.state.playing {
                 if plays_a_custom_note {
                     dampen_level(new_synth.filters)
                 } else {
@@ -883,6 +931,11 @@ impl Voice {
             dampen_keep(self.latched_dampen),
         );
         value = self.low_pass_output;
+        // Measured on PICO-8: the echo is fed what DAMPEN leaves, so a damped echo dies away
+        // faster than an undamped one.
+        self.reverb_1[index_1] = value;
+        self.reverb_2[index_2] = value;
+        self.reverb_index = self.reverb_index.wrapping_add(1);
 
         f32::from((32767.99 * (OUTPUT_GAIN * value).clamp(-0.99, 0.99)) as i16) / 32768.0
     }

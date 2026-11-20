@@ -273,3 +273,43 @@ fn a_looping_song_plays_the_same_after_export() {
     // Song row 0, then Song row 1 three times over.
     assert_exports_sample_for_sample(&project, 96 + 3 * (96 + 48));
 }
+
+#[test]
+fn a_shorter_phrase_under_reverb_and_dampen_left_of_a_longer_one_plays_the_same_after_export() {
+    let mut project = instrumented_project();
+    write_phrase(&mut project, 0, 8, 6, &[0, 3]);
+    write_phrase(&mut project, 1, 16, 6, &[2, 4]);
+    let filters = project.phrase_mut(PhraseId::new(0)).filters_mut();
+    filters.set_reverb(2);
+    filters.set_dampen(2);
+    place_song_row(&mut project, 0, &[[plays(0), plays(1), None, None, None]]);
+
+    assert_exports_sample_for_sample(&project, 96);
+}
+
+/// Writes a Phrase under DETUNE 1 and REVERB 1 whose silent Steps name this instrument.
+fn write_silent_steps_on(project: &mut Project, id: u8, audible: &[u8], silent_instrument: u8) {
+    write_phrase(project, id, 16, 6, audible);
+    let phrase = project.phrase_mut(PhraseId::new(id));
+    for index in (1..16).step_by(2) {
+        *phrase.step_mut(index) = Step::new(30, silent_instrument, 0, 0).unwrap();
+    }
+    let filters = phrase.filters_mut();
+    filters.set_detune(1);
+    filters.set_reverb(1);
+}
+
+#[test]
+fn silent_steps_on_custom_instruments_under_detune_and_reverb_play_the_same_after_export() {
+    let mut project = instrumented_project();
+    write_silent_steps_on(&mut project, 0, &[3, SFX_INSTRUMENT], SFX_INSTRUMENT);
+    write_silent_steps_on(&mut project, 1, &[2], WAVEFORM_INSTRUMENT);
+    write_silent_steps_on(&mut project, 2, &[4], 0x0E);
+    place_song_row(
+        &mut project,
+        0,
+        &[[plays(0), plays(1), plays(2), None, None]],
+    );
+
+    assert_exports_sample_for_sample(&project, 96);
+}

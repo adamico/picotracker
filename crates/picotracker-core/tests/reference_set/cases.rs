@@ -290,6 +290,7 @@ pub fn all() -> Vec<Case> {
     cases.extend(custom_instruments_inside_a_dampened_sfx());
     cases.extend(every_pitch());
     cases.extend(phaser_second_wave());
+    cases.extend(near_silence());
     cases
 }
 
@@ -813,4 +814,47 @@ fn phaser_second_wave() -> Vec<Case> {
         ),
         84,
     )]
+}
+
+/// The two cases near silence that Export's sample-for-sample check could not settle, as #63
+/// measured them: a shorter channel's echo under DAMPEN, whether it ends at LEN or loops on a
+/// silent note, and the waves running on through a silent note marked as an SFX Instrument.
+fn near_silence() -> Vec<Case> {
+    let echoed = repeated(note(C3, SQUARE, 5, 0), 8);
+    let filters = packed_filters(false, false, 0, 2, 2);
+    let silent_16 = with_len(&[], 8, 16);
+    let triangle_then_saw: Vec<TestNote> = repeated(note(C2, TRIANGLE, 5, 0), 8)
+        .into_iter()
+        .chain(repeated(note(C2, SAW, 5, 0), 24))
+        .collect();
+    let around_silence: Vec<TestNote> = repeated(note(C3, SQUARE, 5, 0), 4)
+        .into_iter()
+        .chain(repeated(on_sfx_instrument(C3, TRIANGLE, 0, 0), 4))
+        .chain(repeated(note(C3, SQUARE, 5, 0), 4))
+        .collect();
+    vec![
+        CartBuilder::new().music_case(
+            "shorter_channel_loops_on_a_silent_note_under_reverb_and_dampen",
+            &[&[sfx(&echoed, 8, 8, 9, filters), silent_16]],
+            136,
+        ),
+        CartBuilder::new().music_case(
+            "shorter_channel_ends_at_len_under_reverb_and_dampen",
+            &[&[silent_16, sfx(&echoed, 8, 8, 0, filters)]],
+            136,
+        ),
+        CartBuilder::new()
+            .instrument(TRIANGLE, sfx(&triangle_then_saw, 1, 0, 0, 0))
+            .sfx_case(
+                "silent_sfx_instrument_note_runs_the_waves_as_its_instrument_under_reverb",
+                sfx(
+                    &around_silence,
+                    8,
+                    12,
+                    0,
+                    packed_filters(false, false, 1, 1, 0),
+                ),
+                100,
+            ),
+    ]
 }

@@ -681,6 +681,20 @@ fn a_silent_step_needs_no_slot_for_its_custom_instrument() {
 }
 
 #[test]
+fn under_reverb_a_silent_step_takes_a_slot_for_its_custom_instrument() {
+    let mut project = one_row_project();
+    let phrase = project.phrase_mut(PhraseId::new(0));
+    *phrase.step_mut(2) = Step::new(12, 0x0A, 0, 0).unwrap();
+    phrase.filters_mut().set_reverb(1);
+
+    let exported = export(&project, &claim(&[3, 8], (0, 0)), &blank_cart()).unwrap();
+
+    assert_eq!(exported.sfx_count, 2);
+    let note = Cart::read(&exported.cart_bytes).unwrap().sfx(8).note(2);
+    assert_eq!((note.instrument, note.custom, note.volume), (3, true, 0));
+}
+
+#[test]
 fn too_few_claimed_slots_in_0_to_7_fail_the_export() {
     let project = custom_instrument_project(sfx_instrument());
 

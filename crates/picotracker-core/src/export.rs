@@ -468,11 +468,15 @@ impl ExportedChainRow {
     }
 }
 
-/// The Custom Instruments that a Phrase's audible Steps play.
+/// The Custom Instruments that a Phrase's Steps play: its audible Steps, and under REVERB its
+/// silent ones too, which run the waves on as their instrument would play them.
 fn custom_instruments_played(phrase: &Phrase) -> impl Iterator<Item = u8> + '_ {
+    let under_reverb = phrase.filters().reverb() > 0;
     (0..phrase.length())
         .map(|index| phrase.step(index))
-        .filter(|step| !step.is_silent() && step.instrument() >= FIRST_CUSTOM_INSTRUMENT)
+        .filter(move |step| {
+            (under_reverb || !step.is_silent()) && step.instrument() >= FIRST_CUSTOM_INSTRUMENT
+        })
         .map(Step::instrument)
 }
 
