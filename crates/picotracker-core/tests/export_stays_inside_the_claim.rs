@@ -1,18 +1,20 @@
 //! Property tests over random Carts, Claims and Projects: Export changes nothing outside the
-//! Claim. The Carts are generated here from a fixed seed, so every run checks the same cases, and
+//! Claim, and a failed Export changes nothing at all. The Carts are generated here from a fixed seed, so every run checks the same cases, and
 //! a failure names the case that broke. None of them were saved by PICO-8.
 //!
 //! The checks read the files with their own small parser instead of the Cart codec, so that a
 //! mistake in the codec cannot hide itself.
 
+use picotracker_core::app::{Action, App, FileRequest, FileResponse};
 use picotracker_core::cart::Cart;
-use picotracker_core::export::export;
+use picotracker_core::export::{export, needs};
 use picotracker_core::project::{
     Chain, ChainEntry, ChainId, Claim, CustomInstrument, FIRST_CUSTOM_INSTRUMENT, InstrumentSound,
-    PhraseId, Project, SfxInstrument, Step, WaveformInstrument,
+    PhraseId, Project, SfxInstrument, Step, TargetCart, WaveformInstrument,
 };
 use sha1::{Digest, Sha1};
 use std::collections::BTreeSet;
+use std::path::Path;
 
 const TEXT_CASES: u64 = 400;
 const PNG_CASES: u64 = 40;
@@ -438,6 +440,96 @@ fn a_p8_export_changes_no_byte_outside_the_claim() {
             written.claimed_bytes_hash(&claim),
             exported.claimed_bytes_hash,
             "case {case}: hash"
+        );
+    }
+}
+
+/// Breaks a Project or its Claim in one of the ways that fail an Export, and says which.
+fn break_export(rng: &mut Rng, project: &mut Project, claim: &mut Claim) -> &'static str {
+    let needed = needs(project);
+    match rng.below(6) {
+        5 if needed.instrument_sfx > 0 => {
+            claim.sfx.retain(|slot| *slot >= 8);
+            "no room in 00-07 for Custom Instruments"
+        }
+        0 | 5 => {
+            for channel in 0..4 {
+                project.set_export_track(channel, None);
+            }
+            "no Export Tracks"
+        }
+        1 => {
+            claim.sfx.sort_unstable();
+            claim.sfx.dedup();
+            claim.sfx.truncate(needed.sfx - 1);
+            "too few SFX"
+        }
+        2 => {
+            claim.patterns = claim
+                .patterns
+                .filter(|_| needed.patterns > 1)
+                .map(|(first, _)| (first, first + needed.patterns as u8 - 2));
+            "too few Patterns"
+        }
+        3 => {
+            *claim = Claim::default();
+            "an empty Claim"
+        }
+        _ => {
+            let track = project
+                .export_tracks()
+                .into_iter()
+                .flatten()
+                .next()
+                .unwrap();
+            let chain = project.song_cell(0, usize::from(track) - 1).unwrap();
+            let entry = project.chain_mut(chain).entry_mut(0).as_mut().unwrap();
+            entry.set_transpose(1);
+            let phrase = entry.phrase();
+            *project.phrase_mut(phrase).step_mut(0) = Step::new(63, 0, 5, 0).unwrap();
+            "an audible note out of range"
+        }
+    }
+}
+
+#[test]
+fn a_failed_export_leaves_the_cart_byte_for_byte_unchanged() {
+    let path = Path::new(".").join("game.p8");
+    for case in 0..TEXT_CASES {
+        let mut rng = Rng::new(case + 1);
+        let before = if case % 10 == 0 {
+            encode(&random_pixels(&mut rng))
+        } else {
+            random_p8(&mut rng)
+        };
+        let (mut project, needs) = random_project(&mut rng);
+        let mut claim = random_claim(&mut rng, &needs);
+        let broken = break_export(&mut rng, &mut project, &mut claim);
+        project.set_target_cart(Some(TargetCart {
+            path: "game.p8".to_owned(),
+            claim,
+            claimed_bytes_hash: None,
+        }));
+        let mut app = App::with_project(project);
+
+        app.apply(Action::Export);
+        app.take_file_requests();
+        app.receive_file(FileResponse::BytesRead {
+            path: path.clone(),
+            contents: before,
+        });
+
+        let requests = app.take_file_requests();
+        assert!(
+            !requests
+                .iter()
+                .any(|request| matches!(request, FileRequest::WriteBytes { .. })),
+            "case {case}, {broken}: the Cart was written"
+        );
+        let status = app.grid().text_dump().lines().last().unwrap().to_owned();
+        assert!(
+            status.contains("EXPORT FAILED"),
+            "case {case}, {broken}: {status}"
         );
     }
 }

@@ -10,9 +10,9 @@ use crate::screen::palette::Colour;
 
 const MAX_ITEMS: usize = 32;
 const FIRST_ITEM_ROW: usize = 1;
-const TAG_COLUMN: usize = 1;
-const TEXT_COLUMN: usize = 5;
-const TEXT_WIDTH: usize = 18;
+pub(super) const TAG_COLUMN: usize = 1;
+pub(super) const TEXT_COLUMN: usize = 5;
+pub(super) const TEXT_WIDTH: usize = 18;
 
 const INFO_TAG: Style = Style::fg(Colour::Green);
 const WARNING_TAG: Style = Style::fg(Colour::Orange);
@@ -90,7 +90,7 @@ fn item_lines(item: &LogItem) -> Vec<String> {
     lines
 }
 
-const fn tag(severity: Severity) -> &'static str {
+pub(super) const fn tag(severity: Severity) -> &'static str {
     match severity {
         Severity::Info => "OK",
         Severity::Warning => "WRN",
@@ -98,7 +98,7 @@ const fn tag(severity: Severity) -> &'static str {
     }
 }
 
-const fn tag_style(severity: Severity) -> Style {
+pub(super) const fn tag_style(severity: Severity) -> Style {
     match severity {
         Severity::Info => INFO_TAG,
         Severity::Warning => WARNING_TAG,
@@ -107,7 +107,7 @@ const fn tag_style(severity: Severity) -> Style {
 }
 
 /// Breaks text at spaces to fit a width, cutting any word too long for a line of its own.
-fn wrapped(text: &str, width: usize) -> Vec<String> {
+pub(super) fn wrapped(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();
     for word in text.split_whitespace() {

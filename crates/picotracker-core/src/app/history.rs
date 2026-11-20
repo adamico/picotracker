@@ -26,6 +26,7 @@ pub(super) struct CursorPlace {
 pub(super) enum Merge {
     Nudge,
     Digit,
+    CartVisit(u32),
 }
 
 #[derive(Debug)]

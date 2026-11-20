@@ -46,6 +46,7 @@ pub enum Action {
     ChangeSpeed,
     PurgeUnused,
     ToggleCart,
+    SuggestClaim,
     ToggleLog,
     PlayFocusedPane,
     PlaySongFromCursor,
@@ -85,4 +86,5 @@ pub enum KeyContext {
     MidiImport,
     SongPicker,
     SpeedEntry,
+    ClaimText,
 }

@@ -3,7 +3,7 @@
 use super::{HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
 use crate::app::files::DirectoryEntry;
-use crate::app::importing::import_kind;
+use crate::app::importing::{ImportKind, import_kind};
 use crate::app::layout::Area;
 use crate::screen::grid::{Grid, Style};
 use crate::screen::palette::Colour;
@@ -24,6 +24,8 @@ pub enum Purpose {
     Open,
     SaveAs,
     Import,
+    TargetCart,
+    LocateCart,
 }
 
 impl Purpose {
@@ -32,6 +34,7 @@ impl Purpose {
         match self {
             Self::Open | Self::SaveAs => is_project_file(name),
             Self::Import => import_kind(name).is_some(),
+            Self::TargetCart | Self::LocateCart => import_kind(name) == Some(ImportKind::Cart),
         }
     }
 }
@@ -42,6 +45,8 @@ pub enum Choice {
     Folder(PathBuf),
     Open(PathBuf),
     Import(PathBuf),
+    TargetCart(PathBuf),
+    LocatedCart(PathBuf),
     Save { path: PathBuf, exists: bool },
 }
 
@@ -157,6 +162,8 @@ impl FileList {
             match self.purpose {
                 Purpose::Open => Choice::Open(self.directory.join(&row.name)),
                 Purpose::Import => Choice::Import(self.directory.join(&row.name)),
+                Purpose::TargetCart => Choice::TargetCart(self.directory.join(&row.name)),
+                Purpose::LocateCart => Choice::LocatedCart(self.directory.join(&row.name)),
                 Purpose::SaveAs => {
                     self.name.clone_from(&row.name);
                     self.picked = 0;
@@ -187,6 +194,8 @@ impl FileList {
             Purpose::Open => "OPEN PROJECT",
             Purpose::SaveAs => "SAVE PROJECT AS",
             Purpose::Import => "IMPORT FILE",
+            Purpose::TargetCart => "TARGET CART",
+            Purpose::LocateCart => "LOCATE CART",
         };
         draw_title(grid, area.column, 0, title, true);
         let mut row = 1;

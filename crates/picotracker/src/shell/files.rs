@@ -59,6 +59,9 @@ fn written(path: PathBuf, contents: &[u8]) -> FileResponse {
 }
 
 fn failed(path: PathBuf, error: &io::Error) -> FileResponse {
+    if error.kind() == io::ErrorKind::NotFound {
+        return FileResponse::Missing { path };
+    }
     FileResponse::Failed {
         path,
         reason: error.to_string(),

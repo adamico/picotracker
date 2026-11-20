@@ -127,6 +127,18 @@ impl Sfx<'_> {
     pub const fn loop_end(self) -> u8 {
         self.bytes[LOOP_END_BYTE]
     }
+
+    /// Whether any note holds anything, so that the SFX is in use.
+    pub fn is_used(self) -> bool {
+        self.bytes[..SFX_NOTES * 2].iter().any(|byte| *byte != 0)
+    }
+}
+
+/// Some SFX slots and some Pattern slots, each in ascending order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Slots {
+    pub sfx: Vec<u8>,
+    pub patterns: Vec<u8>,
 }
 
 /// One of a Cart's Patterns, read from its bytes.
@@ -269,17 +281,66 @@ impl Cart {
         }
         hash
     }
+
+    /// The slots a claimed-bytes hash names whose bytes have changed since it was taken.
+    pub fn changed_since(&self, hash: &str) -> Slots {
+        self.slots_in_hash(hash, false)
+    }
+
+    /// The slots a claimed-bytes hash names whose bytes are still those it describes.
+    pub fn unchanged_since(&self, hash: &str) -> Slots {
+        self.slots_in_hash(hash, true)
+    }
+
+    fn slots_in_hash(&self, hash: &str, unchanged: bool) -> Slots {
+        let mut slots = Slots::default();
+        for entry in hash.split_whitespace() {
+            let Some((kind, slot, stored)) = slot_hash_entry(entry) else {
+                continue;
+            };
+            let (bytes, list): (&[u8], _) = match kind {
+                'S' => (self.sfx_bytes(slot), &mut slots.sfx),
+                _ => (&self.pattern_bytes(slot), &mut slots.patterns),
+            };
+            if (slot_fingerprint(bytes) == stored) == unchanged {
+                list.push(slot);
+            }
+        }
+        slots.sfx.sort_unstable();
+        slots.patterns.sort_unstable();
+        slots
+    }
+}
+
+/// One entry of a claimed-bytes hash, such as `S03=0123abcd`: the kind, the slot and its
+/// fingerprint.
+/// An entry that names no slot of a Cart is not one.
+fn slot_hash_entry(entry: &str) -> Option<(char, u8, u32)> {
+    let (name, stored) = entry.split_once('=')?;
+    let kind = name
+        .chars()
+        .next()
+        .filter(|kind| matches!(kind, 'S' | 'P'))?;
+    let slot = u8::from_str_radix(name.get(1..)?, 16)
+        .ok()
+        .filter(|slot| usize::from(*slot) < SLOTS)?;
+    let stored = u32::from_str_radix(stored, 16).ok()?;
+    Some((kind, slot, stored))
+}
+
+fn slot_fingerprint(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(FNV_OFFSET, |checksum, byte| {
+        (checksum ^ u32::from(*byte)).wrapping_mul(FNV_PRIME)
+    })
 }
 
 fn push_slot_hash(hash: &mut String, kind: char, slot: u8, bytes: &[u8]) {
     if !hash.is_empty() {
         hash.push(' ');
     }
-    let checksum = bytes.iter().fold(FNV_OFFSET, |checksum, byte| {
-        (checksum ^ u32::from(*byte)).wrapping_mul(FNV_PRIME)
-    });
+    let fingerprint = slot_fingerprint(bytes);
     // Writing to a String cannot fail.
-    let _ = write!(hash, "{kind}{slot:02X}={checksum:08x}");
+    let _ = write!(hash, "{kind}{slot:02X}={fingerprint:08x}");
 }
 
 fn read_png(bytes: &[u8]) -> Result<Cart, CartError> {

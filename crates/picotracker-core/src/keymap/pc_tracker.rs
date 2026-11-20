@@ -82,6 +82,7 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
         KeyContext::PhraseValue,
         KeyContext::ReferenceValue,
         KeyContext::SpeedEntry,
+        KeyContext::ClaimText,
     ]
     .into_iter()
     .flat_map(|context| {
@@ -90,6 +91,12 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
             .map(move |(digit, ch)| (context, Key::Char(ch), Action::HexDigit(digit)))
     });
     let backspace = (KeyContext::SpeedEntry, Key::Backspace, Action::Backspace);
+    let claim_text = [
+        (Key::Backspace, Action::Backspace),
+        (Key::Char('-'), Action::TypeChar('-')),
+        (Key::Char('='), Action::SuggestClaim),
+    ]
+    .map(|(key, action)| (KeyContext::ClaimText, key, action));
     let midi_import = [
         (Key::Space, Action::ToggleVoice),
         (Key::Char('s'), Action::ToggleSource),
@@ -109,6 +116,7 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
         .chain(digits)
         .chain([backspace, song_picker])
         .chain(midi_import)
+        .chain(claim_text)
         .collect()
 }
 

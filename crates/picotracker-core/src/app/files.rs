@@ -6,12 +6,15 @@ use super::messages::Report;
 use super::panes::file_list::{Choice, FileList, Purpose};
 use super::paths::{relative_path, resolved};
 use super::{Action, App, Focus};
+use crate::export::Exported;
 use crate::player::{AudioRequest, SCOPE_COLUMNS, TrackMix};
 use crate::project::Project;
 use crate::project_file;
 use std::path::{Path, PathBuf};
 
 const UNTITLED: &str = "Untitled";
+const NOT_FOUND: &str = "not found";
+pub(super) const OVERWRITE_ANSWERS: &str = "ENTER OVERWRITE  ESC CANCEL";
 const UNSAVED_QUESTION: &str = "UNSAVED CHANGES WILL BE LOST  ENTER DISCARD  ESC CANCEL";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +54,9 @@ pub enum FileResponse {
     Renamed {
         path: PathBuf,
     },
+    Missing {
+        path: PathBuf,
+    },
     Failed {
         path: PathBuf,
         reason: String,
@@ -65,6 +71,8 @@ pub(super) enum Accepted {
     Quit,
     SaveOver(PathBuf),
     PurgeUnused,
+    OverwriteCart(PathBuf, Box<Exported>),
+    LocateCart,
 }
 
 /// A question on the status line, waiting for Enter or Esc.
@@ -92,10 +100,17 @@ pub(super) enum Waiting {
     Writing(PathBuf, Box<Project>),
     ExportReading(PathBuf),
     ExportWriting(PathBuf, FinishedExport),
+    CartViewReading(PathBuf),
+    PickingCart(PathBuf),
     SettingAside {
         state_file: PathBuf,
         bad_file: PathBuf,
     },
+}
+
+/// Why a file cannot be the Target Cart.
+pub(super) fn cannot_use(path: &Path, reason: &str) -> String {
+    format!("CANNOT USE {}: {reason}", shown_name(path))
 }
 
 /// The file name of a path in capitals, as messages show it.
@@ -141,6 +156,7 @@ impl App {
             }
             FileResponse::Written { path } => self.finish_writing(&path),
             FileResponse::Renamed { path } => self.finish_setting_aside(&path),
+            FileResponse::Missing { path } => self.file_missing(&path),
             FileResponse::Failed { path, reason } => self.file_failed(&path, &reason),
         }
     }
@@ -172,6 +188,12 @@ impl App {
             Some(Waiting::Importing(read)) if read == path => self.finish_importing(path, contents),
             Some(Waiting::ExportReading(read)) if read == path => {
                 self.finish_reading_target(path, contents);
+            }
+            Some(Waiting::CartViewReading(read)) if read == path => {
+                self.show_cart_in_view(contents);
+            }
+            Some(Waiting::PickingCart(read)) if read == path => {
+                self.finish_picking_cart(&path, contents)
             }
             other => self.waiting = other,
         }
@@ -226,6 +248,11 @@ impl App {
             {
                 format!("CANNOT EXPORT TO {name}: {reason}")
             }
+            Some(Waiting::CartViewReading(target)) if target == path => {
+                self.show_unreadable_cart_in_view(reason);
+                return;
+            }
+            Some(Waiting::PickingCart(picked)) if picked == path => cannot_use(path, &reason),
             Some(Waiting::SettingAside { state_file, .. }) if state_file == path => format!(
                 "CANNOT RENAME {name} TO {name}.BAD: {reason}. RECENT PROJECTS ARE NOT SAVED THIS SESSION"
             ),
@@ -235,6 +262,21 @@ impl App {
             }
         };
         self.report(Report::failure(summary));
+    }
+
+    /// A file that is not there. Only the Target Cart of an Export can be looked for elsewhere.
+    fn file_missing(&mut self, path: &Path) {
+        if matches!(&self.waiting, Some(Waiting::ExportReading(target)) if target == path) {
+            self.waiting = None;
+            self.ask_to_locate(path);
+        } else {
+            self.file_failed(path, NOT_FOUND);
+        }
+    }
+
+    /// Asks a question on the status line, which Enter accepts.
+    pub(super) fn ask(&mut self, text: String, accepted: Accepted) {
+        self.question = Some(Question { text, accepted });
     }
 
     /// Puts another Project in place, opening at the top of the Song with the Song pane focused.
@@ -263,6 +305,7 @@ impl App {
         self.chain = Default::default();
         self.phrase.return_to_top();
         self.overview = Default::default();
+        self.cart_view = None;
         self.focus = Focus::Song;
         self.played_pane = Focus::Song;
         self.focus_before_log = Focus::Song;
@@ -329,13 +372,16 @@ impl App {
         self.browse(Purpose::SaveAs);
     }
 
-    fn browse(&mut self, purpose: Purpose) {
+    pub(super) fn browse(&mut self, purpose: Purpose) {
         let name = self
             .project_path
             .as_deref()
             .and_then(Path::file_name)
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-        let directory = self.directory.clone();
+        let directory = match purpose {
+            Purpose::TargetCart | Purpose::LocateCart => self.target_cart_folder().to_path_buf(),
+            Purpose::Open | Purpose::SaveAs | Purpose::Import => self.directory.clone(),
+        };
         let recent = match purpose {
             Purpose::Open => self
                 .app_state
@@ -344,7 +390,9 @@ impl App {
                 .filter(|recent| Some(recent.as_path()) != self.project_path.as_deref())
                 .cloned()
                 .collect(),
-            Purpose::SaveAs | Purpose::Import => Vec::new(),
+            Purpose::SaveAs | Purpose::Import | Purpose::TargetCart | Purpose::LocateCart => {
+                Vec::new()
+            }
         };
         let list = FileList::new(purpose, directory.clone(), name).with_recent(recent);
         self.file_list = Some(list);
@@ -405,6 +453,10 @@ impl App {
                         Accepted::Quit => self.quitting = true,
                         Accepted::SaveOver(path) => self.write_project(path),
                         Accepted::PurgeUnused => self.purge_unused(),
+                        Accepted::OverwriteCart(path, exported) => {
+                            self.write_target(path, *exported);
+                        }
+                        Accepted::LocateCart => self.browse(Purpose::LocateCart),
                     }
                 }
             }
@@ -444,9 +496,14 @@ impl App {
                     .push(FileRequest::ReadBytes { path: path.clone() });
                 self.waiting = Some(Waiting::Importing(path));
             }
+            Choice::TargetCart(path) => {
+                self.request_bytes(path.clone());
+                self.waiting = Some(Waiting::PickingCart(path));
+            }
+            Choice::LocatedCart(path) => self.locate_target_cart(&path),
             Choice::Save { path, exists: true } => {
                 self.question = Some(Question {
-                    text: format!("{} EXISTS  ENTER OVERWRITE  ESC CANCEL", shown_name(&path)),
+                    text: format!("{} EXISTS  {OVERWRITE_ANSWERS}", shown_name(&path)),
                     accepted: Accepted::SaveOver(path),
                 });
             }

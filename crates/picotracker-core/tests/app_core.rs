@@ -221,7 +221,7 @@ fn the_chain_pane_title_follows_the_song_cursor() {
 
 #[test]
 fn actions_not_built_yet_change_nothing() {
-    let app = app_after(&[Action::ToggleCart]);
+    let app = app_after(&[Action::SuggestClaim]);
 
     assert_eq!(
         app.grid().text_dump(),

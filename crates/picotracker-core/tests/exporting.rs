@@ -363,13 +363,186 @@ fn a_project_file_claiming_a_slot_twice_exports_without_crashing() {
 }
 
 #[test]
-fn export_without_a_target_cart_asks_for_nothing() {
+fn export_without_a_target_cart_opens_the_cart_view() {
     let mut app = App::new();
 
     app.apply(Action::Export);
 
     assert!(app.take_file_requests().is_empty());
-    assert!(status_line(&app).contains("NO TARGET CART"));
+    assert_eq!(right_slot(&app, 0), "CART");
+    assert_eq!(right_slot(&app, 1), ">NO TARGET CART");
+}
+
+/// The Cart with its first SFX and second Pattern changed, as if edited in PICO-8.
+fn edited_in_pico8() -> Vec<u8> {
+    let mut cart = simple_cart();
+    cart.sfx[0] = TestSfx::with_pitches(8, &[40]);
+    cart.patterns[1].stop = false;
+    cart.p8()
+}
+
+#[test]
+fn changed_claimed_bytes_ask_before_they_are_overwritten() {
+    let mut app = imported(simple_cart().p8());
+
+    let requests = export_with(&mut app, edited_in_pico8());
+
+    assert!(requests.is_empty());
+    assert_eq!(
+        status_line(&app).trim_end(),
+        "SFX 00 AND PATTERN 01 CHANGED IN GAME.P8  ENTER OVERWRITE  ESC CANCEL"
+    );
+}
+
+#[test]
+fn enter_overwrites_the_changed_claimed_bytes() {
+    let mut app = imported(simple_cart().p8());
+    export_with(&mut app, edited_in_pico8());
+
+    app.apply(Action::Confirm);
+
+    let requests = app.take_file_requests();
+    let [FileRequest::WriteBytes { path, contents }] = &requests[..] else {
+        panic!("expected one write, got {requests:?}");
+    };
+    assert_eq!(*path, cart_path());
+    assert!(Cart::read(contents).unwrap().pattern(1).stop());
+}
+
+#[test]
+fn esc_leaves_the_changed_cart_alone() {
+    let mut app = imported(simple_cart().p8());
+    let hash = stored_hash(&app);
+    export_with(&mut app, edited_in_pico8());
+
+    app.apply(Action::Cancel);
+
+    assert!(app.take_file_requests().is_empty());
+    assert_eq!(stored_hash(&app), hash);
+}
+
+#[test]
+fn a_failing_export_reports_its_failures_before_asking_to_overwrite() {
+    let mut app = imported(simple_cart().p8());
+    focus_overview(&mut app);
+    for _ in 0..4 {
+        app.apply(Action::Clear);
+        app.apply(DOWN);
+    }
+
+    export_with(&mut app, edited_in_pico8());
+
+    assert!(status_line(&app).contains("EXPORT FAILED: NO EXPORT TRACKS"));
+}
+
+#[test]
+fn a_moved_target_cart_asks_to_be_located() {
+    let mut app = imported(simple_cart().p8());
+
+    app.apply(Action::Export);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Missing { path: cart_path() });
+
+    assert_eq!(
+        status_line(&app).trim_end(),
+        "GAME.P8 NOT FOUND  ENTER LOCATE  ESC CANCEL"
+    );
+}
+
+#[test]
+fn locating_a_moved_cart_keeps_the_claim_and_hash_and_exports_to_it() {
+    let original = simple_cart().p8();
+    let mut app = imported(original.clone());
+    let target = app.project().target_cart().unwrap().clone();
+    app.apply(Action::Export);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Missing { path: cart_path() });
+
+    app.apply(Action::Confirm);
+    answer_listing(
+        &mut app,
+        Path::new("."),
+        vec![DirectoryEntry {
+            name: "moved.p8".to_owned(),
+            is_directory: false,
+        }],
+    );
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+
+    let moved = Path::new(".").join("moved.p8");
+    assert_eq!(
+        app.take_file_requests(),
+        [FileRequest::ReadBytes {
+            path: moved.clone()
+        }]
+    );
+    let located = app.project().target_cart().unwrap();
+    assert_eq!(located.path, "moved.p8");
+    assert_eq!(located.claim, target.claim);
+    assert_eq!(located.claimed_bytes_hash, target.claimed_bytes_hash);
+    app.receive_file(FileResponse::BytesRead {
+        path: moved.clone(),
+        contents: original,
+    });
+    assert!(matches!(
+        &app.take_file_requests()[..],
+        [FileRequest::WriteBytes { path, .. }] if *path == moved
+    ));
+}
+
+#[test]
+fn esc_does_not_locate_a_moved_cart() {
+    let mut app = imported(simple_cart().p8());
+    app.apply(Action::Export);
+    app.take_file_requests();
+    app.receive_file(FileResponse::Missing { path: cart_path() });
+
+    app.apply(Action::Cancel);
+
+    assert!(app.take_file_requests().is_empty());
+    assert_eq!(app.project().target_cart().unwrap().path, CART_NAME);
+}
+
+#[test]
+fn a_missing_project_file_cannot_be_opened() {
+    let mut app = App::new();
+    app.apply(Action::OpenProject);
+    answer_listing(
+        &mut app,
+        Path::new("."),
+        vec![DirectoryEntry {
+            name: "song.ptrk".to_owned(),
+            is_directory: false,
+        }],
+    );
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    let path = Path::new(".").join("song.ptrk");
+
+    app.receive_file(FileResponse::Missing { path });
+
+    assert!(status_line(&app).contains("CANNOT OPEN SONG.PTRK: NOT FOUND"));
+}
+
+#[test]
+fn claim_failures_point_to_editing_the_claim() {
+    let original = simple_cart().p8();
+    let mut app = imported(original.clone());
+    let mut project = app.project().clone();
+    let mut target = project.target_cart().unwrap().clone();
+    target.claim.sfx = vec![0];
+    project.set_target_cart(Some(target));
+    app = App::with_project(project);
+
+    export_with(&mut app, original);
+
+    assert_eq!(right_slot(&app, 1), " ERR NEEDS 2 SFX, THE");
+    assert!(
+        (2..6).any(|row| right_slot(&app, row) == "     ^T EDIT CLAIM"),
+        "{:?}",
+        (0..8).map(|row| right_slot(&app, row)).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -570,4 +743,21 @@ fn export_warnings_are_counted_on_the_status_line_and_listed_in_the_log() {
     );
     let dump = app.grid().text_dump();
     assert!(dump.contains("LENGTH FROM T6,"), "{dump}");
+}
+
+#[test]
+fn the_overwrite_question_names_only_slots_the_claim_still_holds() {
+    let mut app = imported(simple_cart().p8());
+    let mut project = app.project().clone();
+    let mut target = project.target_cart().unwrap().clone();
+    target.claim.sfx = vec![1, 5];
+    project.set_target_cart(Some(target));
+    app = App::with_project(project);
+
+    export_with(&mut app, edited_in_pico8());
+
+    assert_eq!(
+        status_line(&app).trim_end(),
+        "PATTERN 01 CHANGED IN GAME.P8  ENTER OVERWRITE  ESC CANCEL"
+    );
 }

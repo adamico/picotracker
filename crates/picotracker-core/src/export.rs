@@ -23,7 +23,7 @@ const DETUNE_UNIT: u8 = 8;
 const REVERB_UNIT: u8 = 24;
 const DAMPEN_UNIT: u8 = 72;
 
-const INSTRUMENT_SLOTS: u8 = 8;
+pub const INSTRUMENT_SLOTS: u8 = 8;
 const WAVEFORM_SPEED: u8 = 16;
 
 const LOOP_START_CHANNEL: usize = 0;
@@ -278,6 +278,33 @@ pub fn export(
         pattern_count: song.patterns.len(),
         warnings: song.warnings,
     })
+}
+
+/// How many slots an Export of a Project fills, whatever its Claim.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExportNeeds {
+    pub sfx: usize,
+    pub instrument_sfx: usize,
+    pub patterns: usize,
+}
+
+/// The slots an Export of this Project would fill: every SFX, those of them that Custom
+/// Instruments take in 00-07, and the Patterns.
+pub fn needs(project: &Project) -> ExportNeeds {
+    let has_tracks = project.export_tracks().iter().any(Option::is_some);
+    let every_instrument_slot: Vec<u8> = (0..INSTRUMENT_SLOTS).collect();
+    let song = compile_song(
+        project,
+        &chain_rows(project),
+        has_tracks,
+        &every_instrument_slot,
+        &mut Vec::new(),
+    );
+    ExportNeeds {
+        sfx: song.instruments.len() + song.sfx.len(),
+        instrument_sfx: song.instruments.len(),
+        patterns: song.patterns.len(),
+    }
 }
 
 /// The Song rows that play, in order: up to the first empty row, and then, if the Song loop row

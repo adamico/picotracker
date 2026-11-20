@@ -3,6 +3,8 @@
 mod action;
 mod cell_edits;
 mod change_speed;
+mod claim_text;
+mod claiming;
 mod exporting;
 mod files;
 mod focus;
@@ -22,6 +24,7 @@ pub use files::{DirectoryEntry, FileRequest, FileResponse};
 pub use launching::{Launch, StateContents};
 pub use messages::{LogItem, Report, Severity};
 
+use crate::export;
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::{CHAIN_ENTRIES, FIRST_CUSTOM_INSTRUMENT};
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
@@ -34,6 +37,7 @@ use focus::Focus;
 use history::{CursorPlace, History, Merge};
 use importing::PickingSong;
 use messages::Notice;
+use panes::cart_view::CartView;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
 use panes::instrument::InstrumentView;
@@ -98,6 +102,8 @@ pub struct App {
     midi_dialog: Option<Box<MidiDialog>>,
     picking_song: Option<Box<PickingSong>>,
     instrument_view: Option<InstrumentView>,
+    cart_view: Option<CartView>,
+    cart_visits: u32,
     waiting: Option<Waiting>,
     file_requests: Vec<FileRequest>,
     audio_requests: Vec<AudioRequest>,
@@ -153,6 +159,8 @@ impl App {
             midi_dialog: None,
             picking_song: None,
             instrument_view: None,
+            cart_view: None,
+            cart_visits: 0,
             waiting: None,
             file_requests: Vec::new(),
             audio_requests: Vec::new(),
@@ -209,12 +217,17 @@ impl App {
         }
         if let Some(list) = &self.file_list {
             return match list.purpose() {
-                Purpose::Open | Purpose::Import => KeyContext::Navigation,
                 Purpose::SaveAs => KeyContext::FileName,
+                Purpose::Open | Purpose::Import | Purpose::TargetCart | Purpose::LocateCart => {
+                    KeyContext::Navigation
+                }
             };
         }
         if let Some(view) = &self.instrument_view {
             return view.key_context(&self.project);
+        }
+        if self.cart_view_has_focus() {
+            return KeyContext::ClaimText;
         }
         match self.focus {
             Focus::Song => KeyContext::ReferenceValue,
@@ -356,6 +369,7 @@ impl App {
     /// Applies one named action. Whatever it changes in the Project becomes one undo entry.
     pub fn apply(&mut self, action: Action) {
         let merge = match action {
+            _ if self.cart_view_has_focus() => Some(Merge::CartVisit(self.cart_visits)),
             Action::Nudge { .. } if self.selection_start.is_none() => Some(Merge::Nudge),
             Action::HexDigit(_) => Some(Merge::Digit),
             _ => None,
@@ -393,6 +407,7 @@ impl App {
             Some(place) => self.return_to(place),
             None => self.remark = Some(NOTHING_TO_UNDO),
         }
+        self.show_claim_in_cart_view();
     }
 
     fn redo(&mut self) {
@@ -400,6 +415,7 @@ impl App {
             Some(place) => self.return_to(place),
             None => self.remark = Some(NOTHING_TO_REDO),
         }
+        self.show_claim_in_cart_view();
     }
 
     fn perform(&mut self, action: Action) {
@@ -446,6 +462,10 @@ impl App {
             self.settle_after_edit();
             return;
         }
+        if self.cart_view_has_focus() && self.use_cart_view(action) {
+            self.settle_after_edit();
+            return;
+        }
         let before_edit = self.step_before_edit(action);
         match action {
             Action::NewProject => self.new_project(),
@@ -455,6 +475,7 @@ impl App {
             Action::Import => self.import(),
             Action::Export => self.export(),
             Action::ToggleLog => self.toggle_log(),
+            Action::ToggleCart => self.toggle_cart(),
             Action::Undo => self.undo(),
             Action::Redo => self.redo(),
             Action::StartSelection => self.start_selection(),
@@ -849,6 +870,14 @@ impl App {
         } else if self.log_open {
             self.log
                 .draw(&mut grid, layout::RIGHT_SLOT, right_slot_focused);
+        } else if let Some(view) = &self.cart_view {
+            view.draw(
+                &mut grid,
+                layout::RIGHT_SLOT,
+                right_slot_focused,
+                self.project.target_cart(),
+                export::needs(&self.project),
+            );
         } else {
             self.overview.draw(
                 &mut grid,
@@ -886,8 +915,10 @@ impl App {
             return StatusLine::Hints(SONG_PICKER_KEYS);
         }
         match self.file_list.as_ref().map(FileList::purpose) {
-            Some(Purpose::Open | Purpose::Import) => StatusLine::Hints(OPEN_LIST_KEYS),
             Some(Purpose::SaveAs) => StatusLine::Hints(SAVE_LIST_KEYS),
+            Some(Purpose::Open | Purpose::Import | Purpose::TargetCart | Purpose::LocateCart) => {
+                StatusLine::Hints(OPEN_LIST_KEYS)
+            }
             None => StatusLine::Idle {
                 project,
                 unsaved: self.has_unsaved_changes(),
