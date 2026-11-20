@@ -618,7 +618,7 @@ impl Voice {
 
         let base_offset = self.state.offset;
         let plays_a_note = self.state.playing;
-        update_sound(&self.sound, &mut self.state, &mut new_synth, 1.0);
+        update_sound(&self.sound, &mut self.state, &mut new_synth, 0, 1.0);
         // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
         // next note starts there.
         if plays_a_note && new_synth.volume == 0.0 {
@@ -626,10 +626,25 @@ impl Voice {
         }
 
         let plays_a_custom_note = new_synth.custom;
+        // PICO-8 retriggers an SFX Instrument when the pitch changes or after a silent note. Drop
+        // inverts the pitch rule: the same pitch retriggers at the start of its note, and a new
+        // pitch carries on.
+        let drops = self.sound.notes[(base_offset as usize).min(NOTES - 1)].effect == FX_DROP;
+        let starts_a_note = base_offset.fract() == 0.0;
+        let same_key = new_synth.key == self.last_main_key;
         let mut restart_instrument = new_synth.instrument != self.last_main_instrument
-            || new_synth.key != self.last_main_key;
+            || self.last_main_key == NO_KEY
+            || if drops {
+                same_key && starts_a_note
+            } else {
+                !same_key
+            };
         self.last_main_instrument = new_synth.instrument;
-        self.last_main_key = new_synth.key;
+        self.last_main_key = if new_synth.volume > 0.0 {
+            new_synth.key
+        } else {
+            NO_KEY
+        };
 
         if new_synth.volume > 0.0 {
             if plays_a_custom_note {
@@ -669,7 +684,11 @@ impl Voice {
                             _ => &silent,
                         };
                         new_synth.phi = last_synth.phi;
-                        let increment_factor = new_synth.increment / pitch_increment(MIDDLE_KEY);
+                        // Measured on PICO-8: the played pitch adds to the instrument's own
+                        // pitches before they become phase steps, and the played note's own effect
+                        // scales what they give.
+                        let pitch_shift = new_synth.key - MIDDLE_KEY;
+                        let increment_factor = new_synth.increment / pitch_increment(new_synth.key);
                         let main_volume = new_synth.volume;
                         // A silent note of the SFX Instrument silences the voice.
                         new_synth.volume = 0.0;
@@ -677,6 +696,7 @@ impl Voice {
                             sound,
                             &mut self.instrument_state,
                             &mut new_synth,
+                            pitch_shift,
                             increment_factor,
                         );
                         new_synth.volume *= main_volume;
@@ -766,11 +786,13 @@ impl Voice {
     }
 }
 
-/// Advances a sound by one sample and writes what it plays into `synth`.
+/// Advances a sound by one sample and writes what it plays into `synth`, with its pitches moved up
+/// by `pitch_shift` and its phase steps scaled by `increment_factor`.
 fn update_sound(
     sound: &Sound,
     state: &mut SoundState,
     synth: &mut SynthParam,
+    pitch_shift: i16,
     increment_factor: f32,
 ) {
     if !state.playing {
@@ -816,7 +838,7 @@ fn update_sound(
         let next_note_index = next_offset.floor() as usize;
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
-        let mut increment = pitch_increment(note.pitch) * increment_factor;
+        let mut increment = pitch_increment(note.pitch + pitch_shift) * increment_factor;
         // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
         // (speed - 1) / speed of the way.
         let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
@@ -841,7 +863,7 @@ fn update_sound(
                     let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
                     increment *= (t * VIBRATO_SEMITONES / 12.0).exp2();
                 }
-                FX_DROP => increment *= 1.0 - progress,
+                FX_DROP if !note.custom => increment *= 1.0 - progress,
                 FX_FADE_IN => volume *= progress,
                 FX_FADE_OUT => volume *= 1.0 - progress,
                 FX_ARP_FAST | FX_ARP_SLOW => {
