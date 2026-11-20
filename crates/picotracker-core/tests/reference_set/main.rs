@@ -57,12 +57,7 @@ const SPEC_LIMITS: Limits = Limits {
     noiz_buzz_and_detune_1_level_db: 3.0,
 };
 
-const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
-    "coverage_music0",
-    "coverage_music1",
-    "coverage_sfx18",
-    "coverage_sfx20",
-];
+const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &["coverage_music0", "coverage_music1"];
 
 fn cart_path(case: &Case) -> PathBuf {
     Path::new(FOLDER)
@@ -149,12 +144,32 @@ fn noise_note_spans(case: &Case, cart: &Cart) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
+/// The first Tick of each audible note that follows a Built-in noise note on another instrument,
+/// counted as [`noise_note_spans`] counts them. That Tick opens with the crossfade out of the
+/// noise, which carries our noise sequence rather than PICO-8's and moves the pitch measured over
+/// its window; after the owner's A/B listening check for #54, that window's pitch is not compared.
+fn noise_crossfade_ticks(case: &Case, cart: &Cart) -> Vec<usize> {
+    let Plays::Sfx(slot) = case.plays else {
+        return Vec::new();
+    };
+    let sfx = cart.sfx(slot);
+    let ticks_per_note = usize::from(sfx.speed().max(1));
+    (1..SFX_NOTES)
+        .filter(|&index| {
+            let next = sfx.note(index);
+            is_noise_note(sfx.note(index - 1)) && next.volume > 0 && !is_noise_note(next)
+        })
+        .map(|index| index * ticks_per_note)
+        .collect()
+}
+
 fn tolerance(case: &Case, cart: &Cart) -> Tolerance {
     Tolerance {
         duration_percent: SPEC_LIMITS.duration_percent,
         pitch_cents: SPEC_LIMITS.pitch_cents,
         level_db: level_limit_db(cart),
         level_averaged_tick_spans: noise_note_spans(case, cart),
+        pitch_skipped_ticks: noise_crossfade_ticks(case, cart),
     }
 }
 
