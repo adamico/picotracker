@@ -29,6 +29,7 @@ const SQUARE: u8 = 3;
 const PULSE: u8 = 4;
 const ORGAN: u8 = 5;
 const NOISE: u8 = 6;
+const PHASER: u8 = 7;
 
 const SLIDE: u8 = 1;
 const DROP: u8 = 3;
@@ -288,6 +289,7 @@ pub fn all() -> Vec<Case> {
     cases.extend(last_measured_behaviours());
     cases.extend(custom_instruments_inside_a_dampened_sfx());
     cases.extend(every_pitch());
+    cases.extend(phaser_second_wave());
     cases
 }
 
@@ -787,4 +789,28 @@ fn every_pitch() -> Vec<Case> {
         sfx_case("every_pitch_from_0_to_31", rising(0), 520),
         sfx_case("every_pitch_from_32_to_63", rising(32), 520),
     ]
+}
+
+/// The phaser's second wave through the notes that move it in their own way: noise, which keeps
+/// no second wave of its own.
+fn phaser_second_wave() -> Vec<Case> {
+    let phaser = |pitch| note(pitch, PHASER, 5, 0);
+    let quiet_noise = |pitch| note(pitch, NOISE, 1, 0);
+    vec![sfx_case(
+        "phaser_after_noise",
+        plain(
+            &[
+                phaser(C3),
+                phaser(G3),
+                quiet_noise(C3),
+                quiet_noise(C4),
+                phaser(E3),
+                phaser(E3),
+                phaser(C3),
+                phaser(C3),
+            ],
+            8,
+        ),
+        84,
+    )]
 }

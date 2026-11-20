@@ -240,6 +240,14 @@ impl Phase {
             second: cycles,
         }
     }
+
+    /// The main wave back at the start of its cycle, and the second wave where it was.
+    fn main_restarted(self) -> Self {
+        Self {
+            main: 0.0,
+            second: self.second,
+        }
+    }
 }
 
 impl std::ops::MulAssign<f64> for Phase {
@@ -257,16 +265,16 @@ impl std::ops::RemAssign<f64> for Phase {
 }
 
 /// How far the second wave moves for each whole phase unit the main wave moves, as a fraction,
-/// measured on PICO-8. Without DETUNE it keeps up with the main wave, except on the phaser. Under
-/// DETUNE it stands still through noise, though PICO-8's noise moves it without DETUNE in a way
-/// not yet matched. DETUNE 2 reads it twice over, except on the triangle and the phaser.
+/// measured on PICO-8. Without DETUNE it keeps up with the main wave, except on the phaser. It
+/// stands still through noise, which without DETUNE sets it to the main wave at each Tick's start
+/// (see [`update_sound`]). DETUNE 2 reads it twice over, except on the triangle and the phaser.
 fn second_wave_ratio(instrument: u8, detune: u8) -> (u32, u32) {
     match (instrument, detune) {
         (INST_PHASER, 0) => (127, 128),
         (INST_PHASER, 1) => (125, 128),
         (INST_PHASER, _) => (254, 128),
-        (_, 0) => (1, 1),
         (INST_NOISE, _) => (0, 1),
+        (_, 0) => (1, 1),
         (INST_TRIANGLE, 1) => (193, 256),
         (INST_TRIANGLE, _) => (3, 2),
         _ => (255, 256),
@@ -681,8 +689,10 @@ impl Voice {
         if plays_a_note && !self.state.playing && !self.resting {
             self.ring_through_trailing_silence();
         }
-        // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
-        // next note starts there. Under REVERB the wave instead runs on through it at its pitch.
+        // Measured on PICO-8: a silent note, or a fade-in's silent first Tick, sets the wave back
+        // to the start of its cycle, so the next note starts there, while the phaser's second
+        // wave holds still where it was. Under REVERB the waves instead run on through it at its
+        // pitch.
         if plays_a_note && new_synth.volume == 0.0 {
             if reverb_level(self.sound.filters) > 0 {
                 let silent = self.sound.notes[(base_offset as usize).min(NOTES - 1)];
@@ -693,7 +703,7 @@ impl Voice {
                     self.sound.filters,
                 );
             } else {
-                new_synth.phi = Phase::START;
+                new_synth.phi = last_synth.phi.main_restarted();
             }
         }
 
@@ -878,6 +888,11 @@ impl Voice {
     }
 }
 
+/// Whether a count of Ticks is a whole number of them, as near as the sample grid allows.
+fn is_whole_tick(ticks: f64) -> bool {
+    ticks - (ticks + TICK_FLOOR_TOLERANCE).floor() < TICK_FLOOR_TOLERANCE
+}
+
 /// Advances a sound by one sample and writes what it plays into `synth`, with its pitches moved up
 /// by `pitch_shift` and its phase steps scaled by `increment_factor`.
 fn update_sound(
@@ -932,10 +947,10 @@ fn update_sound(
         let mut volume = f32::from(note.volume) / 7.0;
         // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
         // (speed - 1) / speed of the way.
-        let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
-        let next_ticks = next_offset * f64::from(speed);
-        let ends_a_tick =
-            next_ticks - (next_ticks + TICK_FLOOR_TOLERANCE).floor() < TICK_FLOOR_TOLERANCE;
+        let ticks = offset * f64::from(speed);
+        let ticks_played = (ticks + TICK_FLOOR_TOLERANCE).floor();
+        let starts_a_tick = is_whole_tick(ticks);
+        let ends_a_tick = is_whole_tick(next_offset * f64::from(speed));
         let progress = ((ticks_played % f64::from(speed)) / f64::from(speed)) as f32;
 
         if volume > 0.0 {
@@ -968,7 +983,6 @@ fn update_sound(
                 FX_VIBRATO => {
                     // A triangle in pitch held for two Ticks at a time: up from the note's pitch,
                     // down through it and back, over eight steps.
-                    let ticks = offset * f64::from(speed);
                     let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
                     let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
                     increment *= (t * VIBRATO_SEMITONES / 12.0).exp2();
@@ -985,6 +999,12 @@ fn update_sound(
             synth.custom = note.custom;
             synth.filters = sound.filters;
             synth.volume = volume;
+            // Measured on PICO-8: noise without DETUNE sets the second wave to the main wave as
+            // each of its Ticks starts, so a phaser after it starts from there.
+            let plays_noise = note.instrument == INST_NOISE && !note.custom;
+            if plays_noise && starts_a_tick && detune_level(sound.filters) == 0 {
+                synth.phi.second = synth.phi.main;
+            }
             synth.phi = advanced(synth.phi, increment, note.instrument, sound.filters);
             // Measured on PICO-8: the last sample of each Tick takes its waves back to the cycle
             // they are in.
