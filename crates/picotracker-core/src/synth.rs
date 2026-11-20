@@ -269,6 +269,14 @@ fn detune_level(filters: u8) -> u8 {
     (filters / 8) % 3
 }
 
+fn reverb_level(filters: u8) -> u8 {
+    (filters / 24) % 3
+}
+
+fn dampen_level(filters: u8) -> u8 {
+    (filters / 72) % 3
+}
+
 fn mix(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
@@ -327,11 +335,11 @@ fn tilted(a: f32, t: f32) -> f32 {
 
 /// The triangle from -1 to 1, which BUZZ mixes with a quarter of a tilted wave.
 fn triangle(t: f32, buzz: bool) -> f32 {
-    let ret = 1.0 - (4.0 * t - 2.0).abs();
+    let shape = 1.0 - (4.0 * t - 2.0).abs();
     if buzz {
-        ret * 0.75 + tilted(0.875, t) * 0.25
+        shape * 0.75 + tilted(0.875, t) * 0.25
     } else {
-        ret
+        shape
     }
 }
 
@@ -355,27 +363,27 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             // PICO-8's saw rises through the whole cycle and drops as it starts.
             let advance = advance + 0.5;
             let t = (advance % 1.0) as f32;
-            let mut ret = if t < 0.5 { t } else { t - 1.0 };
+            let mut shape = if t < 0.5 { t } else { t - 1.0 };
             if buzz {
                 // Measured on PICO-8: BUZZ lowers the saw by more on every other cycle, counted
                 // from the cycle each Tick starts in.
                 let first_of_two = p.phi.main.floor() % 2.0 == 0.0;
-                ret = ret * 0.75 - if first_of_two { 1.0 / 8.0 } else { 1.0 / 24.0 };
+                shape = shape * 0.75 - if first_of_two { 1.0 / 8.0 } else { 1.0 / 24.0 };
             }
-            SAW_LEVEL * ret
+            SAW_LEVEL * shape
         }
         INST_SQUARE => high_for_the_last(if buzz { 13.0 / 32.0 } else { 0.5 }, t),
         INST_PULSE => high_for_the_last(if buzz { 7.0 / 32.0 } else { 0.3125 }, t),
         INST_ORGAN => {
-            let mut ret = if t < 0.5 {
+            let mut shape = if t < 0.5 {
                 3.0 - (24.0 * t - 6.0).abs()
             } else {
                 1.0 - (16.0 * t - 12.0).abs()
             };
             if buzz {
-                ret = ret * 2.0 / 3.0 + if t < 0.5 { -0.375 } else { 0.375 };
+                shape = shape * 2.0 / 3.0 + if t < 0.5 { -0.375 } else { 0.375 };
             }
-            ret / 9.0
+            shape / 9.0
         }
         INST_NOISE if noiz => {
             // Measured on PICO-8: NOIZ holds each random level for 64 samples less the pitch.
@@ -390,10 +398,10 @@ fn waveform(p: &mut SynthParam, rng: &mut Rng) -> f32 {
             let scale = (advance - p.last_advance) as f32 * 8.858_923;
             let new_sample = (p.last_sample + scale * rng.next()) / (1.0 + scale);
             let factor = 1.0 - f32::from(p.key) / 63.0;
-            let ret = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
+            let shape = NOISE_LEVEL * new_sample * 1.5 * (1.0 + factor * factor);
             p.last_advance = advance;
             p.last_sample = new_sample;
-            ret
+            shape
         }
         INST_PHASER => {
             (2.0 * triangle(t, buzz) + triangle((p.phi.second % 1.0) as f32, buzz)) / 6.0
@@ -443,8 +451,8 @@ fn synth_sample(p: &mut SynthParam, rng: &mut Rng) -> f32 {
 /// How much of the last output sample a DAMPEN level keeps. Measured on PICO-8: DAMPEN is a
 /// one-pole low-pass, `out = keep * last_out + (1 - keep) * in`, that keeps 1/2 at DAMPEN 1 and
 /// 3/4 at DAMPEN 2, and runs on DAMPEN 0 by keeping nothing.
-fn dampen_keep(filters: u8) -> f32 {
-    match (filters / 72) % 3 {
+fn dampen_keep(dampen: u8) -> f32 {
+    match dampen {
         1 => 0.5,
         2 => 0.75,
         _ => 0.0,
@@ -487,8 +495,8 @@ pub struct Voice {
     reverb_1: Vec<f32>,
     reverb_2: Vec<f32>,
     reverb_index: usize,
-    dampen_filters: u8,
-    damped: f32,
+    latched_dampen: u8,
+    low_pass_output: f32,
     tick_sample: u32,
     rng: Rng,
 }
@@ -516,8 +524,8 @@ impl Voice {
             reverb_1: vec![0.0; REVERB_1_SAMPLES],
             reverb_2: vec![0.0; REVERB_2_SAMPLES],
             reverb_index: 0,
-            dampen_filters: 0,
-            damped: 0.0,
+            latched_dampen: 0,
+            low_pass_output: 0.0,
             tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
@@ -550,7 +558,7 @@ impl Voice {
 
     /// Starts a sound from one of its notes.
     pub fn play(&mut self, sound: Sound, from_note: usize) {
-        self.dampen_filters = sound.filters;
+        self.latched_dampen = dampen_level(sound.filters);
         self.tick_sample = 0;
         self.sound = sound;
         self.state = SoundState {
@@ -566,7 +574,7 @@ impl Voice {
     /// except that a silent voice also starts its wave at the start of its cycle.
     ///
     /// [`play`]: Self::play
-    pub fn play_pattern(&mut self, sound: Sound, from_note: usize) {
+    pub fn play_restarting_if_silent(&mut self, sound: Sound, from_note: usize) {
         if self.last_synth.volume == 0.0 && self.fade <= 0.0 {
             self.last_synth.phi = Phase::START;
         }
@@ -691,7 +699,7 @@ impl Voice {
         }
         self.last_synth = new_synth;
 
-        let reverb = (new_synth.filters / 24) % 3;
+        let reverb = reverb_level(new_synth.filters);
         let level = |on: bool| if on { 1.0_f32 } else { 0.0 };
         let mut reverb_1 = level(reverb == 1);
         let mut reverb_2 = level(reverb == 2);
@@ -707,7 +715,7 @@ impl Voice {
             );
             let faded = synth_sample(&mut self.fade_synth, &mut self.rng);
             value = mix(value, faded, self.fade);
-            let fade_reverb = (self.fade_synth.filters / 24) % 3;
+            let fade_reverb = reverb_level(self.fade_synth.filters);
             reverb_1 = mix(reverb_1, level(fade_reverb == 1), self.fade);
             reverb_2 = mix(reverb_2, level(fade_reverb == 2), self.fade);
         }
@@ -733,7 +741,7 @@ impl Voice {
         self.tick_sample += 1;
         if self.tick_sample == SAMPLES_PER_TICK {
             self.tick_sample = 0;
-            self.dampen_filters = if !self.state.playing {
+            let filters = if !self.state.playing {
                 if new_synth.custom {
                     new_synth.filters
                 } else {
@@ -744,9 +752,14 @@ impl Voice {
             } else {
                 self.sound.filters
             };
+            self.latched_dampen = dampen_level(filters);
         }
-        self.damped = mix(value, self.damped, dampen_keep(self.dampen_filters));
-        value = self.damped;
+        self.low_pass_output = mix(
+            value,
+            self.low_pass_output,
+            dampen_keep(self.latched_dampen),
+        );
+        value = self.low_pass_output;
 
         f32::from((32767.99 * (OUTPUT_GAIN * value).clamp(-0.99, 0.99)) as i16) / 32768.0
     }
