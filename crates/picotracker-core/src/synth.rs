@@ -323,6 +323,7 @@ struct SynthParam {
     custom: bool,
     filters: u8,
     key: i16,
+    pitch: f32,
     increment: f32,
     volume: f32,
     phi: Phase,
@@ -671,7 +672,7 @@ impl Voice {
 
         let base_offset = self.state.offset;
         let plays_a_note = self.state.playing;
-        update_sound(&self.sound, &mut self.state, &mut new_synth, 0, 1.0);
+        update_sound(&self.sound, &mut self.state, &mut new_synth, 0.0, 1.0);
         if plays_a_note && !self.state.playing {
             self.ring_through_trailing_silence();
         }
@@ -684,16 +685,16 @@ impl Voice {
         let plays_a_custom_note = new_synth.custom;
         // PICO-8 retriggers an SFX Instrument when the pitch changes or after a silent note. Drop
         // inverts the pitch rule: the same pitch retriggers at the start of its note, and a new
-        // pitch carries on.
-        let drops = self.sound.notes[(base_offset as usize).min(NOTES - 1)].effect == FX_DROP;
+        // pitch carries on. Measured on PICO-8, a slide carries on to its new pitch.
+        let effect = self.sound.notes[(base_offset as usize).min(NOTES - 1)].effect;
         let starts_a_note = base_offset.fract() == 0.0;
         let same_key = new_synth.key == self.last_main_key;
         let mut restart_instrument = new_synth.instrument != self.last_main_instrument
             || self.last_main_key == NO_KEY
-            || if drops {
-                same_key && starts_a_note
-            } else {
-                !same_key
+            || match effect {
+                FX_DROP => same_key && starts_a_note,
+                FX_SLIDE => false,
+                _ => !same_key,
             };
         self.last_main_instrument = new_synth.instrument;
         self.last_main_key = if new_synth.volume > 0.0 {
@@ -740,11 +741,12 @@ impl Voice {
                             _ => &silent,
                         };
                         new_synth.phi = last_synth.phi;
-                        // Measured on PICO-8: the played pitch adds to the instrument's own
-                        // pitches before they become phase steps, and the played note's own effect
-                        // scales what they give.
-                        let pitch_shift = new_synth.key - MIDDLE_KEY;
-                        let increment_factor = new_synth.increment / pitch_increment(new_synth.key);
+                        // Measured on PICO-8: the pitch the played note is at, partway through a
+                        // slide included, adds to the instrument's own pitches before they become
+                        // phase steps, and the played note's vibrato scales what they give.
+                        let pitch_shift = new_synth.pitch - f32::from(MIDDLE_KEY);
+                        let increment_factor =
+                            new_synth.increment / between_pitches_increment(new_synth.pitch);
                         let main_volume = new_synth.volume;
                         // A silent note of the SFX Instrument silences the voice.
                         new_synth.volume = 0.0;
@@ -865,7 +867,7 @@ fn update_sound(
     sound: &Sound,
     state: &mut SoundState,
     synth: &mut SynthParam,
-    pitch_shift: i16,
+    pitch_shift: f32,
     increment_factor: f32,
 ) {
     if !state.playing {
@@ -911,7 +913,6 @@ fn update_sound(
         let next_note_index = next_offset.floor() as usize;
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
-        let mut increment = pitch_increment(note.pitch + pitch_shift) * increment_factor;
         // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
         // (speed - 1) / speed of the way.
         let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
@@ -921,15 +922,31 @@ fn update_sound(
         let progress = ((ticks_played % f64::from(speed)) / f64::from(speed)) as f32;
 
         if volume > 0.0 {
+            let pitch = match note.effect {
+                FX_SLIDE => mix(
+                    f32::from(state.previous_key),
+                    f32::from(note.pitch),
+                    progress,
+                ),
+                FX_ARP_FAST | FX_ARP_SLOW => {
+                    // Each pitch of the arpeggio lasts whole Ticks: 2 up to speed 8 and 4 above,
+                    // twice as long for the slow arpeggio.
+                    let fast_ticks_per_pitch = if speed <= 8 { 2 } else { 4 };
+                    let ticks_per_pitch = if note.effect == FX_ARP_FAST {
+                        fast_ticks_per_pitch
+                    } else {
+                        2 * fast_ticks_per_pitch
+                    };
+                    let pitch_index = ticks_played as usize / ticks_per_pitch;
+                    let arpeggio_note = (note_index & !3) | (pitch_index & 3);
+                    f32::from(sound.notes[arpeggio_note].pitch)
+                }
+                _ => f32::from(note.pitch),
+            } + pitch_shift;
+            let mut increment = between_pitches_increment(pitch) * increment_factor;
             match note.effect {
-                FX_SLIDE => {
-                    let from = f32::from(state.previous_key + pitch_shift);
-                    let to = f32::from(note.pitch + pitch_shift);
-                    increment =
-                        between_pitches_increment(mix(from, to, progress)) * increment_factor;
-                    if state.previous_volume > 0.0 {
-                        volume = mix(state.previous_volume, volume, progress);
-                    }
+                FX_SLIDE if state.previous_volume > 0.0 => {
+                    volume = mix(state.previous_volume, volume, progress);
                 }
                 FX_VIBRATO => {
                     // A triangle in pitch held for two Ticks at a time: up from the note's pitch,
@@ -942,23 +959,10 @@ fn update_sound(
                 FX_DROP if !note.custom => increment *= 1.0 - progress,
                 FX_FADE_IN => volume *= progress,
                 FX_FADE_OUT => volume *= 1.0 - progress,
-                FX_ARP_FAST | FX_ARP_SLOW => {
-                    // Each pitch of the arpeggio lasts whole Ticks: 2 up to speed 8 and 4 above,
-                    // twice as long for the slow arpeggio.
-                    let fast_ticks_per_pitch = if speed <= 8 { 2 } else { 4 };
-                    let ticks_per_pitch = if note.effect == FX_ARP_FAST {
-                        fast_ticks_per_pitch
-                    } else {
-                        2 * fast_ticks_per_pitch
-                    };
-                    let pitch_index = ticks_played as usize / ticks_per_pitch;
-                    let arpeggio_note = (note_index & !3) | (pitch_index & 3);
-                    increment = pitch_increment(sound.notes[arpeggio_note].pitch + pitch_shift)
-                        * increment_factor;
-                }
                 _ => {}
             }
             synth.key = note.pitch;
+            synth.pitch = pitch;
             synth.increment = increment;
             synth.instrument = note.instrument;
             synth.custom = note.custom;
