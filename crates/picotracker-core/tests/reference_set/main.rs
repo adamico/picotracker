@@ -21,6 +21,7 @@ const FOLDER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference_set")
 const RECORDINGS_VARIABLE: &str = "PICOTRACKER_RECORDINGS";
 const RENDERED_SPARE_TICKS: u32 = 8;
 const NOISE: u8 = 6;
+const CHANNELS: usize = 4;
 const WAVEFORM_INSTRUMENT_FLAG: u8 = 0x80;
 const SFX_INSTRUMENTS: u8 = 8;
 const PITCH_WINDOW_TICKS: u32 = 4;
@@ -56,8 +57,6 @@ const SPEC_LIMITS: Limits = Limits {
     noise_level_db: 2.0,
     noiz_buzz_and_detune_1_level_db: 3.0,
 };
-
-const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &["coverage_music0", "coverage_music1"];
 
 fn cart_path(case: &Case) -> PathBuf {
     Path::new(FOLDER)
@@ -127,20 +126,39 @@ fn is_noise_note(note: CartNote) -> bool {
     !note.custom && note.instrument == NOISE && note.volume > 0
 }
 
-/// The Ticks of each Built-in noise note in a case played as an SFX, counted from its first note
-/// as the fingerprint counts them from the first audible sample, for an SFX that starts on a
-/// sounding note and plays its notes once without looping. Our noise sequence is not PICO-8's,
-/// so each Tick of noise comes out at a different random level; after the owner's A/B listening
-/// check for #54, a noise note is held to the level limit on its average instead.
+/// The SFX a case starts playing: its one SFX, or the channels of the first Pattern when that
+/// Pattern stops the music after it.
+fn opening_sfx(case: &Case, cart: &Cart) -> Vec<u8> {
+    match case.plays {
+        Plays::Sfx(slot) => vec![slot],
+        Plays::Music => {
+            let pattern = cart.pattern(0);
+            if !pattern.stop() {
+                return Vec::new();
+            }
+            (0..CHANNELS)
+                .filter_map(|channel| pattern.channel(channel))
+                .collect()
+        }
+    }
+}
+
+/// The Ticks of each Built-in noise note a case plays, counted from its first note as the
+/// fingerprint counts them from the first audible sample, for SFX that start on a sounding note
+/// and play their notes once without looping. Our noise sequence is not PICO-8's, so each Tick of
+/// noise comes out at a different random level; after the owner's A/B listening checks for #54,
+/// a noise note is held to the level limit on its average instead, together with whatever plays
+/// beside it on the other channels.
 fn noise_note_spans(case: &Case, cart: &Cart) -> Vec<std::ops::Range<usize>> {
-    let Plays::Sfx(slot) = case.plays else {
-        return Vec::new();
-    };
-    let sfx = cart.sfx(slot);
-    let ticks_per_note = usize::from(sfx.speed().max(1));
-    (0..SFX_NOTES)
-        .filter(|&index| is_noise_note(sfx.note(index)))
-        .map(|index| index * ticks_per_note..(index + 1) * ticks_per_note)
+    opening_sfx(case, cart)
+        .into_iter()
+        .flat_map(|slot| {
+            let sfx = cart.sfx(slot);
+            let ticks_per_note = usize::from(sfx.speed().max(1));
+            (0..SFX_NOTES)
+                .filter(move |&index| is_noise_note(sfx.note(index)))
+                .map(move |index| index * ticks_per_note..(index + 1) * ticks_per_note)
+        })
         .collect()
 }
 
@@ -173,8 +191,7 @@ fn tolerance(case: &Case, cart: &Cart) -> Tolerance {
     }
 }
 
-const AWAITED_WORK: [(&str, &[&str]); 1] =
-    [("#54 synth differences", AWAITING_SYNTH_DIFFERENCES_54)];
+const AWAITED_WORK: [(&str, &[&str]); 0] = [];
 
 /// The work a case still waits on before it can match PICO-8: every piece of work whose list
 /// names it. A case that no list names must match.
@@ -276,8 +293,8 @@ fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Opt
         .collect()
 }
 
-/// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch. The
-/// phaser's whole coverage case still waits on #54, so this checks its vibrato Steps on their own.
+/// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch,
+/// checked on its own Steps of each coverage case.
 #[test]
 fn vibrato_matches_real_pico8_within_the_pitch_limit() {
     let off: Vec<String> = cases::all()

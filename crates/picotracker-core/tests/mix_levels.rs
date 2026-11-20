@@ -1,4 +1,4 @@
-//! The 8-Track mix: PICO-8's per-channel level, a limiter only when it would clip, and the scope.
+//! The 8-Track mix: PICO-8's per-channel level, saturated past PICO-8's knee, and the scope.
 
 use picotracker_core::app::{Action, App};
 use picotracker_core::player::Player;
@@ -63,13 +63,12 @@ fn peak(samples: &[f32]) -> f32 {
 }
 
 #[test]
-fn four_tracks_at_full_volume_play_as_a_plain_sum() {
-    // Four squares at volume 7 reach exactly the top of the range, so nothing needs limiting.
+fn a_mix_below_the_knee_plays_as_a_plain_sum() {
     let one = hear(unison(SQUARE, 7, 1, 8), STEP_SAMPLES * 4);
-    let four = hear(unison(SQUARE, 7, 4, 8), STEP_SAMPLES * 4);
+    let three = hear(unison(SQUARE, 7, 3, 8), STEP_SAMPLES * 4);
 
-    for (single, mixed) in one.iter().zip(&four) {
-        assert!((mixed - single * 4.0).abs() < 1e-3, "{mixed} vs {single}");
+    for (single, mixed) in one.iter().zip(&three) {
+        assert!((mixed - single * 3.0).abs() < 1e-3, "{mixed} vs {single}");
     }
 }
 
@@ -78,21 +77,6 @@ fn a_loud_eight_track_mix_never_leaves_the_range() {
     let samples = hear(unison(TRIANGLE, 7, 8, 8), STEP_SAMPLES * 4);
 
     assert!(peak(&samples) <= 1.0);
-    assert!(peak(&samples) > 0.9, "the limiter uses the whole range");
-}
-
-#[test]
-fn the_limiter_keeps_the_waveform_instead_of_clipping_it() {
-    let samples = hear(unison(TRIANGLE, 7, 8, 8), STEP_SAMPLES * 4);
-
-    // A hard clip of this mix would hold about three quarters of the wave at the limit.
-    let settled = &samples[STEP_SAMPLES..];
-    let at_limit = settled.iter().filter(|sample| sample.abs() > 0.99).count();
-    assert!(
-        at_limit * 10 < settled.len(),
-        "{at_limit} of {} samples sit at the limit",
-        settled.len()
-    );
 }
 
 #[test]

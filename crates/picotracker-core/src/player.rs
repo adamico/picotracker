@@ -52,31 +52,17 @@ struct Preview {
     released: bool,
 }
 
-/// Holds the mix inside the output range. The gain drops at once to just what the loudest sample
-/// needs, so a mix that would not clip passes through unchanged, and then recovers.
-#[derive(Clone, Copy, Debug)]
-struct Limiter {
-    gain: f32,
-}
+const SATURATION_KNEE: f32 = 0.75;
+const SATURATION_SLOPE: f32 = 1.0 / 25.0;
 
-impl Limiter {
-    const RELEASE_PER_SAMPLE: f32 = 1.0 / (0.05 * SAMPLE_RATE as f32);
-    const FULL_GAIN: f32 = 0.9999;
-
-    const fn new() -> Self {
-        Self { gain: 1.0 }
-    }
-
-    fn run(&mut self, mix: f32) -> f32 {
-        if mix.abs() * self.gain > 1.0 {
-            self.gain = 1.0 / mix.abs();
-        }
-        let limited = (mix * self.gain).clamp(-1.0, 1.0);
-        self.gain += (1.0 - self.gain) * Self::RELEASE_PER_SAMPLE;
-        if self.gain > Self::FULL_GAIN {
-            self.gain = 1.0;
-        }
-        limited
+/// The mix as PICO-8 0.2.7 outputs it: unchanged up to the knee, and past it rising at only a
+/// twenty-fifth of the rate. Even 8 Tracks at full volume stay well inside the output range.
+fn saturated(mix: f32) -> f32 {
+    let past_knee = mix.abs() - SATURATION_KNEE;
+    if past_knee > 0.0 {
+        mix.signum() * (SATURATION_KNEE + past_knee * SATURATION_SLOPE)
+    } else {
+        mix
     }
 }
 
@@ -373,7 +359,6 @@ pub struct Player {
     playback: Option<Playback>,
     track_mix: TrackMix,
     preview: Option<Preview>,
-    limiter: Limiter,
     scope: ScopeTrace,
     plays: u64,
     finished_play: u64,
@@ -386,7 +371,6 @@ impl Default for Player {
             playback: None,
             track_mix: TrackMix::default(),
             preview: None,
-            limiter: Limiter::new(),
             scope: ScopeTrace::new(),
             plays: 0,
             finished_play: 0,
@@ -469,7 +453,6 @@ impl Player {
     fn cut(&mut self) {
         self.playback = None;
         self.preview = None;
-        self.limiter = Limiter::new();
         self.scope = ScopeTrace::new();
         for voice in &mut self.voices {
             voice.stop();
@@ -650,8 +633,8 @@ impl Player {
         }
     }
 
-    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level, limited only
-    /// when the mix would clip.
+    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level, then
+    /// saturated as PICO-8 saturates a loud mix.
     pub fn next_sample(&mut self) -> f32 {
         self.advance();
         self.advance_preview();
@@ -667,9 +650,9 @@ impl Player {
                 mix += sample;
             }
         }
-        let limited = self.limiter.run(mix);
-        self.scope.push(limited);
-        limited
+        let output = saturated(mix);
+        self.scope.push(output);
+        output
     }
 
     /// Renders a run of samples at 22,050 Hz.
