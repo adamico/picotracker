@@ -7,3 +7,6 @@ dist/
 !crates/**/tests/**/*.p8
 !crates/**/tests/**/*.p8.png
 !crates/**/tests/**/*.ptrk
+
+# Reference manuals: keep local copies, never commit them. The README links the official downloads.
+docs/sources/

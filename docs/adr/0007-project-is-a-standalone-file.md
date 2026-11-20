@@ -1,6 +1,6 @@
 # A Project is a standalone file, not embedded in its Cart
 
-A Project is saved as one standalone `.ptrk` file. It holds at most one link to its Target Cart, as a path relative to the Project file, and the Claim is stored with that link. We considered embedding the Project, or a link to it, in a `__meta:picotracker__` section, so the Cart would carry its own source. We rejected that for four reasons. A Cart can hold several Projects with Claims that don't overlap. `.p8.png` Carts may not keep `__meta__` sections. A Project can exist with no Cart, for example after a MIDI Import. And, by ADR 0001, the Project is the source of truth, so it should not live inside its own Export target.
+A Project is saved as one standalone `.ptrk` file. It holds at most one link to its Target Cart, as a path relative to the Project file, and the Claim is stored with that link. We considered embedding the Project, or a link to it, in a `__meta:pikutracker__` section, so the Cart would carry its own source. We rejected that for four reasons. A Cart can hold several Projects with Claims that don't overlap. `.p8.png` Carts may not keep `__meta__` sections. A Project can exist with no Cart, for example after a MIDI Import. And, by ADR 0001, the Project is the source of truth, so it should not live inside its own Export target.
 
 ## Consequences
 

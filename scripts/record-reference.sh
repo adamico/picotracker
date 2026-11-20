@@ -9,8 +9,8 @@ Usage: scripts/record-reference.sh [case ...]
 Re-records the PICO-8 reference set on a machine with a licensed copy of PICO-8 0.2.7,
 with no window and no sound, then rewrites the committed fingerprints.
 
-  1. Writes the driver Carts to crates/picotracker-core/tests/reference_set/carts/.
-  2. Plays each Cart in PICO-8, which records crates/picotracker-core/tests/reference_set/
+  1. Writes the driver Carts to crates/pikutracker-core/tests/reference_set/carts/.
+  2. Plays each Cart in PICO-8, which records crates/pikutracker-core/tests/reference_set/
      recordings/<case>.wav. The recordings are gitignored and stay on this machine.
   3. Measures each recording into tests/reference_set/fingerprints/<case>.ron, and writes
      our synth's samples beside it as recordings/<case>.synth.wav for A/B listening.
@@ -32,7 +32,7 @@ case "${1:-}" in
 esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SET="$ROOT/crates/picotracker-core/tests/reference_set"
+SET="$ROOT/crates/pikutracker-core/tests/reference_set"
 RECORDINGS="$SET/recordings"
 HOME_FOLDER="$RECORDINGS/pico8-home"
 PICO8=${PICO8:-$(command -v pico8 || echo "$HOME/pico-8/pico8")}
@@ -42,7 +42,7 @@ TIMEOUT_SECONDS=60
 [ -x "$PICO8" ] || { echo "PICO-8 not found at $PICO8: set PICO8=/path/to/pico8" >&2; exit 1; }
 
 cd "$ROOT"
-cargo test --quiet -p picotracker-core --test reference_set -- --ignored --exact write_driver_carts
+cargo test --quiet -p pikutracker-core --test reference_set -- --ignored --exact write_driver_carts
 
 mkdir -p "$HOME_FOLDER/carts"
 if [ $# -gt 0 ]; then
@@ -77,8 +77,8 @@ for name in "${CASES[@]}"; do
   echo "recorded $name"
 done
 
-PICOTRACKER_RECORDINGS="$RECORDINGS" \
-  cargo test --quiet -p picotracker-core --test reference_set -- --ignored --exact \
+PIKUTRACKER_RECORDINGS="$RECORDINGS" \
+  cargo test --quiet -p pikutracker-core --test reference_set -- --ignored --exact \
   write_fingerprints write_synth_recordings
 echo "fingerprints written to $SET/fingerprints"
 echo "our synth's samples written beside the recordings as <case>.synth.wav"

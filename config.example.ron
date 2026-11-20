@@ -1,11 +1,11 @@
-// Example settings for picotracker.
+// Example settings for pikutracker.
 //
-// picotracker runs without this file, because its defaults are built in, and it never
+// pikutracker runs without this file, because its defaults are built in, and it never
 // creates or changes this file. To rebind keys, copy it to:
 //
-//     $XDG_CONFIG_HOME/picotracker/config.ron
+//     $XDG_CONFIG_HOME/pikutracker/config.ron
 //
-// which is usually ~/.config/picotracker/config.ron, then edit the copy.
+// which is usually ~/.config/pikutracker/config.ron, then edit the copy.
 (
     // The version of this file's format. Leave it as it is.
     version: 1,

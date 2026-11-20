@@ -11,7 +11,7 @@ Constants, statics, enums, enum variants and struct fields carry no comments: th
 
 ## Logic lives in the App core
 
-The Window shell (`crates/picotracker`) only connects the App core to the window, the audio device and the disk. Every decision lives in the App core, where the main test seam reaches it. Flag a decision made in the shell, such as a branch on the Project or the wording of a message.
+The Window shell (`crates/pikutracker`) only connects the App core to the window, the audio device and the disk. Every decision lives in the App core, where the main test seam reaches it. Flag a decision made in the shell, such as a branch on the Project or the wording of a message.
 
 Every key reaches the App core as a named `Action` from the keymap. Flag a key handled anywhere else.
 

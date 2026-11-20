@@ -11,11 +11,8 @@ permissions:
 jobs:
   manuals-purged:
     name: Reference manuals are purged
-    # RELEASE GUARD: this workflow must not run until issue #51 has purged the reference
-    # manuals from the repo and its history. `if: false` skips this job, and every other
-    # job here depends on it, so a tag push builds and publishes nothing.
-    # Issue #51 enables the workflow by deleting the `if: false` line below.
-    if: false
+    # Every other job depends on this one, so a tag on a history that still holds the
+    # reference manuals builds and publishes nothing.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4

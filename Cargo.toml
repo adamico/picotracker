@@ -1,9 +1,9 @@
 [workspace]
-members = ["crates/picotracker", "crates/picotracker-core"]
+members = ["crates/pikutracker", "crates/pikutracker-core"]
 resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/adamico/picotracker"
+repository = "https://github.com/adamico/pikutracker"

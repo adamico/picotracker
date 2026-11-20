@@ -6,8 +6,8 @@
 # Set CHECK_LINKS=1 to also require that glibc and libasound are linked dynamically.
 set -euo pipefail
 
-# The one place that names the app in the release. The rename in issue #51 changes it here.
-readonly APP_NAME=picotracker
+# The one place that names the app in the release.
+readonly APP_NAME=pikutracker
 
 version=${1:?usage: package-release.sh VERSION [BINARY] [OUT_DIR]}
 binary=$(realpath "${2:-target/release/$APP_NAME}")

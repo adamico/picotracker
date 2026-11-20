@@ -1,4 +1,4 @@
-# picotracker
+# pikutracker
 
 A music tracker for composing PICO-8 music with a Song → Chain → Phrase workflow modelled on the Dirtywave M8, exporting to PICO-8 carts.
 
