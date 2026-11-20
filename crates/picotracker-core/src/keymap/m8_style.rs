@@ -1,12 +1,12 @@
 //! The M8-style preset: Z is EDIT and X is OPTION. Z with the arrows edits, Shift with the arrows
-//! changes the focused pane, and X with a letter toggles a view or a mark. With Z and X taken, the
+//! changes the focused pane, X with the arrows jumps, and X with a letter toggles a view or a mark. With Z and X taken, the
 //! piano starts on the upper row and runs on past it.
 
 use super::Binding;
 use super::key::Key;
 use super::shared::{self, NONE, SHIFT, anywhere, common_presses, in_context, nudge};
 use super::trigger::{Scope, Trigger};
-use crate::app::{Action, KeyContext};
+use crate::app::{Action, Direction, KeyContext};
 
 const EDIT: Key = Key::Char('z');
 const OPTION: Key = Key::Char('x');
@@ -33,6 +33,10 @@ pub(super) fn bindings() -> Vec<Binding> {
         (EDIT, Key::Down, nudge(false, true)),
         (EDIT, Key::Right, nudge(true, false)),
         (EDIT, Key::Left, nudge(false, false)),
+        (OPTION, Key::Up, Action::Jump(Direction::Up)),
+        (OPTION, Key::Down, Action::Jump(Direction::Down)),
+        (OPTION, Key::Left, Action::Jump(Direction::Left)),
+        (OPTION, Key::Right, Action::Jump(Direction::Right)),
     ]
     .map(|(held, key, action)| chord(Scope::Anywhere, held, key, action));
     let double_tap = Binding {

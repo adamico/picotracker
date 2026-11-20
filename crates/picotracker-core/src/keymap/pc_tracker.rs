@@ -2,8 +2,10 @@
 
 use super::Binding;
 use super::key::Key;
-use super::shared::{self, CTRL, CTRL_SHIFT, SHIFT, anywhere, common_presses, in_context, nudge};
-use crate::app::{Action, KeyContext};
+use super::shared::{
+    self, ALT, CTRL, CTRL_SHIFT, SHIFT, anywhere, common_presses, in_context, nudge,
+};
+use crate::app::{Action, Direction, KeyContext};
 
 const LOWER_OCTAVE_KEYS: &str = "zsxdcvgbhnjm";
 const UPPER_OCTAVE_KEYS: &str = "q2w3er5t6y7u";
@@ -25,6 +27,10 @@ pub(super) fn bindings() -> Vec<Binding> {
         (Key::Down, SHIFT, nudge(false, false)),
         (Key::Up, CTRL, nudge(true, true)),
         (Key::Down, CTRL, nudge(false, true)),
+        (Key::Up, ALT, Action::Jump(Direction::Up)),
+        (Key::Down, ALT, Action::Jump(Direction::Down)),
+        (Key::Left, ALT, Action::Jump(Direction::Left)),
+        (Key::Right, ALT, Action::Jump(Direction::Right)),
     ];
     let piano = LOWER_OCTAVE_KEYS.chars().chain(UPPER_OCTAVE_KEYS.chars());
     let midi_import = [

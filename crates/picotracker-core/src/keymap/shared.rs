@@ -11,6 +11,7 @@ pub(super) const NONE: Modifiers = Modifiers::NONE;
 pub(super) const CTRL: Modifiers = Modifiers::CTRL;
 pub(super) const SHIFT: Modifiers = Modifiers::SHIFT;
 pub(super) const CTRL_SHIFT: Modifiers = Modifiers::CTRL_SHIFT;
+pub(super) const ALT: Modifiers = Modifiers::ALT;
 
 const HEX_DIGITS: &str = "0123456789abcdef";
 

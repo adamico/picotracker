@@ -23,6 +23,7 @@ impl Direction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
     Move(Direction),
+    Jump(Direction),
     FocusNext,
     FocusPrevious,
     NewProject,

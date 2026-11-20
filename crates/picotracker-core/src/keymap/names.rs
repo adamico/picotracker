@@ -63,9 +63,12 @@ pub fn named_actions() -> Vec<(String, Action)> {
     let units = UNIT_ACTIONS
         .into_iter()
         .map(|action| (format!("{action:?}"), action));
-    let moves = DIRECTIONS
-        .into_iter()
-        .map(|(direction, name)| (format!("Move{name}"), Action::Move(direction)));
+    let moves = DIRECTIONS.into_iter().flat_map(|(direction, name)| {
+        [
+            (format!("Move{name}"), Action::Move(direction)),
+            (format!("Jump{name}"), Action::Jump(direction)),
+        ]
+    });
     let tracks = (1..=TRACKS as u8).flat_map(|track_number| {
         [
             (format!("Mute{track_number}"), Action::Mute { track_number }),

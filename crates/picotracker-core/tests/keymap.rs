@@ -89,7 +89,7 @@ fn a_shifted_letter_finds_the_same_binding_as_its_lowercase_key() {
 #[test]
 fn an_unbound_key_maps_to_no_action() {
     assert_eq!(action(Key::Char('g'), CTRL), None);
-    assert_eq!(action(Key::Up, Modifiers::ALT), None);
+    assert_eq!(action(Key::Insert, Modifiers::ALT), None);
 }
 
 #[test]

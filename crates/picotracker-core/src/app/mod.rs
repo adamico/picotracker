@@ -28,7 +28,7 @@ use crate::export;
 use crate::keymap::{Key, KeyPress, Keyboard};
 use crate::midi_import::MidiTable;
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
-use crate::project::{CHAIN_ENTRIES, FIRST_CUSTOM_INSTRUMENT};
+use crate::project::{CHAIN_ENTRIES, FIRST_CUSTOM_INSTRUMENT, SONG_ROWS};
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
 use crate::settings::AppState;
@@ -55,6 +55,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+const SONG_JUMP_ROWS: usize = 16;
 const NOTHING_TO_PLAY: &str = "NOTHING TO PLAY";
 const NO_CHAIN_HERE: &str = "NO CHAIN HERE";
 const NO_PHRASE_HERE: &str = "NO PHRASE HERE";
@@ -516,6 +517,7 @@ impl App {
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::Move(direction) => self.move_cursor(direction),
+            Action::Jump(direction) => self.jump(direction),
             Action::FocusNext => self.set_focus(self.focus.next()),
             Action::FocusPrevious => self.set_focus(self.focus.previous()),
             Action::PlayFocusedPane => self.play_or_stop(),
@@ -665,6 +667,16 @@ impl App {
             Action::Save => self.save(),
             Action::OctaveUp => self.phrase.change_octave(1),
             Action::OctaveDown => self.phrase.change_octave(-1),
+            Action::Jump(direction) => {
+                let id = match direction {
+                    Direction::Left => view.id().saturating_sub(1),
+                    Direction::Right => view.id().saturating_add(1),
+                    Direction::Up | Direction::Down => view.id(),
+                };
+                if id >= FIRST_CUSTOM_INSTRUMENT && id != view.id() {
+                    self.instrument_view = Some(InstrumentView::new(id));
+                }
+            }
             _ => view.apply(action, &mut self.project, self.phrase.octave()),
         }
     }
@@ -803,6 +815,46 @@ impl App {
             transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
             from_step: self.phrase.step(),
         });
+    }
+
+    /// Jumps the cursor as M8's OPTION with the arrows does: 16 Song rows in the Song pane, and
+    /// in the Chain and Phrase panes a Track to the side, or the Track's next Chain or the Chain's
+    /// next Phrase up or down.
+    fn jump(&mut self, direction: Direction) {
+        if self.focus == Focus::RightSlot {
+            return;
+        }
+        self.stop_following();
+        let (row, track) = (self.song.row(), self.song.track());
+        let (_, rows) = direction.delta();
+        match (self.focus, direction) {
+            (Focus::Song, Direction::Up) => {
+                self.song.jump_to(row.saturating_sub(SONG_JUMP_ROWS), track);
+            }
+            (Focus::Song, Direction::Down) => self.song.jump_to(row + SONG_JUMP_ROWS, track),
+            (Focus::Song, _) => {}
+            (_, Direction::Left | Direction::Right) => self.song.move_cursor(direction),
+            (Focus::Chain, _) => {
+                let next = next_index(row, rows, SONG_ROWS, |row| {
+                    self.project.song_cell(row, track).is_some()
+                });
+                if let Some(next) = next {
+                    self.song.jump_to(next, track);
+                }
+            }
+            (_, _) => {
+                let Some(chain) = self.chain_under_cursor() else {
+                    return;
+                };
+                let chain = self.project.chain(chain);
+                let next = next_index(self.chain.entry(), rows, CHAIN_ENTRIES, |entry| {
+                    chain.entry(entry).is_some()
+                });
+                if let Some(next) = next {
+                    self.chain.jump_to(next);
+                }
+            }
+        }
     }
 
     fn move_cursor(&mut self, direction: Direction) {
@@ -947,6 +999,25 @@ impl App {
                 project,
                 unsaved: self.has_unsaved_changes(),
             },
+        }
+    }
+}
+
+/// The nearest index past `from`, one step at a time in the direction of `step`, that `holds`
+/// something.
+fn next_index(
+    from: usize,
+    step: isize,
+    count: usize,
+    holds: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    let mut index = from;
+    loop {
+        index = index
+            .checked_add_signed(step)
+            .filter(|&index| index < count)?;
+        if holds(index) {
+            return Some(index);
         }
     }
 }

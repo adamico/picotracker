@@ -194,3 +194,32 @@ fn the_example_config_with_every_key_uncommented_keeps_the_pc_tracker_preset() {
     let added: Vec<_> = rebound.iter().filter(|b| !preset.contains(b)).collect();
     assert_eq!((missing, added), (vec![], vec![]));
 }
+
+#[test]
+fn x_with_the_arrows_jumps_in_the_m8_style_preset_and_alt_with_them_in_the_pc_tracker_preset() {
+    use picotracker_core::app::Direction;
+    let jumps = [
+        (Key::Up, Direction::Up),
+        (Key::Down, Direction::Down),
+        (Key::Left, Direction::Left),
+        (Key::Right, Direction::Right),
+    ];
+    let m8 = Keymap::m8_style().bindings();
+    let pc = Keymap::pc_tracker().bindings();
+    for (key, direction) in jumps {
+        let action = Action::Jump(direction);
+        let option = Trigger::Chord {
+            held: Key::Char('x'),
+            key,
+        };
+        let alt = Trigger::Press(key, Modifiers::ALT);
+        for (bindings, trigger) in [(&m8, option), (&pc, alt)] {
+            let binding = Binding {
+                scope: Scope::Anywhere,
+                trigger,
+                action,
+            };
+            assert!(bindings.contains(&binding), "{binding:?}");
+        }
+    }
+}
