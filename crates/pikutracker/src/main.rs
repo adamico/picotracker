@@ -1,5 +1,3 @@
-//! pikutracker: a keyboard-driven tracker for composing PICO-8 music.
-
 mod shell;
 
 use std::process::ExitCode;

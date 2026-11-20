@@ -1,8 +1,3 @@
-//! The undo history: one linear list of entries for the whole Project.
-//!
-//! `App::apply` brackets every action with `begin` and `finish`, so any action that changes the
-//! Project becomes one entry without having to ask for it.
-
 use super::focus::Focus;
 use super::panes::chain::ChainCursorPlace;
 use super::panes::phrase::PhraseCursorPlace;
@@ -12,7 +7,6 @@ use std::collections::VecDeque;
 
 const MAX_UNDO_ENTRIES: usize = 1000;
 
-/// Where the cursor was when a change was made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CursorPlace {
     pub(super) focus: Focus,
@@ -35,9 +29,8 @@ struct UndoEntry {
     place: CursorPlace,
 }
 
-/// A run of repeated actions that is still merging.
 #[derive(Debug)]
-struct Run {
+struct MergingRun {
     merge: Merge,
     before_run: Project,
     place: CursorPlace,
@@ -45,28 +38,23 @@ struct Run {
     has_entry: bool,
 }
 
-/// Every entry that can be undone or redone.
 #[derive(Debug, Default)]
 pub(super) struct History {
     undo: VecDeque<UndoEntry>,
     redo: Vec<UndoEntry>,
-    run: Option<Run>,
+    run: Option<MergingRun>,
     before_action: Option<(Project, CursorPlace)>,
 }
 
 impl History {
-    /// Forgets everything, because another Project has opened.
     pub(super) fn clear(&mut self) {
         *self = Self::default();
     }
 
-    /// Notes the Project and the cursor as an action starts.
     pub(super) fn begin(&mut self, project: &Project, place: CursorPlace) {
         self.before_action = Some((project.clone(), place));
     }
 
-    /// Records what the action did, if anything. A repeat of the action that came just before it
-    /// joins that action's entry, as long as the cursor has stayed where that action left it.
     pub(super) fn finish(&mut self, project: &Project, left_at: CursorPlace, merge: Option<Merge>) {
         let Some((before, place)) = self.before_action.take() else {
             return;
@@ -81,7 +69,7 @@ impl History {
         }
     }
 
-    fn continue_run(&mut self, mut run: Run, project: &Project, left_at: CursorPlace) {
+    fn continue_run(&mut self, mut run: MergingRun, project: &Project, left_at: CursorPlace) {
         run.left_at = left_at;
         if run.has_entry {
             self.undo.pop_back();
@@ -106,7 +94,7 @@ impl History {
         if has_entry {
             self.push(change, place);
         }
-        self.run = merge.map(|merge| Run {
+        self.run = merge.map(|merge| MergingRun {
             merge,
             before_run: before,
             place,
@@ -123,7 +111,6 @@ impl History {
         }
     }
 
-    /// Takes back the latest entry, and says where it was made.
     pub(super) fn undo(&mut self, project: &mut Project) -> Option<CursorPlace> {
         self.before_action = None;
         self.run = None;
@@ -134,7 +121,6 @@ impl History {
         Some(place)
     }
 
-    /// Makes the latest undone entry again, and says where it was made.
     pub(super) fn redo(&mut self, project: &mut Project) -> Option<CursorPlace> {
         self.before_action = None;
         self.run = None;

@@ -1,6 +1,3 @@
-//! PICO-8's Pattern timing: works out how long a Pattern plays and rebuilds the Steps each channel
-//! plays in that time (ADR 0006).
-
 use crate::cart::{Cart, CartNote, Pattern, SFX_NOTES, Sfx, WAVEFORM_INSTRUMENT_BIT};
 use crate::project::{
     ARPEGGIO_GROUP, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, Filters, MAX_STEPS, Phrase, Step,
@@ -14,9 +11,8 @@ const DETUNE_DIVISOR: u8 = 8;
 const REVERB_DIVISOR: u8 = 24;
 const DAMPEN_DIVISOR: u8 = 72;
 const FILTER_LEVELS: u8 = 3;
-const LOOP_CYCLE_STEPS: usize = 512;
+const STEPS_TO_HEAR_EVERY_LOOP_NOTE: usize = 512;
 
-/// The Steps of one Chain entry.
 pub(super) struct RebuiltEntry {
     pub(super) phrase: Phrase,
     pub(super) fill: bool,
@@ -24,9 +20,6 @@ pub(super) struct RebuiltEntry {
     pub(super) arpeggio_changed: Option<usize>,
 }
 
-/// What one channel plays in one Chain row, and what could not be kept. A Phrase can only start
-/// where its Chain row starts, so when the Chain row starts partway through one of the channel's
-/// Steps, the following Steps play `early_ticks` early.
 pub(super) struct RebuiltChannel {
     pub(super) entry: Option<RebuiltEntry>,
     pub(super) lost_step: bool,
@@ -34,8 +27,6 @@ pub(super) struct RebuiltChannel {
     pub(super) early_ticks: u32,
 }
 
-/// What a Pattern becomes: its Chain rows, each with one place per channel. A Pattern where
-/// every channel that plays holds a bit 7 SFX stalls PICO-8.
 pub(super) struct RebuiltPattern {
     pub(super) chain_rows: Vec<[Option<RebuiltChannel>; EXPORT_CHANNELS]>,
     pub(super) only_bit_7: bool,
@@ -49,8 +40,6 @@ enum Playback {
 }
 
 impl Playback {
-    /// A bit 7 SFX plays its 32 notes whatever its LEN and loop say, and never sets the Pattern's
-    /// length.
     fn of(sfx: Sfx<'_>) -> Self {
         let (start, end) = (sfx.loop_start(), sfx.loop_end());
         if has_bit_7(sfx) {
@@ -65,7 +54,6 @@ impl Playback {
         }
     }
 
-    /// The stored note a channel plays as its Step at this index. Past note 31 it plays none.
     fn note_at(self, step: usize) -> Option<usize> {
         let note = match self {
             Self::Loop { start, end } if step >= end => start + (step - start) % (end - start),
@@ -75,17 +63,14 @@ impl Playback {
     }
 }
 
-/// Whether bit 7 of byte 66 is set, which also means a LEN or loop start of 128 or more.
 pub(super) const fn has_bit_7(sfx: Sfx<'_>) -> bool {
     sfx.loop_start() & WAVEFORM_INSTRUMENT_BIT != 0
 }
 
-/// How many Ticks each note of an SFX lasts. SPD 0 plays as Speed 1.
 pub(super) fn speed_of(sfx: Sfx<'_>) -> u32 {
     u32::from(sfx.speed().max(1))
 }
 
-/// How many notes an SFX plays when it sets the Pattern's length: its LEN, or else all of them.
 fn notes_when_setting_length(sfx: Sfx<'_>) -> u32 {
     if sfx.loop_end() == 0 && sfx.loop_start() > 0 {
         u32::from(sfx.loop_start())
@@ -106,10 +91,6 @@ pub(super) fn filters_of(sfx: Sfx<'_>) -> Filters {
     filters
 }
 
-/// Gives a Phrase the pitches its arpeggios read, on silent Steps wherever no note is played, and
-/// says which Step is the first whose arpeggio cannot sound as it does in the Cart. An arpeggio's
-/// timing follows its place in the SFX, so one that has moved keeps its sound only if all 4 of its
-/// pitches are the same.
 fn carry_arpeggio_pitches(
     sfx: Sfx<'_>,
     played: &[Option<usize>],
@@ -145,18 +126,14 @@ fn carry_arpeggio_pitches(
     changed
 }
 
-/// The Custom Instrument that notes using SFX `slot` as an instrument play.
 pub(super) const fn instrument_of_slot(slot: u8) -> u8 {
     FIRST_CUSTOM_INSTRUMENT + slot
 }
 
-/// The Step that plays a note on its Built-in Instrument, whatever its SFX Instrument mark.
 pub(super) fn built_in_step(note: CartNote) -> Step {
-    // The Cart codec hands out values that are always inside a Step's limits.
     Step::new(note.pitch, note.instrument, note.volume, note.effect).unwrap_or_default()
 }
 
-/// The Step that plays a note, on the Custom Instrument its SFX Instrument mark names.
 fn step_of(note: CartNote) -> Step {
     let mut step = built_in_step(note);
     if note.custom {
@@ -165,12 +142,10 @@ fn step_of(note: CartNote) -> Step {
     step
 }
 
-/// How many notes an SFX holds: its LEN, or else all 32.
 pub(super) fn stored_length(sfx: Sfx<'_>) -> usize {
     (notes_when_setting_length(sfx) as usize).min(SFX_NOTES)
 }
 
-/// The entry that plays these stored notes, with silence for `None`.
 fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool) -> RebuiltEntry {
     let mut phrase = Phrase::default();
     let mut instruments = BTreeSet::new();
@@ -197,15 +172,12 @@ fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool
     }
 }
 
-/// The Phrase that holds a loose SFX's notes up to its LEN, or all 32 of them, with its loop
-/// dropped, and the instruments its audible notes use. A silent SFX gives none.
 pub(super) fn loose_phrase(sfx: Sfx<'_>) -> Option<(Phrase, BTreeSet<u8>)> {
     let length = stored_length(sfx);
     let entry = entry_of(sfx, (0..length).map(Some), false);
     (!entry.phrase.is_silent()).then_some((entry.phrase, entry.instruments))
 }
 
-/// A Phrase marked Fill over these stored notes.
 fn fill_over(
     sfx: Sfx<'_>,
     start: usize,
@@ -220,15 +192,12 @@ fn fill_over(
     }
 }
 
-/// Whether nothing can be heard from this Step on. Past `LOOP_CYCLE_STEPS`, every note a loop can
-/// reach has come round at least once.
 fn silent_from(sfx: Sfx<'_>, playback: Playback, first: usize, past: usize) -> bool {
-    (first..past.min(first + LOOP_CYCLE_STEPS))
+    (first..past.min(first + STEPS_TO_HEAR_EVERY_LOOP_NOTE))
         .filter_map(|step| playback.note_at(step))
         .all(|note| sfx.note(note).volume == 0)
 }
 
-/// Rebuilds what a channel plays between two Ticks of its Pattern.
 fn rebuild_channel(sfx: Sfx<'_>, from: u32, to: u32, may_fill: bool) -> RebuiltChannel {
     let playback = Playback::of(sfx);
     if let Playback::Loop { start: 0, end } = playback
@@ -262,24 +231,22 @@ fn rebuild_channel(sfx: Sfx<'_>, from: u32, to: u32, may_fill: bool) -> RebuiltC
     }
 }
 
-/// The channel whose timing a Pattern follows, and how many Ticks the Pattern lasts: the left-most
-/// channel that does not loop or, when every channel loops, the slowest. Bit 7 SFX count only when
-/// nothing else plays.
 fn timing_of(sfx: &[Option<Sfx<'_>>; EXPORT_CHANNELS]) -> Option<(usize, u32)> {
     let playing = || (0..EXPORT_CHANNELS).filter_map(|c| sfx[c].map(|sfx| (c, sfx)));
     if let Some((channel, sfx)) = playing().find(|(_, sfx)| Playback::of(*sfx) == Playback::Once) {
         return Some((channel, notes_when_setting_length(sfx) * speed_of(sfx)));
     }
-    // Reversed, so that the left-most of equally slow channels wins.
-    let (channel, sfx) = playing()
-        .rev()
-        .filter(|(_, sfx)| !has_bit_7(*sfx))
-        .max_by_key(|(_, sfx)| speed_of(*sfx))
-        .or_else(|| playing().rev().max_by_key(|(_, sfx)| speed_of(*sfx)))?;
+    let (channel, sfx) = left_most_slowest(playing().filter(|(_, sfx)| !has_bit_7(*sfx)))
+        .or_else(|| left_most_slowest(playing()))?;
     Some((channel, SFX_NOTES as u32 * speed_of(sfx)))
 }
 
-/// Rebuilds what a Pattern plays.
+fn left_most_slowest<'a>(
+    channels: impl DoubleEndedIterator<Item = (usize, Sfx<'a>)>,
+) -> Option<(usize, Sfx<'a>)> {
+    channels.rev().max_by_key(|(_, sfx)| speed_of(*sfx))
+}
+
 pub(super) fn rebuild_pattern(cart: &Cart, pattern: Pattern) -> RebuiltPattern {
     let sfx = [0, 1, 2, 3].map(|channel| pattern.channel(channel).map(|slot| cart.sfx(slot)));
     let Some((timing_channel, ticks)) = timing_of(&sfx) else {
@@ -288,13 +255,12 @@ pub(super) fn rebuild_pattern(cart: &Cart, pattern: Pattern) -> RebuiltPattern {
             only_bit_7: false,
         };
     };
-    // Only a LEN above 32 lasts longer than the 32 Steps a Phrase of that channel can hold.
-    let row_ticks = sfx[timing_channel].map_or(1, speed_of) * SFX_NOTES as u32;
-    let rows = ticks.div_ceil(row_ticks);
+    let ticks_per_chain_row = sfx[timing_channel].map_or(1, speed_of) * SFX_NOTES as u32;
+    let rows = ticks.div_ceil(ticks_per_chain_row);
     let chain_rows = (0..rows)
         .map(|row| {
-            let from = row * row_ticks;
-            let to = ticks.min(from + row_ticks);
+            let from = row * ticks_per_chain_row;
+            let to = ticks.min(from + ticks_per_chain_row);
             [0, 1, 2, 3].map(|channel| {
                 let sets_length = channel == timing_channel;
                 sfx[channel].map(|sfx| {

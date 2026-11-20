@@ -1,6 +1,3 @@
-//! Jumps: moving the cursor by a Track, a Chain, a Phrase, 16 Song rows or an Instrument at a
-//! time, as M8's OPTION with the arrows does.
-
 use pikutracker_core::app::{Action, App, Direction};
 use pikutracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
 
@@ -10,8 +7,6 @@ const DOWN: Action = Action::Jump(Direction::Down);
 const LEFT: Action = Action::Jump(Direction::Left);
 const RIGHT: Action = Action::Jump(Direction::Right);
 
-/// Track 1 holds Chain 00 on Song row 00 and Chain 01 on Song row 05. Track 2 holds Chain 02 on
-/// Song row 00. Chain 00 holds Phrase 01 in entry 0 and Phrase 02 in entry 3.
 fn project() -> Project {
     let mut project = Project::new();
     for id in 1..=3 {

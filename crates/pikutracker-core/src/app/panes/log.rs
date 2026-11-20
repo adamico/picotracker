@@ -1,5 +1,3 @@
-//! The Log, a view of the right-hand slot: a short history of results to work through.
-
 use super::{HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
 use crate::app::layout::Area;
@@ -19,7 +17,6 @@ const WARNING_TAG: Style = Style::fg(Colour::Orange);
 const FAILURE_TAG: Style = Style::fg(Colour::Red);
 const POINTER: Style = Style::fg(Colour::Yellow);
 
-/// The Log's items, newest first, and the one picked.
 #[derive(Debug, Default)]
 pub struct LogPane {
     items: Vec<LogItem>,
@@ -27,7 +24,6 @@ pub struct LogPane {
 }
 
 impl LogPane {
-    /// Puts a result's items at the top of the Log, in their own order.
     pub fn add(&mut self, items: Vec<LogItem>) {
         self.items.splice(0..0, items);
         self.items.truncate(MAX_ITEMS);
@@ -35,11 +31,10 @@ impl LogPane {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.picked = stepped(self.picked, rows, self.items.len());
     }
 
-    /// The place the picked item is about, if it has one.
     pub fn picked_location(&self) -> Option<SongPlace> {
         self.items.get(self.picked)?.location
     }
@@ -75,7 +70,6 @@ impl LogPane {
     }
 }
 
-/// The first item to draw so that the picked item fits on screen.
 fn first_visible(blocks: &[Vec<String>], picked: usize, rows: usize) -> usize {
     let mut first = 0;
     while first < picked && blocks[first..=picked].iter().map(Vec::len).sum::<usize>() > rows {
@@ -106,7 +100,6 @@ pub(super) const fn tag_style(severity: Severity) -> Style {
     }
 }
 
-/// Breaks text at spaces to fit a width, cutting any word too long for a line of its own.
 pub(super) fn wrapped(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();

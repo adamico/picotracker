@@ -1,6 +1,3 @@
-//! The music compiler seam: a Cart in, a Project and warnings out. Every Cart here is generated in
-//! test code. None was saved by PICO-8.
-
 mod support;
 
 use pikutracker_core::cart::Cart;
@@ -24,7 +21,14 @@ fn pattern(channels: [Option<u8>; 4]) -> TestPattern {
     TestPattern::playing(channels)
 }
 
-/// Two different SFX at Speed 8.
+const EDITOR_NOIZ_BUZZ_DETUNE_1_REVERB_2_DAMPEN_1: u8 = 135;
+const EDITOR_DETUNE_1: u8 = 9;
+const NOIZ_BUZZ_DETUNE_2_REVERB_1_DAMPEN_1: u8 = 118;
+const REVERB_1: u8 = 24;
+const BASS_AND_INAUDIBLE_BITS: u8 = 0x31;
+const WAVEFORM_AND_INAUDIBLE_BITS: u8 = 0x85;
+const FNV_1A_OF_THE_CLAIMED_BYTES: &str = "S00=6bd8a93f P00=d0cfb638";
+
 fn two_sfx() -> Vec<TestSfx> {
     vec![
         TestSfx::with_pitches(8, &[12, 14]),
@@ -71,7 +75,7 @@ fn the_export_tracks_are_tracks_1_to_4() {
     let (project, _) = imported(&cart);
 
     assert_eq!(
-        project.export_tracks(),
+        project.export_track_numbers(),
         [Some(1), Some(2), Some(3), Some(4)]
     );
 }
@@ -79,12 +83,10 @@ fn the_export_tracks_are_tracks_1_to_4() {
 #[test]
 fn a_phrase_keeps_every_value_of_its_sfx() {
     let mut sfx = TestSfx::with_pitches(23, &[12, 14]);
-    // NOIZ, BUZZ, DETUNE 1, REVERB 2 and DAMPEN 1: 2 + 4 + 8 + 48 + 72, with the editor bit.
-    sfx.editor_and_filters = 135;
+    sfx.editor_and_filters = EDITOR_NOIZ_BUZZ_DETUNE_1_REVERB_2_DAMPEN_1;
     sfx.notes[1].instrument = 5;
     sfx.notes[1].volume = 6;
     sfx.notes[1].effect = 3;
-    // A silent note keeps its pitch and Instrument.
     sfx.notes[2].pitch = 40;
     sfx.notes[2].instrument = 2;
     let cart = TestCart {
@@ -142,7 +144,6 @@ fn identical_chains_and_exact_match_phrases_are_shared() {
         sfx: vec![
             TestSfx::with_pitches(8, &[12]),
             TestSfx::with_pitches(8, &[19]),
-            // Slot 2 holds exactly what slot 0 holds.
             TestSfx::with_pitches(8, &[12]),
         ],
         patterns: vec![
@@ -157,7 +158,6 @@ fn identical_chains_and_exact_match_phrases_are_shared() {
     assert_eq!(chain_on(&project, 1, 0), shared);
     assert_eq!(chain_on(&project, 1, 1), shared);
     assert_ne!(chain_on(&project, 0, 1), shared);
-    // The two disabled channels share one Chain too.
     assert_eq!(chain_on(&project, 0, 2), chain_on(&project, 1, 3));
 }
 
@@ -197,7 +197,7 @@ fn the_claim_covers_exactly_the_songs_sfx_and_patterns() {
     let target = project.target_cart().unwrap();
     assert_eq!(target.path, CART_NAME);
     assert_eq!(target.claim.sfx, [1, 3]);
-    assert_eq!(target.claim.patterns, Some((0, 1)));
+    assert_eq!(target.claim.first_and_last_pattern, Some((0, 1)));
 }
 
 #[test]
@@ -224,10 +224,9 @@ fn the_claimed_bytes_hash_is_stored_with_one_checksum_per_slot() {
 
     let (project, _) = imported(&cart);
 
-    // FNV-1a over the 68 and the 4 claimed bytes, worked out outside this code base.
     assert_eq!(
         project.target_cart().unwrap().claimed_bytes_hash.as_deref(),
-        Some("S00=6bd8a93f P00=d0cfb638")
+        Some(FNV_1A_OF_THE_CLAIMED_BYTES)
     );
 }
 
@@ -247,7 +246,10 @@ fn a_song_ending_in_stop_does_not_loop_and_stops_the_claim() {
     let (project, warnings) = imported(&cart);
 
     assert_eq!(project.song_loop_row(), None);
-    assert_eq!(project.target_cart().unwrap().claim.patterns, Some((0, 1)));
+    assert_eq!(
+        project.target_cart().unwrap().claim.first_and_last_pattern,
+        Some((0, 1))
+    );
     assert!(project.song_row_is_empty(2));
     assert_eq!(warnings, Vec::<String>::new());
 }
@@ -278,7 +280,10 @@ fn a_song_that_runs_into_an_empty_pattern_ends_there_without_a_loop() {
     let (project, _) = imported(&cart);
 
     assert_eq!(project.song_loop_row(), None);
-    assert_eq!(project.target_cart().unwrap().claim.patterns, Some((0, 0)));
+    assert_eq!(
+        project.target_cart().unwrap().claim.first_and_last_pattern,
+        Some((0, 0))
+    );
 }
 
 #[test]
@@ -294,7 +299,7 @@ fn a_cart_with_no_music_gives_an_empty_song_and_an_empty_claim() {
     assert_eq!(project.song_loop_row(), None);
     let claim = &project.target_cart().unwrap().claim;
     assert!(claim.sfx.is_empty());
-    assert_eq!(claim.patterns, None);
+    assert_eq!(claim.first_and_last_pattern, None);
     assert_eq!(phrases_starting_on(&project, 12).len(), 1);
     assert_eq!(phrases_starting_on(&project, 19).len(), 1);
 }
@@ -314,8 +319,6 @@ fn a_shorter_channel_right_of_the_longest_is_simple() {
     assert_eq!(warnings, Vec::<String>::new());
 }
 
-/// What PICO-8's `music()` plays for a generated Cart from its first Pattern until it stops,
-/// through our synth.
 fn render_cart(cart: &TestCart) -> Vec<f32> {
     let cart = Cart::read(&cart.p8()).unwrap();
     render_music(&cart, 0, music_samples(&cart, 0))
@@ -358,7 +361,6 @@ fn an_import_with_no_warnings_renders_the_same_samples_as_the_cart() {
     assert_eq!(first_difference, None);
 }
 
-/// A small song: a loop over two Patterns, a shared Phrase and a disabled channel.
 fn snapshot_cart() -> TestCart {
     let mut first = pattern([Some(0), Some(1), None, None]);
     first.loop_start = true;
@@ -423,7 +425,6 @@ fn songs_start_at_pattern_0_and_after_stop_loop_back_or_an_empty_pattern() {
     assert_eq!(found, [(0, 1), (2, 2), (3, 3), (5, 5)]);
 }
 
-/// Imports one song of a Cart, picked by its place among the Cart's songs.
 fn imported_song(cart: &TestCart, index: usize) -> (Project, Vec<String>) {
     let cart = Cart::read(&cart.p8()).unwrap();
     let song = songs(&cart)[index];
@@ -447,7 +448,7 @@ fn a_later_song_starts_on_song_row_0_and_claims_only_its_own_patterns() {
     assert_eq!(project.phrase(entry.phrase()).step(0).pitch(), 19);
     assert!(project.song_row_is_empty(1));
     let claim = &project.target_cart().unwrap().claim;
-    assert_eq!(claim.patterns, Some((1, 1)));
+    assert_eq!(claim.first_and_last_pattern, Some((1, 1)));
     assert_eq!(claim.sfx, [1]);
 }
 
@@ -486,7 +487,6 @@ fn a_loop_back_that_jumps_outside_the_song_means_no_loop() {
     assert_eq!(project.song_loop_row(), None);
 }
 
-/// SFX 0 plays two notes: the first on SFX 1 used as an instrument, the second on the square.
 fn melody_on_sfx_1() -> TestSfx {
     let mut melody = TestSfx::with_pitches(16, &[36, 40]);
     melody.notes[0].custom = true;
@@ -500,8 +500,7 @@ fn an_sfx_used_as_an_instrument_becomes_an_sfx_instrument_numbered_8_above_its_s
     let mut instrument = TestSfx::with_pitches(4, &[24, 31, 28]);
     instrument.loop_start = 1;
     instrument.loop_end = 3;
-    // DETUNE 1, with the editor bit.
-    instrument.editor_and_filters = 9;
+    instrument.editor_and_filters = EDITOR_DETUNE_1;
     instrument.notes[1].instrument = 3;
     instrument.notes[2].custom = true;
     let cart = TestCart {
@@ -518,7 +517,6 @@ fn an_sfx_used_as_an_instrument_becomes_an_sfx_instrument_numbered_8_above_its_s
     let mut steps = vec![Step::new(0, 0, 0, 0).unwrap(); 32];
     steps[0] = Step::new(24, 0, 3, 0).unwrap();
     steps[1] = Step::new(31, 3, 3, 0).unwrap();
-    // PICO-8 plays a note marked as an SFX Instrument inside one as a Built-in Instrument.
     steps[2] = Step::new(28, 0, 3, 0).unwrap();
     let Some(CustomInstrument {
         sound: InstrumentSound::Sfx(imported),
@@ -584,13 +582,10 @@ fn a_waveform_instrument_keeps_its_samples_bass_and_filters_and_drops_the_rest_s
         note.effect = (index % 8) as u8;
         note.custom = index % 2 == 0;
     }
-    // Bit 7 of byte 66 flags a Waveform Instrument, bit 0 of byte 65 is Bass, and the other bits
-    // of those bytes and of byte 67 cannot be heard.
-    wave.speed = 0x31;
-    wave.loop_start = 0x85;
+    wave.speed = BASS_AND_INAUDIBLE_BITS;
+    wave.loop_start = WAVEFORM_AND_INAUDIBLE_BITS;
     wave.loop_end = 9;
-    // NOIZ, BUZZ, DETUNE 2, REVERB 1 and DAMPEN 1: 2 + 4 + 16 + 24 + 72.
-    wave.editor_and_filters = 118;
+    wave.editor_and_filters = NOIZ_BUZZ_DETUNE_2_REVERB_1_DAMPEN_1;
     let cart = TestCart {
         sfx: vec![melody_on_sfx_1(), wave],
         patterns: vec![pattern([Some(0), None, None, None])],
@@ -626,8 +621,7 @@ fn an_import_with_sfx_instruments_renders_the_same_samples_as_the_cart() {
     pluck.notes[1].instrument = 3;
     pluck.loop_start = 2;
     pluck.loop_end = 4;
-    // REVERB 1.
-    pluck.editor_and_filters = 24;
+    pluck.editor_and_filters = REVERB_1;
     let mut short = TestSfx::with_pitches(2, &[24, 28, 31]);
     short.loop_start = 2;
     let mut stop = pattern([Some(0), None, None, None]);
@@ -651,7 +645,6 @@ fn an_import_with_sfx_instruments_renders_the_same_samples_as_the_cart() {
     assert_eq!(first_difference, None);
 }
 
-/// Every Phrase of a Project whose first Step plays this pitch, whether a Chain uses it or not.
 fn phrases_starting_on(project: &Project, pitch: u8) -> Vec<Phrase> {
     (0..=255)
         .map(|id| *project.phrase(PhraseId::new(id)))

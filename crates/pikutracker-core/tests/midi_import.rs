@@ -1,5 +1,3 @@
-//! The MIDI compiler: small files built in code go in, expected Projects and warnings come out.
-
 mod midi_support;
 
 use midi_support::{Song, TICKS_PER_BEAT, TICKS_PER_STEP};
@@ -23,7 +21,6 @@ fn project(song: &Song) -> Project {
     imported(song).project
 }
 
-/// The Phrase a Track plays in a Chain row of a Song row.
 fn phrase(project: &Project, row: usize, track: usize, k: usize) -> Phrase {
     let entry = project.chain_row_entry(row, track, k).unwrap();
     *project.phrase(entry.phrase())
@@ -86,7 +83,6 @@ fn note_starts_snap_to_the_nearest_step_and_lengths_last_at_least_one_step() {
 
     let phrase = phrase(&project(&song), 0, 0, 0);
 
-    // Halfway between two Steps rounds up, and just under halfway rounds down.
     assert!(phrase.step(1).is_silent());
     assert_eq!(phrase.step(2).pitch(), MIDDLE_C_PITCH);
     assert!(phrase.step(3).is_silent());

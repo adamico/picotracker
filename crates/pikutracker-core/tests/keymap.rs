@@ -1,5 +1,3 @@
-//!The PC tracker preset, checked against the Keys table in the MVP spec.
-
 use pikutracker_core::app::{Action, App, Direction};
 use pikutracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 

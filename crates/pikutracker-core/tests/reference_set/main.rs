@@ -1,8 +1,3 @@
-//! The PICO-8 reference set: driver Carts recorded on real PICO-8 0.2.7, a measurement fingerprint
-//! of each recording, and our synth compared with them. CI never runs PICO-8: it reads the
-//! committed Carts and fingerprints. `scripts/record-reference.sh` re-records the whole set on a
-//! machine with a licensed copy of PICO-8.
-
 #[path = "../support/mod.rs"]
 mod support;
 
@@ -39,8 +34,6 @@ const VIBRATO_CASES: [&str; 7] = [
     "coverage_sfx15",
 ];
 
-/// The limits from the spec for matching a recording of real PICO-8. Loosening any of them needs
-/// an A/B listening check by the owner, noted in the commit.
 #[derive(Clone, Copy, Debug)]
 struct Limits {
     duration_percent: f32,
@@ -87,14 +80,11 @@ fn committed_fingerprint(case: &Case) -> Fingerprint {
     ron::from_str(&text).unwrap()
 }
 
-/// Our synth's samples for a case: a few Ticks more than PICO-8's recording is measured over.
 fn rendered(case: &Case) -> Vec<f32> {
     let samples = (case.ticks + RENDERED_SPARE_TICKS) * SAMPLES_PER_TICK;
     render::render(&committed_cart(case), case.plays, samples as usize)
 }
 
-/// The level limit for what a Cart plays: wider for noise, and wider again for NOIZ, BUZZ and
-/// DETUNE 1. Waveform Instruments are left out, because their bytes are samples, not notes.
 fn level_limit_db(cart: &Cart) -> f32 {
     let mut limit = SPEC_LIMITS.level_db;
     for slot in 0..SLOTS as u8 {
@@ -121,13 +111,10 @@ fn level_limit_db(cart: &Cart) -> f32 {
     limit
 }
 
-/// Whether a note sounds the Built-in noise instrument.
 fn is_noise_note(note: CartNote) -> bool {
     !note.custom && note.instrument == NOISE && note.volume > 0
 }
 
-/// The SFX a case starts playing: its one SFX, or the channels of the first Pattern when that
-/// Pattern stops the music after it.
 fn opening_sfx(case: &Case, cart: &Cart) -> Vec<u8> {
     match case.plays {
         Plays::Sfx(slot) => vec![slot],
@@ -143,12 +130,6 @@ fn opening_sfx(case: &Case, cart: &Cart) -> Vec<u8> {
     }
 }
 
-/// The Ticks of each Built-in noise note a case plays, counted from its first note as the
-/// fingerprint counts them from the first audible sample, for SFX that start on a sounding note
-/// and play their notes once without looping. Our noise sequence is not PICO-8's, so each Tick of
-/// noise comes out at a different random level; after the owner's A/B listening checks for #54,
-/// a noise note is held to the level limit on its average instead, together with whatever plays
-/// beside it on the other channels.
 fn noise_note_spans(case: &Case, cart: &Cart) -> Vec<std::ops::Range<usize>> {
     opening_sfx(case, cart)
         .into_iter()
@@ -162,10 +143,6 @@ fn noise_note_spans(case: &Case, cart: &Cart) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
-/// The first Tick of each audible note that follows a Built-in noise note on another instrument,
-/// counted as [`noise_note_spans`] counts them. That Tick opens with the crossfade out of the
-/// noise, which carries our noise sequence rather than PICO-8's and moves the pitch measured over
-/// its window; after the owner's A/B listening check for #54, that window's pitch is not compared.
 fn noise_crossfade_ticks(case: &Case, cart: &Cart) -> Vec<usize> {
     let Plays::Sfx(slot) = case.plays else {
         return Vec::new();
@@ -193,8 +170,6 @@ fn tolerance(case: &Case, cart: &Cart) -> Tolerance {
 
 const AWAITED_WORK: [(&str, &[&str]); 0] = [];
 
-/// The work a case still waits on before it can match PICO-8: every piece of work whose list
-/// names it. A case that no list names must match.
 fn awaited_work(name: &str) -> Vec<&'static str> {
     AWAITED_WORK
         .iter()
@@ -232,7 +207,6 @@ fn the_expected_failures_name_real_cases() {
     }
 }
 
-/// What is wrong with a case's comparison with PICO-8, if anything.
 fn problem(case: &Case) -> Option<String> {
     let cart = committed_cart(case);
     let differences = fingerprint::differences(
@@ -258,9 +232,6 @@ fn problem(case: &Case) -> Option<String> {
     }
 }
 
-/// Every case matches its recording of real PICO-8 within the spec's limits, except the cases
-/// that wait on unbuilt synth work. Those must still differ, so that the work that makes a case
-/// match also takes it off every list that names it.
 #[test]
 fn every_case_matches_real_pico8_within_the_spec_limits() {
     let cases = cases::all();
@@ -277,8 +248,6 @@ fn every_case_matches_real_pico8_within_the_spec_limits() {
     assert!(problems.is_empty(), "\n{}", problems.join("\n"));
 }
 
-/// Where a case's fingerprint and ours give a tone for the same window of Ticks, how far apart
-/// they are in cents.
 fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Option<f32>)> {
     let reference = committed_fingerprint(case);
     let ours = fingerprint::measure(&rendered(case), reference.tick_levels_db.len());
@@ -293,8 +262,6 @@ fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Opt
         .collect()
 }
 
-/// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch,
-/// checked on its own Steps of each coverage case.
 #[test]
 fn vibrato_matches_real_pico8_within_the_pitch_limit() {
     let off: Vec<String> = cases::all()
@@ -310,12 +277,6 @@ fn vibrato_matches_real_pico8_within_the_pitch_limit() {
     assert!(off.is_empty(), "\n{}", off.join("\n"));
 }
 
-/// Plain noise matches real PICO-8's level on average within the level limit. Each Tick of noise
-/// is random, which the wider noise limit on each noise note's power-averaged level allows for,
-/// but over many Ticks the randomness evens out, so the mean of these Ticks' levels in dB must
-/// match as closely as a tone. The noise
-/// coverage SFX's plain notes are its first four and its arpeggios; its other notes are slides,
-/// drops and fades.
 #[test]
 fn plain_noise_matches_real_pico8_level_on_average() {
     let case = cases::all()
@@ -357,10 +318,6 @@ fn synth_hashes() -> String {
         .collect()
 }
 
-/// Our synth's exact output for each case, as 16-bit samples rendered with the synth's fixed
-/// noise seed. Floating point can round differently elsewhere, so only Linux x86_64 checks them.
-/// `UPDATE_SNAPSHOTS=1` rewrites the hashes; a commit that changes one must also pass
-/// `every_case_matches_real_pico8_within_the_spec_limits`.
 #[test]
 #[cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
@@ -384,7 +341,6 @@ fn the_synth_renders_each_case_to_its_snapshot_hash() {
     assert_eq!(committed.lines().count(), hashes.lines().count());
 }
 
-/// Writes the driver Carts. `scripts/record-reference.sh` runs this before recording.
 #[test]
 #[ignore = "run by scripts/record-reference.sh"]
 fn write_driver_carts() {
@@ -398,8 +354,6 @@ fn write_driver_carts() {
     }
 }
 
-/// Writes our synth's samples for each case as `<case>.synth.wav` beside the recordings in the
-/// folder `PIKUTRACKER_RECORDINGS` names, for listening to the two side by side.
 #[test]
 #[ignore = "run by scripts/record-reference.sh"]
 fn write_synth_recordings() {
@@ -417,8 +371,6 @@ fn recordings_folder() -> PathBuf {
     )
 }
 
-/// Measures each recording in the folder `PIKUTRACKER_RECORDINGS` names and writes its
-/// fingerprint. `scripts/record-reference.sh` runs this after recording.
 #[test]
 #[ignore = "run by scripts/record-reference.sh"]
 fn write_fingerprints() {

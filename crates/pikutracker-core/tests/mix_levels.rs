@@ -1,5 +1,3 @@
-//! The 8-Track mix: PICO-8's per-channel level, saturated past PICO-8's knee, and the scope.
-
 use pikutracker_core::app::{Action, App};
 use pikutracker_core::player::Player;
 use pikutracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
@@ -36,7 +34,6 @@ fn place(project: &mut Project, row: usize, track: usize, phrase: PhraseId) {
     project.set_song_cell(row, track, Some(id));
 }
 
-/// A Song row with the same Phrase on the first `tracks` Tracks.
 fn unison(instrument: i32, volume: i32, tracks: usize, steps: usize) -> Project {
     let mut project = Project::new();
     let phrase = write(&mut project, 1, instrument, volume, steps);
@@ -87,11 +84,10 @@ fn the_level_comes_back_after_a_loud_passage() {
 
     let samples = hear(project, STEP_SAMPLES * 12);
 
-    // A triangle at volume 5 peaks at 5/7 of its half-range output.
     let last_step = &samples[STEP_SAMPLES * 11 + CROSSFADE_SAMPLES..];
-    let expected = 0.5 * 5.0 / 7.0;
+    let triangle_peak_at_volume_5 = 0.5 * 5.0 / 7.0;
     assert!(
-        (peak(last_step) - expected).abs() < 0.02,
+        (peak(last_step) - triangle_peak_at_volume_5).abs() < 0.02,
         "{}",
         peak(last_step)
     );

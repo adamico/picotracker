@@ -1,7 +1,3 @@
-//! Random and malformed Carts never crash Cart Import, and what it builds keeps PICO-8's timing.
-//! Every Cart here is generated in test code from a fixed seed, so a failure repeats exactly. None
-//! was saved by PICO-8.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
@@ -19,7 +15,6 @@ const SONG_ROWS_CHECKED: usize = 64;
 const LOOP_BYTES: [u8; 14] = [0, 1, 2, 4, 8, 31, 32, 33, 40, 64, 127, 128, 200, 255];
 const SPEEDS: [u8; 9] = [0, 1, 2, 3, 5, 8, 16, 100, 255];
 
-/// A small xorshift generator: the tests stay repeatable and need no extra crate.
 struct Random(u64);
 
 impl Random {
@@ -90,8 +85,6 @@ fn random_cart(random: &mut Random) -> TestCart {
     }
 }
 
-/// How long PICO-8 plays a Pattern, by the rules the spec gives: the left-most channel that does
-/// not loop, or else 32 × the slowest looping channel, or else 32 × the slowest bit 7 SFX.
 fn expected_ticks(cart: &TestCart, pattern: &TestPattern) -> u32 {
     let playing: Vec<&TestSfx> = pattern
         .channels
@@ -118,7 +111,6 @@ fn song_row_ticks(project: &Project, row: usize) -> u32 {
         .sum()
 }
 
-/// The Patterns of the Cart's first song, the way the spec finds it.
 fn first_song(cart: &TestCart) -> Vec<&TestPattern> {
     let is_empty = |pattern: &TestPattern| pattern.channels == [None; 4];
     let mut song = Vec::new();
@@ -194,7 +186,6 @@ fn carts_of_random_bytes_never_crash_import() {
     }
 }
 
-/// Overwrites, removes or adds a few bytes, or cuts the file short.
 fn damage(bytes: &mut Vec<u8>, random: &mut Random) {
     for _ in 0..=random.below(8) {
         let at = random.below(bytes.len().max(1));
@@ -253,12 +244,15 @@ fn the_app_shows_the_warnings_of_random_carts_without_crashing() {
             contents: cart.p8(),
         });
 
-        // Walks the Log, jumping to the place of every warning.
-        app.apply(Action::FocusPrevious);
-        for _ in 0..8 {
-            app.apply(Action::Confirm);
-            app.apply(Action::Move(Direction::Down));
-            assert!(!app.grid().text_dump().is_empty());
-        }
+        jump_to_the_place_of_every_warning_in_the_log(&mut app);
+    }
+}
+
+fn jump_to_the_place_of_every_warning_in_the_log(app: &mut App) {
+    app.apply(Action::FocusPrevious);
+    for _ in 0..8 {
+        app.apply(Action::Confirm);
+        app.apply(Action::Move(Direction::Down));
+        assert!(!app.grid().text_dump().is_empty());
     }
 }

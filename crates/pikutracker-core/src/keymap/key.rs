@@ -1,5 +1,3 @@
-//! Key presses, independent of any windowing library.
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     Up,
@@ -18,8 +16,7 @@ pub enum Key {
 }
 
 impl Key {
-    /// Letters are bound by their lowercase form, whatever Shift does to them.
-    pub(super) fn normalised(self) -> Self {
+    pub(super) fn with_letter_lowercased(self) -> Self {
         match self {
             Key::Char(ch) => Key::Char(ch.to_ascii_lowercase()),
             key => key,
@@ -27,7 +24,6 @@ impl Key {
     }
 }
 
-/// The modifier keys held during a key press.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Modifiers {
     pub ctrl: bool,
@@ -60,7 +56,6 @@ impl Modifiers {
     };
 }
 
-/// One key going down, or repeating while it is held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyPress {
     pub key: Key,
@@ -69,7 +64,6 @@ pub struct KeyPress {
 }
 
 impl KeyPress {
-    /// A key going down.
     pub const fn new(key: Key, modifiers: Modifiers) -> Self {
         Self {
             key,
@@ -78,7 +72,6 @@ impl KeyPress {
         }
     }
 
-    /// A key repeating while it is held.
     pub const fn repeated(key: Key, modifiers: Modifiers) -> Self {
         Self {
             key,

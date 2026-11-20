@@ -1,9 +1,3 @@
-//! Export: compiles a Project into new Cart bytes and a claimed-bytes hash, or the complete list
-//! of failures.
-//!
-//! Each Chain row becomes one Pattern (ADR 0005), each Phrase and transpose one SFX, and each
-//! Custom Instrument the Exported Steps play one of the claimed SFX 0–7 (ADR 0004).
-
 use crate::cart::{
     Cart, CartError, EDITOR_MODE_BIT, FILTERS_BYTE, LOOP_END_BYTE, LOOP_START_BYTE, SFX_BYTES,
     SLOTS, SPEED_BYTE, WAVEFORM_INSTRUMENT_BIT, note_word,
@@ -30,7 +24,7 @@ const LOOP_START_CHANNEL: usize = 0;
 const LOOP_BACK_CHANNEL: usize = 1;
 const STOP_CHANNEL: usize = 2;
 const FLAG: u8 = 0x80;
-const DISABLED_CHANNEL: u8 = 0x41;
+const FIRST_DISABLED_CHANNEL_BYTE: u8 = 0x41;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFailure {
@@ -124,7 +118,6 @@ impl fmt::Display for ExportWarning {
     }
 }
 
-/// A finished Export.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Exported {
     pub cart_bytes: Vec<u8>,
@@ -140,10 +133,8 @@ enum Ending {
     Loop { start: u8, end: u8 },
 }
 
-/// One Chain row as a Pattern: the compiled SFX each channel plays.
 type CompiledPattern = [Option<usize>; EXPORT_CHANNELS];
 
-/// A Song compiled to Cart data that has not been given slots yet.
 #[derive(Default)]
 struct CompiledSong {
     instruments: Vec<[u8; SFX_BYTES]>,
@@ -154,7 +145,6 @@ struct CompiledSong {
 }
 
 impl CompiledSong {
-    /// The index of an SFX, shared with any byte-identical one.
     fn sfx_index(&mut self, sfx: [u8; SFX_BYTES]) -> usize {
         self.sfx
             .iter()
@@ -166,16 +156,14 @@ impl CompiledSong {
     }
 }
 
-/// Whether every slot a Claim names exists in a Cart.
 fn claim_is_valid(claim: &Claim) -> bool {
     let exists = |slot: u8| usize::from(slot) < SLOTS;
     claim.sfx.iter().all(|slot| exists(*slot))
         && claim
-            .patterns
+            .first_and_last_pattern
             .is_none_or(|(first, last)| first <= last && exists(last))
 }
 
-/// A Claim that names each SFX slot once, in the order it first named them.
 fn without_repeats(claim: &Claim) -> Claim {
     let mut seen = BTreeSet::new();
     Claim {
@@ -185,11 +173,10 @@ fn without_repeats(claim: &Claim) -> Claim {
             .copied()
             .filter(|slot| seen.insert(*slot))
             .collect(),
-        patterns: claim.patterns,
+        first_and_last_pattern: claim.first_and_last_pattern,
     }
 }
 
-/// The slots a Claim names, in ascending order.
 struct ClaimedSlots {
     sfx: Vec<u8>,
     instruments: Vec<u8>,
@@ -197,8 +184,6 @@ struct ClaimedSlots {
 }
 
 impl ClaimedSlots {
-    /// The slots of a Claim that names each SFX slot once. Custom Instruments can take only the
-    /// claimed SFX 0–7.
     fn of(claim: &Claim) -> Self {
         let sfx: Vec<u8> = claim
             .sfx
@@ -213,7 +198,7 @@ impl ClaimedSlots {
             .filter(|slot| *slot < INSTRUMENT_SLOTS)
             .collect();
         let patterns = claim
-            .patterns
+            .first_and_last_pattern
             .map_or(Vec::new(), |(first, last)| (first..=last).collect());
         Self {
             sfx,
@@ -223,19 +208,18 @@ impl ClaimedSlots {
     }
 }
 
-/// Compiles a Project into the bytes of its Target Cart, changing nothing outside the Claim.
 pub fn export(
     project: &Project,
     claim: &Claim,
     original: &[u8],
 ) -> Result<Exported, Vec<ExportFailure>> {
     let mut failures = Vec::new();
-    let has_tracks = project.export_tracks().iter().any(Option::is_some);
+    let has_tracks = project.export_track_numbers().iter().any(Option::is_some);
     if !has_tracks {
         failures.push(ExportFailure::NoExportTracks);
     }
     let claim = &without_repeats(claim);
-    let claim_is_empty = claim.sfx.is_empty() && claim.patterns.is_none();
+    let claim_is_empty = claim.sfx.is_empty() && claim.first_and_last_pattern.is_none();
     if claim_is_empty {
         failures.push(ExportFailure::EmptyClaim);
     }
@@ -280,7 +264,6 @@ pub fn export(
     })
 }
 
-/// How many slots an Export of a Project fills, whatever its Claim.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExportNeeds {
     pub sfx: usize,
@@ -288,10 +271,8 @@ pub struct ExportNeeds {
     pub patterns: usize,
 }
 
-/// The slots an Export of this Project would fill: every SFX, those of them that Custom
-/// Instruments take in 00-07, and the Patterns.
 pub fn needs(project: &Project) -> ExportNeeds {
-    let has_tracks = project.export_tracks().iter().any(Option::is_some);
+    let has_tracks = project.export_track_numbers().iter().any(Option::is_some);
     let every_instrument_slot: Vec<u8> = (0..INSTRUMENT_SLOTS).collect();
     let song = compile_song(
         project,
@@ -307,8 +288,6 @@ pub fn needs(project: &Project) -> ExportNeeds {
     }
 }
 
-/// The Song rows that play, in order: up to the first empty row, and then, if the Song loop row
-/// lies past that gap, from the loop row up to the next empty row.
 fn song_rows(project: &Project) -> Vec<usize> {
     let rows_from =
         |first: usize| (first..SONG_ROWS).take_while(|&row| !project.song_row_is_empty(row));
@@ -322,7 +301,6 @@ fn song_rows(project: &Project) -> Vec<usize> {
     rows
 }
 
-/// Every Chain row that plays, in Song order, as a Song row and an entry number.
 fn chain_rows(project: &Project) -> Vec<(usize, usize)> {
     song_rows(project)
         .into_iter()
@@ -331,8 +309,6 @@ fn chain_rows(project: &Project) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// Compiles every Chain row. With no Export Tracks there is nothing to bake, but each Chain row
-/// still counts as a Pattern, so that a Claim that is too small is reported as well.
 fn compile_song(
     project: &Project,
     chain_rows: &[(usize, usize)],
@@ -419,7 +395,6 @@ impl RowLength {
     }
 }
 
-/// One Chain row as the Export Tracks play it.
 struct ExportedChainRow {
     channels: [Option<(usize, ChainEntry)>; EXPORT_CHANNELS],
     ticks: u32,
@@ -447,8 +422,6 @@ impl ExportedChainRow {
             .iter()
             .position(|played| played.is_some_and(|(_, entry)| sets_length(entry)));
         let free_channel = channels.iter().position(Option::is_none);
-        // PICO-8 ends a Pattern with its left-most channel that does not loop, so one channel has
-        // to last as long as the Chain row: an entry that does, or else silence on a free channel.
         let length = match (entry_channel, free_channel) {
             (Some(channel), _) => RowLength::EntryOnChannel(channel),
             (None, Some(channel)) => RowLength::PaddingOnChannel(channel),
@@ -466,9 +439,6 @@ impl ExportedChainRow {
         }
     }
 
-    /// How a channel's SFX ends. Only the channel that sets the Pattern's length ignores Fill. A
-    /// shorter Phrase to its left loops on the silent Step after its length, so that it neither
-    /// sounds nor ends the Pattern early.
     fn ending(&self, project: &Project, channel: usize) -> Ending {
         let Some((_, entry)) = self.channels[channel] else {
             return Ending::Len;
@@ -495,8 +465,6 @@ impl ExportedChainRow {
     }
 }
 
-/// The Custom Instruments that a Phrase's Steps play: its audible Steps, and under REVERB its
-/// silent ones too, which run the waves on as their instrument would play them.
 fn custom_instruments_played(phrase: &Phrase) -> impl Iterator<Item = u8> + '_ {
     let under_reverb = phrase.filters().reverb() > 0;
     (0..phrase.length())
@@ -507,8 +475,6 @@ fn custom_instruments_played(phrase: &Phrase) -> impl Iterator<Item = u8> + '_ {
         .map(Step::instrument)
 }
 
-/// The 68 bytes of the SFX a Custom Instrument takes. One the Project does not define plays
-/// silence, as an empty SFX does.
 fn instrument_sfx(instrument: Option<&CustomInstrument>) -> [u8; SFX_BYTES] {
     let mut sfx = *Cart::default().sfx_bytes(0);
     match instrument.map(|instrument| &instrument.sound) {
@@ -548,9 +514,6 @@ fn instrument_sfx(instrument: Option<&CustomInstrument>) -> [u8; SFX_BYTES] {
     sfx
 }
 
-/// The 68 bytes of the SFX that plays a Phrase at a transpose. Steps past LEN are never heard, so
-/// they are left blank, which lets more SFX share a slot. The exception is a pitch that an arpeggio
-/// reads, which is kept on a silent note.
 fn bake_sfx(
     phrase: &Phrase,
     transpose: i8,
@@ -595,12 +558,10 @@ fn bake_sfx(
     sfx
 }
 
-/// Writes one note word into an SFX's bytes.
 fn set_note(sfx: &mut [u8; SFX_BYTES], index: usize, word: u16) {
     sfx[index * 2..index * 2 + 2].copy_from_slice(&word.to_le_bytes());
 }
 
-/// An SFX that stays silent for this many Ticks: the fewest notes whose Speed fits a byte.
 fn silent_sfx(ticks: u32) -> [u8; SFX_BYTES] {
     let notes = (1..=FULL_LENGTH as u32)
         .find(|notes| ticks.is_multiple_of(*notes) && ticks / notes <= u32::from(u8::MAX))
@@ -648,9 +609,6 @@ fn check_room(song: &CompiledSong, slots: &ClaimedSlots, failures: &mut Vec<Expo
     }
 }
 
-/// Puts a compiled Song into the claimed slots, and resets the claimed slots it does not use. The
-/// Custom Instruments take the lowest claimed slots in 0–7, and the Phrases' SFX the rest in
-/// order of first use.
 fn place_song(song: &CompiledSong, slots: &ClaimedSlots, cart: &mut Cart) {
     let blank = Cart::default();
     let taken = &slots.instruments[..song.instruments.len()];
@@ -676,8 +634,6 @@ fn place_song(song: &CompiledSong, slots: &ClaimedSlots, cart: &mut Cart) {
     }
 }
 
-/// The 4 bytes of a Pattern, with the flags that its place in the Song calls for. A disabled
-/// channel holds the disabling bit and its number from 1.
 fn pattern_bytes(
     song: &CompiledSong,
     index: usize,
@@ -686,7 +642,7 @@ fn pattern_bytes(
 ) -> [u8; EXPORT_CHANNELS] {
     let mut bytes = [0; EXPORT_CHANNELS];
     for (channel, byte) in bytes.iter_mut().enumerate() {
-        *byte = pattern[channel].map_or(DISABLED_CHANNEL + channel as u8, |sfx| sfx_slots[sfx]);
+        *byte = pattern[channel].map_or(disabled_channel_byte(channel), |sfx| sfx_slots[sfx]);
     }
     if song.loop_target == Some(index) {
         bytes[LOOP_START_CHANNEL] |= FLAG;
@@ -700,4 +656,8 @@ fn pattern_bytes(
         bytes[ending] |= FLAG;
     }
     bytes
+}
+
+const fn disabled_channel_byte(channel: usize) -> u8 {
+    FIRST_DISABLED_CHANNEL_BYTE + channel as u8
 }

@@ -1,5 +1,3 @@
-//! The status line and the Log, driven through the headless App core.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, LogItem, Report, Severity};
@@ -247,7 +245,6 @@ fn the_log_scrolls_to_keep_the_picked_item_visible() {
     assert!(dump.contains(">WRN ITEM 31"), "{dump}");
 }
 
-/// A Project with a Phrase under Song row 1, Track 3 and Chain row 2.
 fn project_with_a_located_phrase() -> Project {
     let mut project = Project::new();
     project.set_song_cell(1, 2, Some(ChainId::new(4)));

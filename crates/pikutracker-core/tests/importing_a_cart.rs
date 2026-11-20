@@ -1,6 +1,3 @@
-//! Importing a Cart through the headless App core. File contents go in and out through the App
-//! core's interface, so these tests touch no disk. Every Cart here is generated in test code.
-
 mod support;
 
 use pikutracker_core::app::{
@@ -57,7 +54,6 @@ fn answer_listing(app: &mut App, entries: Vec<DirectoryEntry>) {
     });
 }
 
-/// A one-song Cart with two SFX and a disabled channel.
 fn simple_cart() -> TestCart {
     let mut last = TestPattern::playing([Some(1), Some(0), None, None]);
     last.stop = true;
@@ -70,7 +66,6 @@ fn simple_cart() -> TestCart {
     }
 }
 
-/// Picks the only file on the list and hands the app its contents.
 fn import_file(app: &mut App, name: &str, contents: Vec<u8>) {
     app.apply(Action::Import);
     answer_listing(app, vec![file(name)]);
@@ -84,8 +79,7 @@ fn import_file(app: &mut App, name: &str, contents: Vec<u8>) {
     app.receive_file(FileResponse::BytesRead { path, contents });
 }
 
-/// Makes a change to the music: places Chain 01 on the first Song row.
-fn edit(app: &mut App) {
+fn place_chain_01_on_the_first_song_row(app: &mut App) {
     app.apply(Action::HexDigit(1));
 }
 
@@ -147,7 +141,7 @@ fn selecting_a_png_cart_gives_the_same_project_as_its_text_twin() {
 #[test]
 fn an_imported_project_starts_with_an_empty_undo_history() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::Import);
     app.apply(Action::Confirm);
     answer_listing(&mut app, vec![file("demo.p8")]);
@@ -170,7 +164,7 @@ fn an_imported_project_starts_with_an_empty_undo_history() {
 #[test]
 fn import_asks_first_when_there_are_unsaved_changes() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     let edited = app.project().clone();
 
     app.apply(Action::Import);
@@ -191,7 +185,7 @@ fn import_asks_first_when_there_are_unsaved_changes() {
 #[test]
 fn leaving_the_file_list_changes_nothing() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     let edited = app.project().clone();
 
     app.apply(Action::Import);
@@ -235,7 +229,6 @@ fn warnings_are_counted_on_the_status_line_and_listed_in_the_log() {
 
 #[test]
 fn enter_on_a_timing_warning_jumps_to_the_step_it_is_about() {
-    // On the second Pattern, 5 Steps at Speed 8 end inside the 14th Step at Speed 3.
     let mut setter = TestSfx::with_pitches(8, &[12]);
     setter.loop_start = 5;
     let cart = TestCart {
@@ -264,7 +257,7 @@ fn enter_on_a_timing_warning_jumps_to_the_step_it_is_about() {
 #[test]
 fn a_damaged_cart_is_refused_and_the_project_stays() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     let edited = app.project().clone();
 
     app.apply(Action::Import);
@@ -306,8 +299,6 @@ fn a_cart_that_cannot_be_read_says_why() {
     );
 }
 
-/// A Cart of two songs. Song 1, Patterns 00-01, plays SFX 0 and 1 and uses SFX 2 as an instrument,
-/// for 512 Ticks, and stops. Song 2, Pattern 02, plays SFX 3 for 512 Ticks and loops.
 fn two_song_cart() -> TestCart {
     let mut melody = TestSfx::with_pitches(8, &[12, 14]);
     melody.notes[0].custom = true;
@@ -332,7 +323,6 @@ fn two_song_cart() -> TestCart {
     }
 }
 
-/// Whether a Project holds song 2 of the two-song Cart: Pattern 02, playing pitch 30 and looping.
 fn is_song_2(project: &Project) -> bool {
     let first = project
         .chain_row_entry(0, 0, 0)
@@ -340,10 +330,9 @@ fn is_song_2(project: &Project) -> bool {
     first.is_some_and(|phrase| phrase.step(0).pitch() == 30)
         && project.song_row_is_empty(1)
         && project.song_loop_row() == Some(0)
-        && project.target_cart().unwrap().claim.patterns == Some((2, 2))
+        && project.target_cart().unwrap().claim.first_and_last_pattern == Some((2, 2))
 }
 
-/// The first line of the Song pane.
 fn song_title(app: &App) -> String {
     let dump = app.grid().text_dump();
     dump.lines()
@@ -393,7 +382,6 @@ fn the_song_pane_previews_the_highlighted_song() {
 
     assert_eq!(right_slot(&app, 6), ">SONG 2 PATTERN 02");
     assert_eq!(song_title(&app), "SONG  LOOP 00");
-    // Song 2's first Step plays pitch 30, F#2, which song 1 never plays.
     let dump = app.grid().text_dump();
     assert!(dump.contains("F#2"), "{dump}");
 }
@@ -441,7 +429,7 @@ fn enter_imports_the_highlighted_song() {
 #[test]
 fn esc_leaves_the_song_picker_and_keeps_the_project() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     let edited = app.project().clone();
     app.apply(Action::Import);
     app.apply(Action::Confirm);

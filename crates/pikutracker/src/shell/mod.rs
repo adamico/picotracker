@@ -1,8 +1,3 @@
-//! The Window shell: runs the App core in a native window and starts the audio stream.
-//!
-//! `pixels` scales the frame by the largest whole number that fits, never below ×1, and clears
-//! the rest of the window to black. This module holds no application logic.
-
 mod audio;
 mod files;
 mod keys;
@@ -25,7 +20,6 @@ use winit::window::{Window, WindowId};
 
 const PLAYBACK_REFRESH: Duration = Duration::from_millis(16);
 
-/// Opens the window and runs until it closes.
 pub fn run() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -46,7 +40,7 @@ impl Surface {
     fn open(event_loop: &ActiveEventLoop, title: String) -> Result<Self, Box<dyn Error>> {
         let attributes = Window::default_attributes()
             .with_title(title.clone())
-            .with_inner_size(initial_size(event_loop));
+            .with_inner_size(largest_whole_scale_size(event_loop));
         let window = Arc::new(event_loop.create_window(attributes)?);
 
         let size = window.inner_size();
@@ -72,8 +66,7 @@ impl Surface {
     }
 }
 
-/// The largest whole-number multiple of the logical screen that fits on the monitor.
-fn initial_size(event_loop: &ActiveEventLoop) -> PhysicalSize<u32> {
+fn largest_whole_scale_size(event_loop: &ActiveEventLoop) -> PhysicalSize<u32> {
     let scale = event_loop
         .primary_monitor()
         .or_else(|| event_loop.available_monitors().next())
@@ -111,8 +104,6 @@ impl Default for Shell {
 }
 
 impl Shell {
-    /// Gives the app what `config.ron` and `state.ron` hold and starts in the folder the app was
-    /// launched from.
     fn launch(&mut self) {
         let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let config_file = files::config_file();
@@ -138,7 +129,6 @@ impl Shell {
         event_loop.exit();
     }
 
-    /// Applies one action, carries out what it asks for, and closes the window if it quits.
     fn apply(&mut self, event_loop: &ActiveEventLoop, action: Action) {
         self.app.apply(action);
         if self.app.wants_to_quit() {
@@ -153,7 +143,6 @@ impl Shell {
         }
     }
 
-    /// Passes the app's audio requests to the synth thread.
     fn send_audio_requests(&mut self) {
         for request in self.app.take_audio_requests() {
             if let Some(audio) = self.audio.as_mut() {
@@ -162,7 +151,6 @@ impl Shell {
         }
     }
 
-    /// Carries out the app's file requests, including any that the results lead to.
     fn run_file_requests(&mut self) {
         loop {
             let requests = self.app.take_file_requests();
@@ -190,7 +178,6 @@ impl ApplicationHandler for Shell {
         }
     }
 
-    /// Lets time pass, shows where playback has got to, and wakes again for whatever is next.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         let mut changed = self.app.advance_time(now - self.last_tick);

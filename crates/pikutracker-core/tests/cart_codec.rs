@@ -1,17 +1,18 @@
-//! The Cart codec seam: `.p8` and `.p8.png` bytes in, Cart data out. Every Cart here is generated
-//! in test code, and the expected bytes are worked out by hand from the formats in the spec.
-
 mod support;
 
 use pikutracker_core::cart::{Cart, CartError};
 use support::{HEADER, TestCart, TestPattern, TestSfx, png_of};
 
-/// A `__sfx__` line: filters 0x0a, Speed 0x20, loop 2 to 8, then C-2 style notes.
-///
-/// `18350` is pitch 0x18, instrument 3, volume 5, effect 0: the word 0x0AD8.
-/// `18b52` is the same with the custom bit and effect 2: the word 0xAAD8.
+const HEADER_FILTERS_0A_SPEED_20_LOOP_2_TO_8: &str = "0a200208";
+const PITCH_18_INSTRUMENT_3_VOLUME_5_EFFECT_0: &str = "18350";
+const SAME_WITH_CUSTOM_BIT_AND_EFFECT_2: &str = "18b52";
+
 fn sfx_line() -> String {
-    format!("0a200208{}{}{}", "18350", "18b52", "00000".repeat(30))
+    format!(
+        "{HEADER_FILTERS_0A_SPEED_20_LOOP_2_TO_8}{PITCH_18_INSTRUMENT_3_VOLUME_5_EFFECT_0}\
+         {SAME_WITH_CUSTOM_BIT_AND_EFFECT_2}{}",
+        "00000".repeat(30)
+    )
 }
 
 fn p8_with(body: &str) -> Vec<u8> {

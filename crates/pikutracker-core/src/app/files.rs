@@ -1,6 +1,3 @@
-//! New, Open, Save and Save As, and the file requests behind them. The App core never touches the disk: it asks for files with
-//! `FileRequest`s and is given the results as `FileResponse`s.
-
 use super::exporting::FinishedExport;
 use super::messages::Report;
 use super::panes::file_list::{Choice, FileList, Purpose};
@@ -27,7 +24,6 @@ pub enum FileRequest {
     Rename { from: PathBuf, to: PathBuf },
 }
 
-/// One thing a folder holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectoryEntry {
     pub name: String,
@@ -75,7 +71,6 @@ pub(super) enum Accepted {
     LocateCart,
 }
 
-/// A question on the status line, waiting for Enter or Esc.
 #[derive(Debug)]
 pub(super) struct Question {
     pub(super) text: String,
@@ -83,7 +78,6 @@ pub(super) struct Question {
 }
 
 impl Question {
-    /// Asks whether to go ahead with Purge unused.
     pub(super) fn purge_unused(text: String) -> Self {
         Self {
             text,
@@ -108,12 +102,10 @@ pub(super) enum Waiting {
     },
 }
 
-/// Why a file cannot be the Target Cart.
 pub(super) fn cannot_use(path: &Path, reason: &str) -> String {
     format!("CANNOT USE {}: {reason}", shown_name(path))
 }
 
-/// The file name of a path in capitals, as messages show it.
 pub(super) fn shown_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or(path.as_os_str())
@@ -129,17 +121,14 @@ pub(super) fn folder_of(path: &Path) -> PathBuf {
 }
 
 impl App {
-    /// Whether the music differs from what was last saved or opened.
     pub fn has_unsaved_changes(&self) -> bool {
         self.project != self.saved_project
     }
 
-    /// Hands over the file requests made since the last call.
     pub fn take_file_requests(&mut self) -> Vec<FileRequest> {
         std::mem::take(&mut self.file_requests)
     }
 
-    /// Takes in the result of a file request.
     pub fn receive_file(&mut self, response: FileResponse) {
         match response {
             FileResponse::Listed { directory, entries } => {
@@ -182,7 +171,6 @@ impl App {
         }
     }
 
-    /// Passes a file's bytes to whatever asked for them.
     fn finish_reading_bytes(&mut self, path: PathBuf, contents: &[u8]) {
         match self.waiting.take() {
             Some(Waiting::Importing(read)) if read == path => self.finish_importing(path, contents),
@@ -267,7 +255,6 @@ impl App {
         self.report(Report::failure(summary));
     }
 
-    /// A file that is not there. Only the Target Cart of an Export can be looked for elsewhere.
     fn file_missing(&mut self, path: &Path) {
         if matches!(&self.waiting, Some(Waiting::ExportReading(target)) if target == path) {
             self.waiting = None;
@@ -277,13 +264,10 @@ impl App {
         }
     }
 
-    /// Asks a question on the status line, which Enter accepts.
     pub(super) fn ask(&mut self, text: String, accepted: Accepted) {
         self.question = Some(Question { text, accepted });
     }
 
-    /// Puts another Project in place, opening at the top of the Song with the Song pane focused.
-    /// Playback stops, and Mute and Solo do not carry over to the new Project.
     pub(super) fn replace_project(&mut self, project: Project, path: Option<PathBuf>) {
         if self.playing || self.previewing {
             self.playing = false;
@@ -338,7 +322,6 @@ impl App {
         }
     }
 
-    /// Closes whatever is open, then quits or asks first about unsaved changes.
     pub(super) fn quit(&mut self) {
         self.midi_dialog = None;
         self.speed_entry = None;
@@ -352,7 +335,6 @@ impl App {
         }
     }
 
-    /// Whether the app has been told to quit, which the Window shell carries out.
     pub fn wants_to_quit(&self) -> bool {
         self.quitting
     }
@@ -409,8 +391,6 @@ impl App {
         self.waiting = Some(Waiting::Listing(directory));
     }
 
-    /// The Project as a file in this folder holds it: the path changes so that the Target Cart
-    /// stays the same Cart. A file in the same folder keeps the path exactly as it was.
     fn project_saved_in(&self, folder: &Path) -> Project {
         let mut project = self.project.clone();
         let moved = resolved(self.target_cart_folder()) != resolved(folder);
@@ -424,7 +404,6 @@ impl App {
         project
     }
 
-    /// Takes on the Target Cart path that a finished save gave the Project.
     fn adopt_saved_cart_path(&mut self, saved: &Project) {
         if let (Some(saved), Some(current)) = (saved.target_cart(), self.project.target_cart()) {
             let mut current = current.clone();
@@ -443,7 +422,6 @@ impl App {
         self.waiting = Some(Waiting::Writing(path, Box::new(project)));
     }
 
-    /// Enter says yes to the question and Esc says no. Other keys wait for an answer.
     pub(super) fn answer_question(&mut self, action: Action) {
         match action {
             Action::Cancel => self.question = None,
@@ -467,7 +445,6 @@ impl App {
         }
     }
 
-    /// The file list takes the keys while it is open.
     pub(super) fn use_file_list(&mut self, action: Action) {
         let Some(list) = self.file_list.as_mut() else {
             return;
@@ -517,14 +494,12 @@ impl App {
         }
     }
 
-    /// The name of the Project on the status line.
     pub(super) fn project_name(&self) -> String {
         self.project_path
             .as_deref()
             .map_or_else(|| UNTITLED.to_uppercase(), shown_name)
     }
 
-    /// The window's title: the Project's file name as spelt, with a star for unsaved changes.
     pub fn window_title(&self) -> String {
         let name = self
             .project_path

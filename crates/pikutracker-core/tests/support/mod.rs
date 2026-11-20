@@ -1,5 +1,3 @@
-//! Carts generated in test code. None of these were saved by PICO-8: they follow the formats the
-//! spec describes, and only stand in until Carts re-saved through real PICO-8 exist.
 #![allow(dead_code)]
 
 use pikutracker_core::app::{Action, App};
@@ -20,19 +18,16 @@ const CART_BYTES: usize = 0x8020;
 const PNG_WIDTH: u32 = 160;
 const PNG_HEIGHT: u32 = 205;
 
-/// Applies these actions in turn.
 pub fn apply(app: &mut App, actions: &[Action]) {
     for action in actions {
         app.apply(*action);
     }
 }
 
-/// The bottom row of the character grid.
 pub fn status_line(app: &App) -> String {
     app.grid().text_dump().lines().last().unwrap().to_owned()
 }
 
-/// One note written the way a `__sfx__` line holds it.
 #[derive(Clone, Copy, Debug)]
 pub struct TestNote {
     pub pitch: u8,
@@ -42,7 +37,6 @@ pub struct TestNote {
     pub custom: bool,
 }
 
-/// An audible note on the triangle at a moderate volume.
 pub const fn note(pitch: u8) -> TestNote {
     TestNote {
         pitch,
@@ -61,7 +55,6 @@ const REST: TestNote = TestNote {
     custom: false,
 };
 
-/// One SFX of a generated Cart.
 #[derive(Clone, Copy, Debug)]
 pub struct TestSfx {
     pub editor_and_filters: u8,
@@ -72,7 +65,6 @@ pub struct TestSfx {
 }
 
 impl TestSfx {
-    /// An SFX at this Speed whose first notes are these pitches, and silent after them.
     pub fn with_pitches(speed: u8, pitches: &[u8]) -> Self {
         let mut notes = [REST; 32];
         for (slot, pitch) in notes.iter_mut().zip(pitches) {
@@ -87,7 +79,6 @@ impl TestSfx {
         }
     }
 
-    /// The SFX's 168-digit `__sfx__` line.
     pub fn line(&self) -> String {
         let mut line = format!(
             "{:02x}{:02x}{:02x}{:02x}",
@@ -105,7 +96,6 @@ impl TestSfx {
         line
     }
 
-    /// The SFX's 68 bytes in Cart memory.
     pub fn bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(68);
         for note in &self.notes {
@@ -126,7 +116,6 @@ impl TestSfx {
     }
 }
 
-/// One Pattern of a generated Cart.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TestPattern {
     pub channels: [Option<u8>; 4],
@@ -145,7 +134,6 @@ impl TestPattern {
         }
     }
 
-    /// The Pattern's four bytes in Cart memory.
     pub fn bytes(&self) -> [u8; 4] {
         let flags = [self.loop_start, self.loop_back, self.stop, false];
         let mut bytes = [0; 4];
@@ -156,7 +144,6 @@ impl TestPattern {
         bytes
     }
 
-    /// The Pattern's `__music__` line.
     pub fn line(&self) -> String {
         let flags =
             u8::from(self.loop_start) | u8::from(self.loop_back) << 1 | u8::from(self.stop) << 2;
@@ -165,7 +152,6 @@ impl TestPattern {
     }
 }
 
-/// A generated Cart: SFX and Patterns from slot 0, with the rest left out.
 #[derive(Clone, Debug, Default)]
 pub struct TestCart {
     pub sfx: Vec<TestSfx>,
@@ -173,7 +159,6 @@ pub struct TestCart {
 }
 
 impl TestCart {
-    /// The Cart as `.p8` text, with the trailing default rows left out.
     pub fn p8(&self) -> Vec<u8> {
         let mut text = format!("{HEADER}__lua__\nprint(\"hi\")\n");
         if !self.sfx.is_empty() {
@@ -193,7 +178,6 @@ impl TestCart {
         text.into_bytes()
     }
 
-    /// The Cart's whole memory, with default rows where nothing was written.
     pub fn memory(&self) -> Vec<u8> {
         let mut memory = vec![0; CART_BYTES];
         let blank = TestSfx::with_pitches(16, &[]);
@@ -207,13 +191,11 @@ impl TestCart {
         memory
     }
 
-    /// The Cart as a `.p8.png` image.
     pub fn png(&self) -> Vec<u8> {
         png_of(&self.memory(), PNG_WIDTH, PNG_HEIGHT)
     }
 }
 
-/// What the synth plays for one SFX of a Cart.
 pub fn sound_of(cart: &Cart, slot: u8) -> Sound {
     let sfx = cart.sfx(slot);
     let mut notes = [Note::default(); 32];
@@ -243,14 +225,10 @@ pub fn sound_of(cart: &Cart, slot: u8) -> Sound {
     }
 }
 
-/// Plays these stored notes of an SFX in turn, one Step each, the way a channel moves through them.
 pub fn render_notes(sound: Sound, notes: &[usize]) -> Vec<f32> {
     render_sounds(&[(sound, notes)])
 }
 
-/// Several sounds one after another on one voice, as a channel plays them Pattern by Pattern:
-/// each starts afresh from its first listed note as PICO-8 starts a Pattern, while the voice
-/// carries its phase, crossfade and echo over.
 pub fn render_sounds(sounds: &[(Sound, &[usize])]) -> Vec<f32> {
     let mut voice = Voice::new();
     let mut samples = Vec::new();
@@ -268,7 +246,6 @@ pub fn render_sounds(sounds: &[(Sound, &[usize])]) -> Vec<f32> {
     samples
 }
 
-/// The Song of a Project through the Player, from its first row.
 pub fn render_song(project: Project, samples: usize) -> Vec<f32> {
     let mut player = Player::new();
     player.handle(AudioRequest::PlaySong {
@@ -278,7 +255,6 @@ pub fn render_song(project: Project, samples: usize) -> Vec<f32> {
     player.render(samples)
 }
 
-/// The Song of a Project through the Player, from its first row, with only its Export Tracks heard.
 pub fn render_export_tracks(project: Project, samples: usize) -> Vec<f32> {
     let mut mix = TrackMix::default();
     for track in project.export_track_indices().into_iter().flatten() {
@@ -293,7 +269,6 @@ pub fn render_export_tracks(project: Project, samples: usize) -> Vec<f32> {
     player.render(samples)
 }
 
-/// Fails on the first sample that differs, so that a failure says where the sound changed.
 pub fn assert_same_samples(rendered: &[f32], expected: &[f32]) {
     assert_eq!(rendered.len(), expected.len());
     assert!(expected.iter().any(|sample| sample.abs() > 0.01));
@@ -304,7 +279,6 @@ pub fn assert_same_samples(rendered: &[f32], expected: &[f32]) {
     assert_eq!(first_difference, None);
 }
 
-/// Packs bytes into the low 2 bits of each pixel's channels, over a mid-grey picture.
 pub fn png_of(memory: &[u8], width: u32, height: u32) -> Vec<u8> {
     let mut pixels = Vec::with_capacity((width * height * 4) as usize);
     for index in 0..(width * height) as usize {
@@ -326,8 +300,6 @@ pub fn png_of(memory: &[u8], width: u32, height: u32) -> Vec<u8> {
     file
 }
 
-/// The text of a `state.ron` remembering these Project files, the most recent first, written by
-/// hand as the spec describes the file: RON with an integer format version.
 pub fn state_ron(recent_projects: &[&str]) -> String {
     let paths: Vec<String> = recent_projects
         .iter()
@@ -343,7 +315,6 @@ const BASS_BIT: u8 = 0x01;
 const INSTRUMENT_SLOTS: u8 = 8;
 const SLOT_COUNT: u8 = 64;
 
-/// One SFX of a Cart exactly as its bytes hold it, loop bytes included.
 pub fn stored_sound(cart: &Cart, slot: u8) -> Sound {
     let sfx = cart.sfx(slot);
     Sound {
@@ -364,8 +335,6 @@ pub fn stored_sound(cart: &Cart, slot: u8) -> Sound {
     }
 }
 
-/// What a note marked `custom` plays from one SFX 0–7: a Waveform Instrument when bit 7 of byte 66
-/// is set, with Bass in bit 0 of byte 65, or else the SFX itself.
 pub fn stored_instrument(cart: &Cart, slot: u8) -> Instrument {
     let sfx = cart.sfx(slot);
     if sfx.loop_start() & WAVEFORM_INSTRUMENT_BIT == 0 {
@@ -382,8 +351,6 @@ pub fn stored_instrument(cart: &Cart, slot: u8) -> Instrument {
 const SATURATION_KNEE: f32 = 0.75;
 const SATURATION_SLOPE: f32 = 1.0 / 25.0;
 
-/// The 4 channels mixed as PICO-8 0.2.7 outputs them (ADR 0011): unchanged up to 0.75 of full
-/// scale, and past it rising at a twenty-fifth of the rate.
 fn pico8_mix(voices: &mut [Voice]) -> f32 {
     let mix: f32 = voices.iter_mut().map(Voice::next_sample).sum();
     let past_knee = mix.abs() - SATURATION_KNEE;
@@ -394,7 +361,6 @@ fn pico8_mix(voices: &mut [Voice]) -> f32 {
     }
 }
 
-/// One channel of a Pattern as PICO-8's music plays it.
 struct MusicChannel {
     sound: Sound,
     note: usize,
@@ -402,9 +368,6 @@ struct MusicChannel {
 }
 
 impl MusicChannel {
-    /// What the voice plays: the SFX looping over all its notes, so that the channel, not the
-    /// voice, decides when it ends. A voice that ends a sound by itself cuts its echo, as `sfx()`
-    /// does, while a channel that ends inside a Pattern lets it ring on.
     fn voice_sound(&self) -> Sound {
         if self.loops() {
             self.sound
@@ -421,7 +384,6 @@ impl MusicChannel {
         self.sound.loop_end > self.sound.loop_start
     }
 
-    /// The notes it plays before ending: its LEN, or all 32.
     fn length(&self) -> usize {
         match (self.sound.loop_start, self.sound.loop_end) {
             (start, 0) if start > 0 => usize::from(start),
@@ -430,8 +392,6 @@ impl MusicChannel {
     }
 }
 
-/// How long PICO-8 plays a Pattern, in Ticks: as long as its left-most channel that does not loop,
-/// or 32 notes at the slowest Speed when every channel loops.
 fn pattern_ticks(channels: &[Option<MusicChannel>]) -> usize {
     let playing = || channels.iter().flatten();
     playing().find(|channel| !channel.loops()).map_or_else(
@@ -445,7 +405,6 @@ fn pattern_ticks(channels: &[Option<MusicChannel>]) -> usize {
     )
 }
 
-/// The Pattern that `music()` plays after one, if the music goes on.
 fn next_pattern(cart: &Cart, slot: u8) -> Option<u8> {
     let pattern = cart.pattern(slot);
     if pattern.stop() || slot + 1 == SLOT_COUNT {
@@ -460,7 +419,6 @@ fn next_pattern(cart: &Cart, slot: u8) -> Option<u8> {
     }
 }
 
-/// The Channels of a Pattern, or none if it plays nothing, which ends the music.
 fn music_channels(cart: &Cart, slot: u8) -> Option<Vec<Option<MusicChannel>>> {
     let pattern = cart.pattern(slot);
     let channels: Vec<Option<MusicChannel>> = (0..4)
@@ -475,7 +433,6 @@ fn music_channels(cart: &Cart, slot: u8) -> Option<Vec<Option<MusicChannel>>> {
     channels.iter().any(Option::is_some).then_some(channels)
 }
 
-/// How many samples `music()` plays from one Pattern before it stops, for music that does.
 pub fn music_samples(cart: &Cart, first_pattern: u8) -> usize {
     let mut ticks = 0;
     let mut next = Some(first_pattern);
@@ -489,11 +446,6 @@ pub fn music_samples(cart: &Cart, first_pattern: u8) -> usize {
     ticks * SAMPLES_PER_TICK as usize
 }
 
-/// Plays a Cart's Patterns from one of them the way PICO-8's `music()` does, through our synth:
-/// each channel steps through its SFX's notes and loop, the left-most channel that does not loop
-/// ends the Pattern, and the flags choose the next one. A Pattern that plays nothing ends the
-/// music. Once the music stops, the voices fall
-/// silent and keep running.
 pub fn render_music(cart: &Cart, first_pattern: u8, samples: usize) -> Vec<f32> {
     let mut voices = vec![Voice::new(); 4];
     for voice in &mut voices {
@@ -542,7 +494,6 @@ pub fn render_music(cart: &Cart, first_pattern: u8, samples: usize) -> Vec<f32> 
                     channel.ended = true;
                     voice.rest();
                 } else if channel.note >= SFX_NOTES {
-                    // A loop past the last note, such as 32 to 33, plays silence in the SFX.
                     let silence = Sound {
                         notes: [Note::default(); SFX_NOTES],
                         ..channel.sound

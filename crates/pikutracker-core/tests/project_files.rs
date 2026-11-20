@@ -1,6 +1,3 @@
-//! Creating, opening and saving Projects through the headless App core. File contents go in and
-//! out through the App core's interface, so these tests touch no disk.
-
 mod support;
 
 use pikutracker_core::app::{
@@ -45,7 +42,6 @@ fn folder(name: &str) -> DirectoryEntry {
     }
 }
 
-/// Answers the listing the app has just asked for.
 fn answer_listing(app: &mut App, directory: &str, entries: Vec<DirectoryEntry>) {
     assert_eq!(
         app.take_file_requests(),
@@ -65,12 +61,10 @@ fn type_name(app: &mut App, name: &str) {
     }
 }
 
-/// Makes a change to the music: places Chain 01 on the first Song row.
-fn edit(app: &mut App) {
+fn place_chain_01_on_the_first_song_row(app: &mut App) {
     app.apply(Action::HexDigit(1));
 }
 
-/// The contents of the one write the app has just asked for.
 fn written(app: &mut App, path: &str) -> String {
     let mut requests = app.take_file_requests();
     assert_eq!(requests.len(), 1, "{requests:?}");
@@ -86,10 +80,9 @@ fn written(app: &mut App, path: &str) -> String {
     }
 }
 
-/// An app that has saved its Project as `./demo.ptrk`.
 fn saved_app() -> App {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::SaveAs);
     answer_listing(&mut app, ".", vec![]);
     type_name(&mut app, "demo");
@@ -101,14 +94,12 @@ fn saved_app() -> App {
     app
 }
 
-/// A saved Project with Chain 05 on Song row 2.
 fn other_project_text() -> String {
     let mut project = Project::new();
     project.set_song_cell(2, 1, Some(ChainId::new(5)));
     project_file::write(&project)
 }
 
-/// Opens a file through the file list, with the list holding only that file.
 fn open_file(app: &mut App, name: &str, contents: &str) {
     app.apply(Action::OpenProject);
     answer_listing(app, ".", vec![file(name)]);
@@ -128,7 +119,7 @@ fn open_file(app: &mut App, name: &str, contents: &str) {
 #[test]
 fn saving_a_new_project_asks_for_a_name_on_the_file_list() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
 
     app.apply(Action::Save);
     answer_listing(&mut app, ".", vec![file("old.ptrk")]);
@@ -157,7 +148,7 @@ fn saving_a_new_project_asks_for_a_name_on_the_file_list() {
 #[test]
 fn saving_again_writes_to_the_same_file_without_asking() {
     let mut app = saved_app();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
 
     app.apply(Action::Save);
 
@@ -231,7 +222,7 @@ fn save_as_starts_from_the_current_name_and_saves_under_a_new_one() {
         path: PathBuf::from("./take2.ptrk"),
     });
 
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::Save);
     written(&mut app, "./take2.ptrk");
 }
@@ -277,7 +268,7 @@ fn enter_on_a_file_in_save_as_takes_its_name() {
 #[test]
 fn a_failed_save_says_why_and_stays_unsaved() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::SaveAs);
     answer_listing(&mut app, ".", vec![]);
     type_name(&mut app, "demo");
@@ -297,7 +288,7 @@ fn a_failed_save_says_why_and_stays_unsaved() {
 #[test]
 fn edits_made_while_a_save_is_written_stay_unsaved() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::SaveAs);
     answer_listing(&mut app, ".", vec![]);
     type_name(&mut app, "demo");
@@ -415,7 +406,7 @@ fn opening_a_file_replaces_the_project_and_says_so() {
     assert!(!app.has_unsaved_changes());
     assert_eq!(right_slot(&app, 0), "OVERVIEW");
 
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::Save);
     written(&mut app, "./song.ptrk");
 }
@@ -465,7 +456,7 @@ fn a_newer_file_is_refused_with_a_clear_message_and_changes_nothing() {
     assert_eq!(app.project(), &before);
 
     app.apply(Action::Cancel);
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::Save);
     written(&mut app, "./demo.ptrk");
 }
@@ -522,7 +513,7 @@ fn changing_the_music_marks_a_project_as_unsaved_and_shows_it() {
     let mut app = App::new();
     assert!(status_line(&app).ends_with("UNTITLED"));
 
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
 
     assert!(app.has_unsaved_changes());
     assert!(status_line(&app).ends_with("UNTITLED*"));
@@ -531,7 +522,7 @@ fn changing_the_music_marks_a_project_as_unsaved_and_shows_it() {
 #[test]
 fn putting_the_music_back_clears_the_unsaved_mark() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
 
     app.apply(Action::Clear);
 
@@ -541,7 +532,7 @@ fn putting_the_music_back_clears_the_unsaved_mark() {
 #[test]
 fn a_new_project_asks_before_replacing_unsaved_changes() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
 
     app.apply(Action::NewProject);
     assert_eq!(status_line(&app), UNSAVED_QUESTION);
@@ -560,7 +551,7 @@ fn a_new_project_asks_before_replacing_unsaved_changes() {
 #[test]
 fn opening_asks_before_replacing_unsaved_changes() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
 
     app.apply(Action::OpenProject);
     assert_eq!(status_line(&app), UNSAVED_QUESTION);
@@ -583,7 +574,7 @@ fn a_project_with_no_unsaved_changes_is_replaced_without_asking() {
 #[test]
 fn other_keys_wait_while_a_question_is_asked() {
     let mut app = App::new();
-    edit(&mut app);
+    place_chain_01_on_the_first_song_row(&mut app);
     app.apply(Action::NewProject);
 
     app.apply(Action::HexDigit(9));
@@ -594,7 +585,6 @@ fn other_keys_wait_while_a_question_is_asked() {
     assert_eq!(app.project().song_cell(1, 0), None);
 }
 
-/// An app with a Phrase that has a note, playing it.
 fn playing_app() -> App {
     let mut app = App::new();
     app.apply(Action::HexDigit(0));

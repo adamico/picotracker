@@ -1,5 +1,3 @@
-//! The PC tracker preset, the first-launch default.
-
 use super::Binding;
 use super::key::Key;
 use super::shared::{
@@ -10,7 +8,6 @@ use crate::app::{Action, Direction, KeyContext};
 const LOWER_OCTAVE_KEYS: &str = "zsxdcvgbhnjm";
 const UPPER_OCTAVE_KEYS: &str = "q2w3er5t6y7u";
 
-/// Every binding of the preset.
 pub(super) fn bindings() -> Vec<Binding> {
     let own = [
         (Key::Char('n'), CTRL_SHIFT, Action::NewUnused),

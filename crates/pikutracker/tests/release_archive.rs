@@ -1,4 +1,3 @@
-//! The release archive built by `scripts/package-release.sh`.
 #![cfg(target_os = "linux")]
 
 use std::fs;

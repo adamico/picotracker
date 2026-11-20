@@ -1,6 +1,3 @@
-//! Both shipped presets reach every named action, and every typed character, through the keys
-//! they bind.
-
 use pikutracker_core::app::{Action, KeyContext};
 use pikutracker_core::keymap::{
     Binding, Key, KeyPress, Keyboard, Keymap, Modifiers, Preset, Scope, Trigger, named_actions,
@@ -9,7 +6,6 @@ use std::time::Duration;
 
 const PRESETS: [Preset; 2] = [Preset::PcTracker, Preset::M8Style];
 
-/// Sets off a binding's trigger from a fresh Keyboard, in the binding's own scope.
 fn press(keymap: &Keymap, binding: Binding) -> Vec<Action> {
     let mut keyboard = Keyboard::new(keymap.clone());
     let (context, selecting) = match binding.scope {

@@ -1,6 +1,3 @@
-//! Hold-chords and double-taps: key presses that the Keymap reads together with the keys around
-//! them, alongside single key presses.
-
 use pikutracker_core::app::{Action, KeyContext};
 use pikutracker_core::keymap::{Key, KeyPress, Keyboard, Keymap, Modifiers, Preset};
 use std::collections::BTreeMap;

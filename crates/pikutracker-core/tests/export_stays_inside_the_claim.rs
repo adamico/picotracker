@@ -1,10 +1,3 @@
-//! Property tests over random Carts, Claims and Projects: Export changes nothing outside the
-//! Claim, and a failed Export changes nothing at all. The Carts are generated here from a fixed seed, so every run checks the same cases, and
-//! a failure names the case that broke. None of them were saved by PICO-8.
-//!
-//! The checks read the files with their own small parser instead of the Cart codec, so that a
-//! mistake in the codec cannot hide itself.
-
 use pikutracker_core::app::{Action, App, FileRequest, FileResponse};
 use pikutracker_core::cart::Cart;
 use pikutracker_core::export::{export, needs};
@@ -25,7 +18,6 @@ const SHA1_AT: usize = 0x8006;
 const PNG_WIDTH: u32 = 160;
 const PNG_HEIGHT: u32 = 205;
 
-/// A small generator with a fixed sequence for each seed.
 struct Rng(u64);
 
 impl Rng {
@@ -40,12 +32,10 @@ impl Rng {
         self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
 
-    /// A number from 0 up to but not including `limit`.
     fn below(&mut self, limit: usize) -> usize {
         ((self.next() >> 33) as usize) % limit
     }
 
-    /// A number from `low` to `high`, both included.
     fn between(&mut self, low: usize, high: usize) -> usize {
         low + self.below(high - low + 1)
     }
@@ -66,14 +56,12 @@ impl Rng {
     }
 }
 
-/// How many slots a Project can need at most.
 struct Needs {
     sfx: usize,
     instruments: usize,
     patterns: usize,
 }
 
-/// A random Project, with Fill marks and up to 3 Custom Instruments, and the slots it can need.
 fn random_project(rng: &mut Rng) -> (Project, Needs) {
     let mut project = Project::new();
     let instruments = rng.below(4);
@@ -143,7 +131,6 @@ fn random_project(rng: &mut Rng) -> (Project, Needs) {
     (project, needs)
 }
 
-/// A random Claim with room for what a Project needs, Custom Instruments in SFX 0–7 included.
 fn random_claim(rng: &mut Rng, needs: &Needs) -> Claim {
     let low = rng.shuffled((0..8).collect());
     let (instrument_slots, other_low) = low.split_at(needs.instruments);
@@ -158,7 +145,7 @@ fn random_claim(rng: &mut Rng, needs: &Needs) -> Claim {
     let last = rng.between(first + needs.patterns - 1, 63);
     Claim {
         sfx,
-        patterns: Some((first as u8, last as u8)),
+        first_and_last_pattern: Some((first as u8, last as u8)),
     }
 }
 
@@ -173,7 +160,6 @@ fn hex_text(rng: &mut Rng, digits: usize, upper: bool) -> String {
         .collect()
 }
 
-/// A random `.p8` file: any line ending, any set of sections, and trailing rows left out.
 fn random_p8(rng: &mut Rng) -> Vec<u8> {
     let eol = if rng.chance(30) { "\r\n" } else { "\n" };
     let upper = rng.chance(20);
@@ -290,10 +276,9 @@ fn mark_position(lines: &[Line<'_>], name: &[u8]) -> Option<usize> {
     lines.iter().position(|line| line.body == name)
 }
 
-/// Checks that an Exported `.p8` file differs from the original only inside the Claim.
 fn assert_only_the_claim_changed(case: u64, before: &[u8], after: &[u8], claim: &Claim) {
     let claimed_sfx: BTreeSet<usize> = claim.sfx.iter().map(|slot| usize::from(*slot)).collect();
-    let (first, last) = claim.patterns.unwrap();
+    let (first, last) = claim.first_and_last_pattern.unwrap();
     let claimed_music = usize::from(first)..=usize::from(last);
     let is_claimed = |kind: Kind| match kind {
         Kind::SfxRow(row) => claimed_sfx.contains(&row),
@@ -323,7 +308,6 @@ fn assert_only_the_claim_changed(case: u64, before: &[u8], after: &[u8], claim: 
         .collect();
     assert_eq!(kept_old.len(), kept_new.len(), "case {case}: kept lines");
     for (index, (old_line, new_line)) in kept_old.iter().zip(&kept_new).enumerate() {
-        // Only a last line with no line ending may gain one, when lines are added after it.
         let was_open_ended = line_ending(old_line.whole).is_empty();
         if was_open_ended {
             assert_eq!(old_line.body, new_line.body, "case {case}: line {index}");
@@ -394,7 +378,6 @@ fn assert_new_sections_are_in_canonical_order(
     }
 }
 
-/// Checks what the file now holds, slot by slot.
 fn assert_slots_changed_only_inside_the_claim(
     case: u64,
     before: &[u8],
@@ -403,7 +386,7 @@ fn assert_slots_changed_only_inside_the_claim(
 ) {
     let old = Cart::read(before).unwrap();
     let new = Cart::read(after).unwrap();
-    let (first, last) = claim.patterns.unwrap();
+    let (first, last) = claim.first_and_last_pattern.unwrap();
     for slot in 0..64 {
         if !claim.sfx.contains(&slot) {
             assert_eq!(
@@ -444,7 +427,6 @@ fn a_p8_export_changes_no_byte_outside_the_claim() {
     }
 }
 
-/// Breaks a Project or its Claim in one of the ways that fail an Export, and says which.
 fn break_export(rng: &mut Rng, project: &mut Project, claim: &mut Claim) -> &'static str {
     let needed = needs(project);
     match rng.below(6) {
@@ -465,8 +447,8 @@ fn break_export(rng: &mut Rng, project: &mut Project, claim: &mut Claim) -> &'st
             "too few SFX"
         }
         2 => {
-            claim.patterns = claim
-                .patterns
+            claim.first_and_last_pattern = claim
+                .first_and_last_pattern
                 .filter(|_| needed.patterns > 1)
                 .map(|(first, _)| (first, first + needed.patterns as u8 - 2));
             "too few Patterns"
@@ -477,7 +459,7 @@ fn break_export(rng: &mut Rng, project: &mut Project, claim: &mut Claim) -> &'st
         }
         _ => {
             let track = project
-                .export_tracks()
+                .export_track_numbers()
                 .into_iter()
                 .flatten()
                 .next()
@@ -534,7 +516,6 @@ fn a_failed_export_leaves_the_cart_byte_for_byte_unchanged() {
     }
 }
 
-/// A random image: every channel of every pixel is random, so the picture is noise.
 fn random_pixels(rng: &mut Rng) -> Vec<u8> {
     (0..PNG_WIDTH * PNG_HEIGHT * 4)
         .map(|_| rng.byte())
@@ -565,14 +546,13 @@ fn memory_byte(pixel: &[u8; 4]) -> u8 {
     (pixel[3] & 3) << 6 | (pixel[0] & 3) << 4 | (pixel[1] & 3) << 2 | (pixel[2] & 3)
 }
 
-/// The Cart addresses an Export may change.
 fn claimed_addresses(claim: &Claim) -> BTreeSet<usize> {
     let mut addresses: BTreeSet<usize> = (SHA1_AT..SHA1_AT + 20).collect();
     for slot in &claim.sfx {
         let at = SFX_AT + usize::from(*slot) * 68;
         addresses.extend(at..at + 68);
     }
-    let (first, last) = claim.patterns.unwrap();
+    let (first, last) = claim.first_and_last_pattern.unwrap();
     for slot in first..=last {
         let at = PATTERNS_AT + usize::from(slot) * 4;
         addresses.extend(at..at + 4);

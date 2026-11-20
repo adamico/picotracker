@@ -1,5 +1,3 @@
-//! The file list, drawn in the right-hand slot while a file is opened, saved or Imported.
-
 use super::{HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
 use crate::app::files::DirectoryEntry;
@@ -29,7 +27,6 @@ pub enum Purpose {
 }
 
 impl Purpose {
-    /// Whether the list shows a file with this name.
     fn lists(self, name: &str) -> bool {
         match self {
             Self::Open | Self::SaveAs => is_project_file(name),
@@ -56,8 +53,6 @@ struct Row {
     is_directory: bool,
 }
 
-/// A folder's contents, with a name field when saving and the recent Projects when opening.
-/// The picked row counts the name field first, then the recent Projects, then the folder's rows.
 #[derive(Debug)]
 pub struct FileList {
     purpose: Purpose,
@@ -82,7 +77,6 @@ impl FileList {
         }
     }
 
-    /// Offers these Project files above the folder, with the cursor on the first.
     pub fn with_recent(mut self, recent: Vec<PathBuf>) -> Self {
         self.recent_projects = recent;
         self
@@ -92,8 +86,6 @@ impl FileList {
         self.purpose
     }
 
-    /// Shows what a folder holds: its folders, then the files this list is for, each in name
-    /// order.
     pub fn show(&mut self, directory: PathBuf, entries: Vec<DirectoryEntry>) {
         let mut rows: Vec<Row> = entries
             .into_iter()
@@ -107,31 +99,29 @@ impl FileList {
         rows.insert(0, parent_row());
         self.directory = directory;
         self.rows = rows;
-        // The first listing starts on the newest recent Project. Later ones start on the folder.
+        let newest_recent_project = 0;
+        let first_folder_row = self.recent_projects.len();
         self.picked = if self.listed {
-            self.recent_projects.len()
+            first_folder_row
         } else {
-            0
+            newest_recent_project
         };
         self.listed = true;
     }
 
-    /// Rows above the folder's contents: the name field when saving.
     fn name_rows(&self) -> usize {
         usize::from(self.purpose == Purpose::SaveAs)
     }
 
-    /// Rows above the folder's contents: the name field and the recent Projects.
     fn top_rows(&self) -> usize {
         self.name_rows() + self.recent_projects.len()
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.picked = stepped(self.picked, rows, self.rows.len() + self.top_rows());
     }
 
-    /// Types one character of the file name, if a file name can hold it.
     pub fn type_char(&mut self, ch: char) {
         let allowed = ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.');
         if self.purpose == Purpose::SaveAs && allowed && self.name.len() < MAX_NAME {
@@ -145,7 +135,6 @@ impl FileList {
         self.picked = 0;
     }
 
-    /// What Enter does on the picked row.
     pub fn choose(&mut self) -> Choice {
         let Some(index) = self.picked.checked_sub(self.name_rows()) else {
             return self.save_choice();
@@ -253,7 +242,6 @@ fn is_project_file(name: &str) -> bool {
     name.to_lowercase().ends_with(PROJECT_EXTENSION)
 }
 
-/// The folder above this one, worked out from the path alone.
 fn parent_of(directory: &Path) -> PathBuf {
     match directory.components().next_back() {
         Some(Component::Normal(_)) => directory
@@ -263,7 +251,6 @@ fn parent_of(directory: &Path) -> PathBuf {
     }
 }
 
-/// The end of a text that fits a width, so that the part being typed stays in view.
 fn tail(text: &str, width: usize) -> &str {
     let extra = text.chars().count().saturating_sub(width);
     text.char_indices()

@@ -1,6 +1,3 @@
-//! The audio stream: the Player runs on its own thread and reaches the device through lock-free
-//! queues, so the UI thread and the device callback never wait for each other.
-
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use pikutracker_core::player::{AudioRequest, PlaybackReport, Player, Resampler};
@@ -18,7 +15,6 @@ const DEVICE_QUEUE_SECONDS: f32 = 0.02;
 const MIN_QUEUED_FRAMES: usize = 256;
 const SYNTH_THREAD_NAP: Duration = Duration::from_millis(1);
 
-/// A running audio stream. Dropping it stops the sound and the synth thread.
 pub struct AudioOutput {
     requests: Producer<AudioRequest>,
     reports: Consumer<PlaybackReport>,
@@ -28,7 +24,6 @@ pub struct AudioOutput {
 }
 
 impl AudioOutput {
-    /// Opens the default output device and starts the synth thread.
     pub fn start() -> Result<Self, Box<dyn Error>> {
         let device = cpal::default_host()
             .default_output_device()
@@ -76,7 +71,6 @@ impl AudioOutput {
         })
     }
 
-    /// The newest report from the synth thread since the last call, if there is one.
     pub fn latest_report(&mut self) -> Option<PlaybackReport> {
         let mut latest = None;
         while let Ok(report) = self.reports.pop() {
@@ -85,7 +79,6 @@ impl AudioOutput {
         latest
     }
 
-    /// Passes a request to the synth thread.
     pub fn send(&mut self, request: AudioRequest) {
         if self.requests.push(request).is_err() {
             eprintln!("pikutracker: the audio request queue is full");
@@ -102,7 +95,6 @@ impl Drop for AudioOutput {
     }
 }
 
-/// Keeps the device's queue full until the output closes.
 fn run_synth(
     running: &AtomicBool,
     device_rate: u32,
@@ -124,7 +116,6 @@ fn run_synth(
             }
         }
         if last_report.elapsed() >= PLAYHEAD_REPORT_INTERVAL {
-            // A full queue only means the UI is busy: the next report says the same and more.
             let _ = reports.push(player.report());
             last_report = Instant::now();
         }
@@ -132,7 +123,6 @@ fn run_synth(
     }
 }
 
-/// Builds a stream that copies queued frames to every channel, with silence if the queue is empty.
 fn open_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,

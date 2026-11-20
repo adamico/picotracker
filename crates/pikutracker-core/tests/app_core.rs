@@ -1,5 +1,3 @@
-//! Drives the headless App core with named actions and reads the character grid back as text.
-
 use pikutracker_core::app::{Action, App, Direction};
 
 const FIRST_SONG_LINE: usize = 2;
@@ -22,7 +20,6 @@ fn line(app: &App, index: usize) -> String {
         .to_owned()
 }
 
-/// The text of one pane on one line, cut out by its columns in the budget.
 fn pane_text(app: &App, index: usize, columns: std::ops::Range<usize>) -> String {
     let text: String = line(app, index)
         .chars()

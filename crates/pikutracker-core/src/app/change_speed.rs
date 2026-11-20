@@ -1,5 +1,3 @@
-//! Change Speed: a new Speed typed for the Phrase on show scales many Phrases by the same ratio.
-
 use super::messages::Report;
 use super::selection::{CellPosition, CellRange};
 use super::{Action, App, CHAIN_ENTRIES, Focus, NO_PHRASE_HERE};
@@ -12,8 +10,6 @@ const MAX_SPEED: u32 = 255;
 const ARPEGGIO_SPEED: u8 = 8;
 const BAD_SPEED: &str = "SPEED MUST BE 01-FF  ";
 
-/// The new Speed being typed on the status line. The scope is settled when the question opens, so
-/// that nothing the Playhead does while the user types can change it.
 #[derive(Debug)]
 pub(super) struct SpeedEntry {
     shown: PhraseId,
@@ -44,7 +40,6 @@ impl SpeedEntry {
         entry
     }
 
-    /// The question on the status line.
     pub(super) fn text(&self) -> &str {
         &self.text
     }
@@ -83,7 +78,6 @@ impl SpeedEntry {
         self.write_question();
     }
 
-    /// The Speed typed so far, if it is one a Phrase can have.
     fn typed_speed(&self) -> Option<u8> {
         let speed = self
             .digits
@@ -93,9 +87,7 @@ impl SpeedEntry {
     }
 }
 
-/// A Speed scaled by a ratio, rounded to the nearest whole Speed and kept inside 1 to 255, and
-/// whether that is exactly what the ratio asked for.
-fn scaled(speed: u8, new: u8, old: u8) -> (u8, bool) {
+fn scaled_speed_and_exactness(speed: u8, new: u8, old: u8) -> (u8, bool) {
     let (new, old) = (u32::from(new), u32::from(old));
     let product = u32::from(speed) * new;
     let rounded = (2 * product + old) / (2 * old);
@@ -103,7 +95,6 @@ fn scaled(speed: u8, new: u8, old: u8) -> (u8, bool) {
     (kept as u8, product % old == 0 && kept == rounded)
 }
 
-/// Whether arpeggios play at a different rate after this change of Speed.
 const fn crossed_arpeggio_speed(before: u8, after: u8) -> bool {
     (before <= ARPEGGIO_SPEED) != (after <= ARPEGGIO_SPEED)
 }
@@ -112,7 +103,6 @@ fn all_chains() -> impl Iterator<Item = ChainId> {
     (0..=u8::MAX).map(ChainId::new)
 }
 
-/// Every cell of the Song.
 fn whole_song() -> CellRange {
     CellRange::between(
         CellPosition { column: 0, row: 0 },
@@ -124,7 +114,6 @@ fn whole_song() -> CellRange {
 }
 
 impl App {
-    /// Asks for the new Speed of the Phrase on show.
     pub(super) fn ask_for_speed(&mut self) {
         let Some(shown) = self.phrase_under_cursor() else {
             self.remark = Some(NO_PHRASE_HERE);
@@ -134,7 +123,6 @@ impl App {
         self.speed_entry = Some(SpeedEntry::new(shown, shown_speed, self.speed_scope()));
     }
 
-    /// The distinct Phrases to scale, and how many of them are also used outside the scope.
     fn speed_scope(&self) -> (Vec<PhraseId>, usize) {
         match (self.focus, self.selected_cells()) {
             (Focus::Song, Some(cells)) => self.song_scope(cells),
@@ -143,8 +131,6 @@ impl App {
         }
     }
 
-    /// The Phrases of the Chains in a range of Song cells. A Phrase is used elsewhere when a Chain
-    /// outside the range plays it, or when one of its Chains is also placed outside it.
     fn song_scope(&self, cells: CellRange) -> (Vec<PhraseId>, usize) {
         let chains = self.chains_in(cells);
         let phrases = self.phrases_of(&chains);
@@ -168,8 +154,6 @@ impl App {
         })
     }
 
-    /// The Phrases of the selected entries of the Chain on show. A Phrase is used elsewhere when
-    /// another entry of this Chain or any other Chain plays it.
     fn chain_scope(&self, cells: CellRange) -> (Vec<PhraseId>, usize) {
         let Some(id) = self.chain_under_cursor() else {
             return (Vec::new(), 0);
@@ -198,7 +182,6 @@ impl App {
         (phrases, used_elsewhere)
     }
 
-    /// The question on the status line takes the keys while it is open.
     pub(super) fn use_speed_entry(&mut self, action: Action) {
         let Some(entry) = self.speed_entry.as_mut() else {
             return;
@@ -218,7 +201,6 @@ impl App {
         }
     }
 
-    /// Scales every Phrase in scope, and reports what that did.
     fn apply_speed(&mut self, new: u8) {
         let Some(entry) = self.speed_entry.take() else {
             return;
@@ -226,7 +208,7 @@ impl App {
         let (mut changed, mut inexact, mut crossed) = (0, 0, 0);
         for id in &entry.phrases {
             let before = self.project.phrase(*id).speed();
-            let (after, exact) = scaled(before, new, entry.shown_speed);
+            let (after, exact) = scaled_speed_and_exactness(before, new, entry.shown_speed);
             self.project.phrase_mut(*id).set_speed(i32::from(after));
             changed += usize::from(after != before);
             inexact += usize::from(!exact);

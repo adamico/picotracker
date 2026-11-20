@@ -1,5 +1,3 @@
-//! What replacing the Project does to playback, Mute and Solo.
-
 use pikutracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
 use pikutracker_core::player::{AudioRequest, Player, TrackMix};
 use pikutracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
@@ -22,7 +20,6 @@ fn song() -> Project {
     project
 }
 
-/// Picks `next.ptrk` in the file list, as the Window shell and the user would.
 fn choose_next_file(app: &mut App) {
     app.apply(Action::OpenProject);
     for request in app.take_file_requests() {
@@ -36,12 +33,14 @@ fn choose_next_file(app: &mut App) {
             });
         }
     }
-    // The first row of the list is the parent folder.
-    app.apply(Action::Move(Direction::Down));
+    move_past_the_parent_folder_row(app);
     app.apply(CONFIRM);
 }
 
-/// Opens a Project through the file list.
+fn move_past_the_parent_folder_row(app: &mut App) {
+    app.apply(Action::Move(Direction::Down));
+}
+
 fn open(app: &mut App, project: &Project) {
     let path = PathBuf::from("./next.ptrk");
     choose_next_file(app);

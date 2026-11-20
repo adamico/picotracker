@@ -1,5 +1,3 @@
-//! Hearing a Phrase: actions in, audio requests out, and offline-rendered samples from the Player.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -18,13 +16,11 @@ const SPEED: usize = 8;
 const STEP_SAMPLES: usize = SPEED * SAMPLES_PER_TICK as usize;
 const CROSSFADE_SAMPLES: usize = 300;
 
-/// An app with the Phrase pane focused, writing triangle notes at Speed 8 with LEN 4.
 fn phrase_app() -> App {
     let mut app = App::new();
     apply(
         &mut app,
         &[
-            // Chain 00 on the first Song row, holding Phrase 00.
             Action::HexDigit(0),
             Action::FocusNext,
             Action::HexDigit(0),
@@ -47,7 +43,6 @@ fn phrase_app() -> App {
     app
 }
 
-/// Plays whatever the app has asked for and renders samples.
 fn render(app: &mut App, player: &mut Player, samples: usize) -> Vec<f32> {
     for request in app.take_audio_requests() {
         player.handle(request);
@@ -66,7 +61,6 @@ fn frequency_at(samples: &[f32], rate: u32) -> f32 {
     (rising.len() - 1) as f32 * rate as f32 / (last - first) as f32
 }
 
-/// The frequency during one Step of the render, counting from the first Step played.
 fn step_frequency(samples: &[f32], step: usize) -> f32 {
     let start = step * STEP_SAMPLES + CROSSFADE_SAMPLES;
     frequency_at(&samples[start..(step + 1) * STEP_SAMPLES], SAMPLE_RATE)
@@ -85,11 +79,9 @@ fn assert_near(actual: f32, expected: f32) {
     );
 }
 
-/// Writes A-2 on Step 0 and A-3 on Step 2, and leaves the cursor on Step 2.
 fn two_note_app() -> App {
     let mut app = phrase_app();
     apply(&mut app, &[A_440, DOWN, A_880, UP]);
-    // Entering the notes previewed them; these tests are about what plays afterwards.
     app.take_audio_requests();
     app
 }

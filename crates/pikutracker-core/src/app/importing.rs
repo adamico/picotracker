@@ -1,6 +1,3 @@
-//! Cart Import and MIDI Import: turns the bytes of a chosen file into a new Project and reports
-//! what could not be kept.
-
 use super::files::{folder_of, shown_name};
 use super::focus::Focus;
 use super::history::CursorPlace;
@@ -23,14 +20,12 @@ pub(super) enum ImportKind {
     Midi,
 }
 
-/// The song picker, and where the cursor was before it opened, to go back to.
 #[derive(Debug)]
 pub(super) struct PickingSong {
     pub(super) picker: SongPicker,
     pub(super) cursor_before: CursorPlace,
 }
 
-/// Decides how a file is Imported, from its name. Files of no kind are not listed for Import.
 pub(super) fn import_kind(file_name: &str) -> Option<ImportKind> {
     let name = file_name.to_lowercase();
     if name.ends_with(".p8") || name.ends_with(".p8.png") {
@@ -42,7 +37,6 @@ pub(super) fn import_kind(file_name: &str) -> Option<ImportKind> {
     }
 }
 
-/// An Import warning as a Log item, which jumps to the place it is about.
 fn warning_item(text: String, place: Option<SongPlace>) -> LogItem {
     let item = LogItem::new(Severity::Warning, text);
     match place {
@@ -51,12 +45,10 @@ fn warning_item(text: String, place: Option<SongPlace>) -> LogItem {
     }
 }
 
-/// What an Import of one song of a Cart reports it Imported, such as `SONG 2 OF DEMO.P8`.
 fn song_source(number: usize, cart_name: &str) -> String {
     format!("SONG {number} OF {cart_name}")
 }
 
-/// The result of an Import: its warnings, if any, go to the Log.
 fn import_report(source: &str, warnings: Vec<LogItem>) -> Report {
     if warnings.is_empty() {
         return Report::info(format!("IMPORTED {source}"));
@@ -78,7 +70,6 @@ impl App {
         }
     }
 
-    /// Opens the MIDI Import dialog on a file's bytes, or says why the file cannot be Imported.
     pub fn start_midi_import(&mut self, path: impl AsRef<Path>, contents: &[u8]) {
         let path = path.as_ref();
         let name = shown_name(path);
@@ -92,7 +83,6 @@ impl App {
         }
     }
 
-    /// The MIDI Import dialog takes the keys while it is open.
     pub(super) fn use_midi_dialog(&mut self, action: Action) {
         let Some(dialog) = self.midi_dialog.as_mut() else {
             return;
@@ -114,8 +104,6 @@ impl App {
         }
     }
 
-    /// Opens a Cart's song as a new Project, which has no file until it is saved. A Cart with
-    /// several songs opens the song picker first.
     fn import_cart(&mut self, path: PathBuf, file_name: &str, contents: &[u8]) {
         let name = shown_name(&path);
         let cart = match Cart::read(contents) {
@@ -149,7 +137,6 @@ impl App {
         self.report(import_report(source, items));
     }
 
-    /// Opens the song picker with the panes at the top of the highlighted song.
     fn open_song_picker(&mut self, picker: SongPicker) {
         let cursor_before = self.cursor_place();
         self.selection_start = None;
@@ -164,8 +151,6 @@ impl App {
         }));
     }
 
-    /// The song picker takes the keys while it is open. P listens to the highlighted song, Enter
-    /// Imports it and Esc goes back to the open Project.
     pub(super) fn use_song_picker(&mut self, action: Action) {
         let Some(picking) = self.picking_song.as_mut() else {
             return;

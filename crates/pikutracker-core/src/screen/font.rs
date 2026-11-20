@@ -1,13 +1,8 @@
-//! Our own 5×7 bitmap font, drawn for pikutracker.
-
 pub const GLYPH_WIDTH: usize = 5;
 pub const GLYPH_HEIGHT: usize = 7;
 
-/// One glyph: seven rows, with bit 4 as the left-most pixel.
 pub type Glyph = [u8; GLYPH_HEIGHT];
 
-/// The glyph for a character. Lowercase letters use their capitals, and a character the font
-/// does not have shows as `?`.
 pub fn glyph(ch: char) -> Glyph {
     match ch.to_ascii_uppercase() {
         ' ' => [

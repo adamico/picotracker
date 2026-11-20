@@ -1,5 +1,3 @@
-//! The recent Projects at the top of the Open file list.
-
 mod support;
 
 use pikutracker_core::app::{
@@ -27,8 +25,6 @@ fn right_slot(app: &App, line: usize) -> String {
     text.trim_end().to_owned()
 }
 
-/// Launches with these recent Projects, the most recent first. The last one fails to open, so
-/// the app starts with an untitled Project.
 fn launch_remembering(paths: &[&str]) -> App {
     let mut app = App::new();
     app.launch(Launch {
@@ -188,7 +184,6 @@ fn with_no_recent_projects_the_list_starts_with_the_folder() {
     assert_eq!(right_slot(&app, 2), ">../");
 }
 
-/// The recent Projects in the `state.ron` the app has just asked to write, as its text names them.
 fn recent_projects_written(app: &mut App) -> String {
     let requests = app.take_file_requests();
     let written = requests.iter().find_map(|request| match request {

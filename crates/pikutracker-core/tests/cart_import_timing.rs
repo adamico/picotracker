@@ -1,7 +1,3 @@
-//! Cart Import rebuilds what PICO-8 plays (ADR 0006). Every Cart here is generated in test code.
-//! None was saved by PICO-8. The expected lengths come from the spec and the PICO-8 measurements
-//! recorded with it.
-
 mod support;
 
 use pikutracker_core::cart::Cart;
@@ -17,7 +13,6 @@ fn imported(cart: &TestCart) -> (Project, Vec<String>) {
     (imported.project, warnings)
 }
 
-/// A Cart with one Pattern playing SFX 0, 1, 2 and 3 on the first channels.
 fn one_pattern(sfx: Vec<TestSfx>) -> TestCart {
     let mut channels = [None; 4];
     for (channel, slot) in channels.iter_mut().zip(0..sfx.len() as u8) {
@@ -29,7 +24,6 @@ fn one_pattern(sfx: Vec<TestSfx>) -> TestCart {
     }
 }
 
-/// An SFX at this Speed with 32 different audible notes, pitched 10, 11, 12 and so on.
 fn counting(speed: u8) -> TestSfx {
     let pitches: Vec<u8> = (10..42).collect();
     TestSfx::with_pitches(speed, &pitches)
@@ -55,7 +49,6 @@ fn phrase(project: &Project, track: usize, chain_row: usize) -> &Phrase {
     project.phrase(entry(project, track, chain_row).phrase())
 }
 
-/// The pitches of the Steps inside LEN, with silent Steps as `None`.
 fn pitches(phrase: &Phrase) -> Vec<Option<u8>> {
     (0..phrase.length())
         .map(|index| phrase.step(index))
@@ -82,7 +75,6 @@ fn the_left_most_non_looping_channel_sets_the_length_and_cuts_off_the_others() {
 
 #[test]
 fn a_pattern_ending_partway_through_a_step_drops_that_step_with_a_warning() {
-    // 5 Steps at Speed 8 last 40 Ticks, which is 13 Steps at Speed 3 and one Tick over.
     let cart = one_pattern(vec![with_len(counting(8), 5), counting(3)]);
 
     let (project, warnings) = imported(&cart);
@@ -131,7 +123,6 @@ fn a_lead_in_loop_is_unrolled() {
 
 #[test]
 fn an_unroll_over_32_steps_becomes_fill_over_the_loop_body_with_a_warning() {
-    // 32 Steps at Speed 16 last 512 Ticks, which is 64 Steps at Speed 8.
     let cart = one_pattern(vec![counting(16), looping(counting(8), 2, 6)]);
 
     let (project, warnings) = imported(&cart);
@@ -288,13 +279,10 @@ fn len_above_32_splits_the_pattern_into_chain_rows_of_one_song_row() {
     assert_eq!(project.chain_row_ticks(0, 1), 64);
     assert_eq!(project.chain_row_ticks(0, 2), 0);
     assert!(project.song_row_is_empty(1));
-    // Steps past 32 are silent on the channel that sets the length.
     assert_eq!(pitches(phrase(&project, 0, 0)), audible(10..42));
     assert_eq!(pitches(phrase(&project, 0, 1)), [None; 8]);
-    // A channel with nothing left to play has no entry in the later Chain row.
     assert_eq!(pitches(phrase(&project, 1, 0)), audible(10..42));
     assert_eq!(project.chain_row_entry(0, 1, 1), None);
-    // A channel still sounding is unrolled into plain Phrases.
     assert!(!entry(&project, 2, 0).fill());
     assert!(!entry(&project, 2, 1).fill());
     assert_eq!(phrase(&project, 2, 0).length(), 32);
@@ -322,7 +310,6 @@ fn len_64_lasts_exactly_two_chain_rows() {
 
 #[test]
 fn a_step_straddling_a_split_is_dropped_with_a_warning() {
-    // The split falls on Tick 96, inside the 20th Step at Speed 5. The Pattern ends on Tick 120.
     let cart = one_pattern(vec![with_len(counting(3), 40), looping(counting(5), 0, 4)]);
 
     let (project, warnings) = imported(&cart);
@@ -337,8 +324,6 @@ fn a_step_straddling_a_split_is_dropped_with_a_warning() {
 
 #[test]
 fn steps_that_a_split_moves_early_are_reported() {
-    // The split falls on Tick 96. The next Step at Speed 5 starts on Tick 100, but a Phrase can only
-    // start at the start of its Chain row.
     let cart = one_pattern(vec![with_len(counting(3), 40), counting(5)]);
 
     let (_, warnings) = imported(&cart);
@@ -374,7 +359,6 @@ fn a_song_that_still_fits_its_claim_gets_no_claim_warning() {
 
 #[test]
 fn a_song_with_more_phrases_than_a_project_holds_warns_and_still_imports() {
-    // Four different LENs give every placement of a loop its own last Chain row.
     let mut sfx: Vec<TestSfx> = (0..60)
         .map(|slot: u8| {
             let notes: Vec<u8> = (0..7).map(|note| (slot + note) % 64).collect();
@@ -400,8 +384,7 @@ fn a_song_with_more_phrases_than_a_project_holds_warns_and_still_imports() {
     );
 }
 
-/// Gives these notes of an SFX the fast arpeggio effect.
-fn with_arpeggio(mut sfx: TestSfx, notes: std::ops::Range<usize>) -> TestSfx {
+fn with_fast_arpeggio(mut sfx: TestSfx, notes: std::ops::Range<usize>) -> TestSfx {
     for note in &mut sfx.notes[notes] {
         note.effect = 6;
     }
@@ -411,7 +394,7 @@ fn with_arpeggio(mut sfx: TestSfx, notes: std::ops::Range<usize>) -> TestSfx {
 #[test]
 fn an_arpeggio_reading_notes_past_len_imports_with_the_same_sound() {
     let mut sfx = with_len(counting(8), 6);
-    sfx = with_arpeggio(sfx, 4..6);
+    sfx = with_fast_arpeggio(sfx, 4..6);
     sfx.notes[6].pitch = 40;
     sfx.notes[7].pitch = 44;
     let cart = one_pattern(vec![sfx]);
@@ -426,7 +409,7 @@ fn an_arpeggio_reading_notes_past_len_imports_with_the_same_sound() {
 
 #[test]
 fn an_unrolled_loop_that_moves_an_arpeggio_group_warns() {
-    let looped = with_arpeggio(looping(counting(8), 2, 5), 2..5);
+    let looped = with_fast_arpeggio(looping(counting(8), 2, 5), 2..5);
     let cart = one_pattern(vec![with_len(counting(8), 10), looped]);
 
     let (_, warnings) = imported(&cart);
@@ -439,7 +422,7 @@ fn an_unrolled_loop_that_moves_an_arpeggio_group_warns() {
 
 #[test]
 fn an_arpeggio_in_the_lead_in_of_an_unrolled_loop_keeps_its_sound() {
-    let sfx = with_arpeggio(looping(counting(8), 4, 8), 0..4);
+    let sfx = with_fast_arpeggio(looping(counting(8), 4, 8), 0..4);
     let cart = one_pattern(vec![sfx]);
 
     let (project, warnings) = imported(&cart);
@@ -455,7 +438,6 @@ fn an_arpeggio_in_the_lead_in_of_an_unrolled_loop_keeps_its_sound() {
 
 #[test]
 fn a_loop_past_the_last_note_does_not_set_the_length_and_stays_silent_after_note_31() {
-    // PICO-8 plays notes 0 to 31 and then stays silent, for as long as the Pattern lasts.
     let cart = one_pattern(vec![looping(counting(1), 32, 33), counting(8)]);
 
     let (project, warnings) = imported(&cart);

@@ -1,5 +1,3 @@
-//! The status line on the bottom row of the grid.
-
 use super::layout::STATUS_ROW;
 use super::messages::{Look, Notice};
 use crate::screen::grid::{GRID_COLUMNS, Grid, Style};
@@ -40,7 +38,6 @@ pub enum StatusLine<'a> {
     Idle { project: &'a str, unsaved: bool },
 }
 
-/// Draws the status line.
 pub fn draw(grid: &mut Grid, status: &StatusLine<'_>) {
     match status {
         StatusLine::Question(text) => draw_bar(grid, text, QUESTION),

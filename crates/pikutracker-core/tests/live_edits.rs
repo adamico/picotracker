@@ -1,5 +1,3 @@
-//! Editing while the music plays: actions in, offline-rendered samples from the Player.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -48,7 +46,6 @@ fn place(project: &mut Project, row: usize, track: usize, chain: u8, phrase: Phr
     project.set_song_cell(row, track, Some(id));
 }
 
-/// Plays whatever the app has asked for and renders a number of Steps.
 fn render(app: &mut App, player: &mut Player, steps: usize) -> Vec<f32> {
     for request in app.take_audio_requests() {
         player.handle(request);
@@ -75,7 +72,6 @@ fn step_peak(samples: &[f32], step: usize) -> f32 {
         .fold(0.0, |peak, sample| peak.max(sample.abs()))
 }
 
-/// Checks what each Step of a render sounds like: a frequency, or silence for 0.
 fn assert_steps(samples: &[f32], expected: &[f32]) {
     for (step, frequency) in expected.iter().enumerate() {
         if *frequency == 0.0 {
@@ -91,7 +87,6 @@ fn assert_steps(samples: &[f32], expected: &[f32]) {
     }
 }
 
-/// A Song of one Phrase of four A-2 Steps, followed by a row of A-3.
 fn four_steps_then_a3() -> Project {
     let mut project = Project::new();
     let first = write(&mut project, 1, &[A2, A2, A2, A2]);
@@ -101,7 +96,6 @@ fn four_steps_then_a3() -> Project {
     project
 }
 
-/// Starts the Song, with the Phrase pane focused on the first Step of the first Phrase.
 fn playing_in_phrase_pane(project: Project) -> App {
     let mut app = App::with_project(project);
     apply(&mut app, &[TAB, TAB, PLAY_SONG]);
@@ -196,14 +190,12 @@ fn a_speed_change_applies_from_the_next_step() {
     let mut samples = render(&mut app, &mut player, 0);
     samples.extend(player.render(STEP_SAMPLES / 2));
 
-    // Speed 0x10 is twice as slow as Speed 8.
     apply(
         &mut app,
         &[UP, UP, UP, Action::HexDigit(1), Action::HexDigit(0)],
     );
     samples.extend(render(&mut app, &mut player, 5));
 
-    // The sounding Step keeps its Speed; the next ones last two Steps of Speed 8.
     assert_steps(&samples, &[440.0, 880.0, 880.0, 220.0, 220.0]);
 }
 
@@ -221,7 +213,6 @@ fn a_phrase_shortened_past_the_playhead_ends_its_entry() {
     let rest = render(&mut app, &mut player, 2);
     samples.extend(rest);
 
-    // The sounding Step finishes, then the Chain row ends under its new length.
     assert_steps(&samples, &[440.0, 440.0, 440.0, 880.0]);
 }
 
@@ -243,11 +234,9 @@ fn a_cleared_entry_stays_silent_until_the_next_chain_row() {
     app.apply(Action::Clear);
     samples.extend(render(&mut app, &mut player, 4));
 
-    // The Rests on Track 1 keep the Chain row at its length.
     assert_steps(&samples, &[440.0, 440.0, 0.0, 0.0, 880.0]);
 }
 
-/// A Song of three one-Step rows: 220 Hz, then 440 Hz, then 880 Hz.
 fn three_row_song() -> Project {
     let mut project = Project::new();
     let first = write(&mut project, 1, &[A1]);
@@ -270,7 +259,6 @@ fn an_emptied_song_row_acts_like_reaching_an_empty_row() {
     apply(&mut app, &[DOWN, Action::Clear]);
     samples.extend(render(&mut app, &mut player, 2));
 
-    // Row 01 finishes its Step, then the Song jumps to its loop row instead of going on to 02.
     assert_steps(&samples, &[220.0, 440.0, 220.0]);
 }
 

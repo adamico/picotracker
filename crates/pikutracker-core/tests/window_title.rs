@@ -1,5 +1,3 @@
-//! The window title names the Project and marks unsaved changes, as the status line does.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, FileResponse, Launch, SettingsContents};
@@ -8,7 +6,6 @@ use pikutracker_core::project_file;
 use std::path::PathBuf;
 use support::state_ron;
 
-/// Opens a Project the way launch reopens the last one.
 fn open(app: &mut App, path: &str) {
     app.launch(Launch {
         config_file: None,

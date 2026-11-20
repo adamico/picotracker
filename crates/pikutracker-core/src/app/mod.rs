@@ -1,5 +1,3 @@
-//! The App core: named actions in; the character grid out.
-
 mod action;
 mod cell_edits;
 mod change_speed;
@@ -67,7 +65,6 @@ const BUILT_IN_INSTRUMENT: &str = "BUILT-IN INSTRUMENTS HAVE NO SETTINGS";
 const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 
-/// The whole application, with no window or audio device attached.
 #[derive(Debug)]
 pub struct App {
     project: Project,
@@ -122,12 +119,10 @@ impl Default for App {
 }
 
 impl App {
-    /// A new app with the Song pane focused.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A new app editing this Project, with the Song pane focused.
     pub fn with_project(project: Project) -> Self {
         Self {
             saved_project: project.clone(),
@@ -176,25 +171,21 @@ impl App {
         }
     }
 
-    /// The Project being edited.
     pub fn project(&self) -> &Project {
         &self.project
     }
 
-    /// The Project the panes show: the highlighted song while the song picker is open.
     fn shown_project(&self) -> &Project {
         self.picking_song
             .as_ref()
             .map_or(&self.project, |picking| picking.picker.project())
     }
 
-    /// The Chain under the Song cursor, which the Chain pane shows.
     pub fn chain_under_cursor(&self) -> Option<ChainId> {
         self.shown_project()
             .song_cell(self.song.row(), self.song.track())
     }
 
-    /// The Phrase under the Chain cursor, which the Phrase pane shows.
     pub fn phrase_under_cursor(&self) -> Option<PhraseId> {
         self.entry_under_cursor().map(ChainEntry::phrase)
     }
@@ -204,13 +195,11 @@ impl App {
         self.shown_project().chain(chain).entry(self.chain.entry())
     }
 
-    /// The Phrase the Phrase pane draws: a blank one when no Phrase is under the Chain cursor.
     fn shown_phrase(&self) -> Phrase {
         self.phrase_under_cursor()
             .map_or_else(Phrase::default, |id| *self.shown_project().phrase(id))
     }
 
-    /// What the keys that type characters do at the cursor.
     pub fn key_context(&self) -> KeyContext {
         if self.speed_entry.is_some() {
             return KeyContext::SpeedEntry;
@@ -247,20 +236,16 @@ impl App {
         }
     }
 
-    /// Hands over the audio requests made since the last call.
     pub fn take_audio_requests(&mut self) -> Vec<AudioRequest> {
         std::mem::take(&mut self.audio_requests)
     }
 
-    /// Tells the app that a play has ended by itself, by the number the Player gave it. A report
-    /// about any play but the latest changes nothing.
     pub fn playback_finished(&mut self, play: u64) {
         if play == self.latest_play {
             self.playing = false;
         }
     }
 
-    /// Takes in where playback has got to, and says whether the screen needs drawing again.
     pub fn show_playback(&mut self, report: &PlaybackReport) -> bool {
         self.playback_finished(report.finished_play);
         let playhead = report.playhead.filter(|_| self.playing);
@@ -274,22 +259,18 @@ impl App {
         changed
     }
 
-    /// The action a key going down triggers through the Keymap, if any. `at` is the time of the
-    /// press from any fixed start, which double-taps need. The caller applies the action.
-    pub fn key_down(&mut self, press: KeyPress, at: Duration) -> Option<Action> {
+    pub fn key_down(&mut self, press: KeyPress, pressed_at: Duration) -> Option<Action> {
         let context = self.key_context();
         let selecting = self.selection_start.is_some();
-        self.keyboard.key_down(press, context, selecting, at)
+        self.keyboard
+            .key_down(press, context, selecting, pressed_at)
     }
 
-    /// Tells the app that a key has gone up, which ends a note preview. Returns the action the key
-    /// held back for a chord that never came, if any, for the caller to apply.
     pub fn key_up(&mut self, key: Key) -> Option<Action> {
         self.key_released();
         self.keyboard.key_up(key)
     }
 
-    /// Tells the app that the held key has gone up, which ends a note preview.
     pub fn key_released(&mut self) {
         if self.previewing {
             self.previewing = false;
@@ -297,7 +278,6 @@ impl App {
         }
     }
 
-    /// The Step about to be edited, if the action can change a note that a preview would play.
     fn step_before_edit(&self, action: Action) -> Option<(usize, Step)> {
         let edits_note = matches!(
             action,
@@ -310,7 +290,6 @@ impl App {
         Some((index, self.shown_phrase().step(index)))
     }
 
-    /// Previews an entered or changed note while nothing is playing.
     fn preview_edit(&mut self, action: Action, index: usize, before: Step) {
         let phrase = self.shown_phrase();
         let step = phrase.step(index);
@@ -329,7 +308,6 @@ impl App {
         });
     }
 
-    /// Moves the panes to the Playhead.
     fn follow_playhead(&mut self) {
         let Some(playhead) = self.playhead else {
             return;
@@ -353,7 +331,6 @@ impl App {
         self.remark = Some(if self.follow { FOLLOW_ON } else { FOLLOW_OFF });
     }
 
-    /// Turns Follow off because the user has moved the cursor by hand, and says so.
     fn stop_following(&mut self) {
         if self.follow {
             self.follow = false;
@@ -361,8 +338,6 @@ impl App {
         }
     }
 
-    /// Tells the user the outcome of something they asked for. A result with items opens the Log
-    /// without taking focus.
     pub fn report(&mut self, report: Report) {
         self.notice = Some(Notice::new(report.severity, report.status_text()));
         if !report.items.is_empty() && !self.log_open {
@@ -372,7 +347,6 @@ impl App {
         self.log.add(report.into_log_items());
     }
 
-    /// Lets time pass, and says whether the status line now looks different.
     pub fn advance_time(&mut self, elapsed: Duration) -> bool {
         let Some(notice) = self.notice.as_mut() else {
             return false;
@@ -385,12 +359,10 @@ impl App {
         notice.look() != look
     }
 
-    /// How long until the status line next changes by itself, if it ever will.
     pub fn time_until_status_change(&self) -> Option<Duration> {
         self.notice.as_ref()?.time_until_change()
     }
 
-    /// Applies one named action. Whatever it changes in the Project becomes one undo entry.
     pub fn apply(&mut self, action: Action) {
         let merge = match action {
             _ if self.cart_view_has_focus() => Some(Merge::CartVisit(self.cart_visits)),
@@ -405,7 +377,6 @@ impl App {
         self.save_changed_state();
     }
 
-    /// Where the cursor is in every pane.
     fn cursor_place(&self) -> CursorPlace {
         CursorPlace {
             focus: self.focus,
@@ -416,7 +387,6 @@ impl App {
         }
     }
 
-    /// Puts the cursor back where a change was made.
     fn return_to(&mut self, place: CursorPlace) {
         self.selection_start = None;
         self.stop_following();
@@ -550,7 +520,6 @@ impl App {
         self.settle_after_edit();
     }
 
-    /// Keeps the cursor on the Phrase now showing, and lets the Player hear what changed.
     fn settle_after_edit(&mut self) {
         let shown = self.shown_phrase();
         self.phrase.keep_inside(&shown);
@@ -563,7 +532,6 @@ impl App {
             .push(AudioRequest::SetTrackMix(self.track_mix));
     }
 
-    /// Passes the Project to the Player when an action has changed what is playing.
     fn send_edits_to_the_player(&mut self) {
         if self.playing && *self.heard_project != self.project {
             let project = self.project_for_player();
@@ -572,7 +540,6 @@ impl App {
         }
     }
 
-    /// A copy of the Project for the Player, remembered as what it has heard.
     fn project_for_player(&mut self) -> Arc<Project> {
         self.heard_project = Arc::new(self.project.clone());
         Arc::clone(&self.heard_project)
@@ -599,8 +566,6 @@ impl App {
         }
     }
 
-    /// Enter on a Step's Instrument column opens the Instrument view, and Enter in the Log jumps to
-    /// the picked item's location.
     fn confirm(&mut self) {
         if self.focus == Focus::Phrase && self.phrase_under_cursor().is_some() {
             let shown = self.shown_phrase();
@@ -621,7 +586,6 @@ impl App {
         }
     }
 
-    /// Esc dismisses a lasting result first, and then closes the Log or leaves the Overview.
     fn cancel(&mut self) {
         if self.notice.as_ref().is_some_and(Notice::is_persistent) {
             self.notice = None;
@@ -641,7 +605,6 @@ impl App {
         self.instrument_view = Some(InstrumentView::new(instrument));
     }
 
-    /// What an action does while the Instrument view is open. Esc closes it, ending an audition.
     fn use_instrument_view(&mut self, action: Action) {
         let Some(view) = self.instrument_view.as_mut() else {
             return;
@@ -714,7 +677,6 @@ impl App {
         self.edit_chain(|pane, chain| pane.toggle_fill(chain));
     }
 
-    /// Edits the Chain under the Song cursor, or says why there is nothing to edit.
     fn edit_chain(&mut self, edit: impl FnOnce(&mut ChainPane, &mut Chain)) {
         let Some(id) = self.chain_under_cursor() else {
             self.remark = Some(NO_CHAIN_HERE);
@@ -727,7 +689,6 @@ impl App {
         edit(&mut self.chain, self.project.chain_mut(id));
     }
 
-    /// Edits the Phrase under the Chain cursor, or says that there is none.
     fn edit_phrase(&mut self, edit: impl FnOnce(&mut PhrasePane, &mut Phrase)) {
         match self.phrase_under_cursor() {
             Some(id) => edit(&mut self.phrase, self.project.phrase_mut(id)),
@@ -790,7 +751,6 @@ impl App {
         });
     }
 
-    /// Whether any entry of the Chain under the Song cursor holds a Phrase with a note in it.
     fn chain_under_cursor_sounds(&self) -> bool {
         self.chain_under_cursor().is_some_and(|id| {
             let chain = self.project.chain(id);
@@ -817,16 +777,13 @@ impl App {
         });
     }
 
-    /// Jumps the cursor as M8's OPTION with the arrows does: 16 Song rows in the Song pane, and
-    /// in the Chain and Phrase panes a Track to the side, or the Track's next Chain or the Chain's
-    /// next Phrase up or down.
     fn jump(&mut self, direction: Direction) {
         if self.focus == Focus::RightSlot {
             return;
         }
         self.stop_following();
         let (row, track) = (self.song.row(), self.song.track());
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         match (self.focus, direction) {
             (Focus::Song, Direction::Up) => {
                 self.song.jump_to(row.saturating_sub(SONG_JUMP_ROWS), track);
@@ -835,7 +792,7 @@ impl App {
             (Focus::Song, _) => {}
             (_, Direction::Left | Direction::Right) => self.song.move_cursor(direction),
             (Focus::Chain, _) => {
-                let next = next_index(row, rows, SONG_ROWS, |row| {
+                let next = next_held_index(row, rows, SONG_ROWS, |row| {
                     self.project.song_cell(row, track).is_some()
                 });
                 if let Some(next) = next {
@@ -847,7 +804,7 @@ impl App {
                     return;
                 };
                 let chain = self.project.chain(chain);
-                let next = next_index(self.chain.entry(), rows, CHAIN_ENTRIES, |entry| {
+                let next = next_held_index(self.chain.entry(), rows, CHAIN_ENTRIES, |entry| {
                     chain.entry(entry).is_some()
                 });
                 if let Some(next) = next {
@@ -864,11 +821,7 @@ impl App {
         match self.focus {
             Focus::Song => self.song.move_cursor(direction),
             Focus::Chain => self.chain.move_cursor(direction),
-            // The Phrase header cannot be selected, so a selection stops at the first Step.
-            Focus::Phrase
-                if self.selection_start.is_some()
-                    && direction == Direction::Up
-                    && self.phrase.step() == 0 => {}
+            Focus::Phrase if self.selection_would_reach_phrase_header(direction) => {}
             Focus::Phrase => {
                 let phrase = self.shown_phrase();
                 self.phrase.move_cursor(direction, &phrase);
@@ -878,7 +831,10 @@ impl App {
         }
     }
 
-    /// Draws the current state onto a fresh character grid.
+    fn selection_would_reach_phrase_header(&self, direction: Direction) -> bool {
+        self.selection_start.is_some() && direction == Direction::Up && self.phrase.step() == 0
+    }
+
     pub fn grid(&self) -> Grid {
         let mut grid = Grid::new();
         if let Some(dialog) = &self.midi_dialog {
@@ -897,7 +853,6 @@ impl App {
             return grid;
         }
         let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
-        // The file list and the song picker take the keys while open, so no pane shows a cursor.
         let takes_keys = self.file_list.is_some() || self.picking_song.is_some();
         let focus = (!takes_keys).then_some(self.focus);
         let project = self.shown_project();
@@ -959,7 +914,7 @@ impl App {
                 &mut grid,
                 layout::RIGHT_SLOT,
                 right_slot_focused,
-                self.project.export_tracks(),
+                self.project.export_track_numbers(),
                 &self.scope,
             );
         }
@@ -969,7 +924,6 @@ impl App {
         grid
     }
 
-    /// What the status line shows: what most needs the user's attention comes first.
     fn status_line<'a>(&'a self, project: &'a str) -> StatusLine<'a> {
         if let Some(entry) = &self.speed_entry {
             return StatusLine::Question(entry.text());
@@ -1003,9 +957,7 @@ impl App {
     }
 }
 
-/// The nearest index past `from`, one step at a time in the direction of `step`, that `holds`
-/// something.
-fn next_index(
+fn next_held_index(
     from: usize,
     step: isize,
     count: usize,

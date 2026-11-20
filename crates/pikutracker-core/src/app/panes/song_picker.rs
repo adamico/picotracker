@@ -1,6 +1,3 @@
-//! The song picker, drawn in the right-hand slot when a Cart holds several songs. The Song pane
-//! previews the highlighted song until one is Imported.
-
 use super::{EMPTY, HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
 use crate::app::layout::Area;
@@ -24,14 +21,12 @@ pub const SONG_PICKER_KEYS: &str = "UP/DOWN PICK  P LISTEN  ENTER IMPORT  ESC BA
 
 const POINTER: Style = Style::fg(Colour::Yellow);
 
-/// One song of the Cart, Imported ahead so that the Song pane can preview it.
 #[derive(Debug)]
 struct Choice {
     song: CartSong,
     imported: ImportedCart,
 }
 
-/// The songs of one Cart and the highlighted one. Nothing reaches the open Project until Import.
 #[derive(Debug)]
 pub struct SongPicker {
     name: String,
@@ -41,7 +36,6 @@ pub struct SongPicker {
 }
 
 impl SongPicker {
-    /// Imports each song of a Cart whose Target Cart is at `cart_path`.
     pub fn new(
         name: String,
         folder: PathBuf,
@@ -64,17 +58,15 @@ impl SongPicker {
         }
     }
 
-    /// The highlighted song as a Project.
     pub fn project(&self) -> &Project {
         &self.choices[self.picked].imported.project
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.picked = stepped(self.picked, rows, self.choices.len());
     }
 
-    /// The Cart's shown name, its folder, the highlighted song's number from 1 and its Import.
     pub fn finish(mut self) -> (String, PathBuf, usize, ImportedCart) {
         let number = self.picked + 1;
         let imported = self.choices.swap_remove(self.picked).imported;
@@ -92,7 +84,6 @@ impl SongPicker {
         }
     }
 
-    /// Draws a song's Pattern range, SFX count, length, ending and Custom Instruments.
     fn draw_song(&self, grid: &mut Grid, column: usize, row: usize, index: usize) {
         let choice = &self.choices[index];
         if index == self.picked {
@@ -114,7 +105,7 @@ impl SongPicker {
         let sfx = project
             .target_cart()
             .map_or(0, |target| target.claim.sfx.len());
-        let ending = if choice.song.loop_row.is_some() {
+        let ending = if choice.song.loop_back_row.is_some() {
             "LOOP"
         } else {
             "STOP"
@@ -139,7 +130,6 @@ impl SongPicker {
     }
 }
 
-/// How long a Song plays once through, in Ticks: every Chain row up to its first empty Song row.
 fn song_ticks(project: &Project) -> u32 {
     (0..SONG_ROWS)
         .take_while(|&row| !project.song_row_is_empty(row))
@@ -148,7 +138,6 @@ fn song_ticks(project: &Project) -> u32 {
         .sum()
 }
 
-/// A number of Ticks as minutes and seconds, such as `1:05`.
 fn length(ticks: u32) -> String {
     let samples = u64::from(ticks) * u64::from(SAMPLES_PER_TICK);
     let seconds = (samples as f64 / f64::from(SAMPLE_RATE)).round() as u32;
@@ -159,7 +148,6 @@ fn length(ticks: u32) -> String {
     )
 }
 
-/// The Custom Instruments that the Song's audible Steps play.
 fn played_instruments(project: &Project) -> BTreeSet<u8> {
     let mut played = BTreeSet::new();
     for row in (0..SONG_ROWS).take_while(|&row| !project.song_row_is_empty(row)) {

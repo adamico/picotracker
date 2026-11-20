@@ -1,7 +1,3 @@
-//! The headless App core launched with `config.ron` and `state.ron`: the key preset and changed
-//! keys, and the Follow, octave and MIDI table that the app remembers. File contents go in and
-//! out through the App core's interface, so these tests touch no disk.
-
 mod midi_support;
 mod support;
 
@@ -36,7 +32,6 @@ fn launch(config: Option<&str>, state: Option<&str>) -> App {
     app
 }
 
-/// Presses and releases one key at a time, a second apart, and applies what they trigger.
 fn keys(app: &mut App, presses: &[(Key, Modifiers)]) -> Vec<Action> {
     let mut actions = Vec::new();
     for (second, &(key, modifiers)) in (1..).zip(presses) {
@@ -50,7 +45,6 @@ fn keys(app: &mut App, presses: &[(Key, Modifiers)]) -> Vec<Action> {
     actions
 }
 
-/// Holds the first key, presses the second, then lets go of both, and applies what they trigger.
 fn chord(app: &mut App, held: Key, key: Key) -> Vec<Action> {
     let mut actions = Vec::new();
     actions.extend(app.key_down(KeyPress::new(held, NONE), Duration::ZERO));
@@ -63,7 +57,6 @@ fn chord(app: &mut App, held: Key, key: Key) -> Vec<Action> {
     actions
 }
 
-/// The `state.ron` the app has just asked to write, read back, if it asked.
 fn state_written(requests: &[FileRequest]) -> Option<AppState> {
     requests.iter().find_map(|request| match request {
         FileRequest::Write { path, contents } if path == Path::new(STATE_FILE) => {
@@ -314,14 +307,12 @@ fn first_step_instrument(app: &App) -> u8 {
     project.phrase(entry.phrase()).step(0).instrument()
 }
 
-/// Opens the MIDI Import dialog on the melody and goes to its Instruments page.
 fn to_instruments(app: &mut App) {
     app.start_midi_import("song.mid", &melody().bytes());
     app.apply(Action::Confirm);
     app.apply(Action::Confirm);
 }
 
-/// Goes from the Instruments page to Review and Imports.
 fn finish_import(app: &mut App) {
     app.apply(Action::Confirm);
     app.apply(Action::Confirm);
@@ -433,7 +424,6 @@ fn the_m8_style_preset_drives_the_instrument_view() {
         state: SettingsContents::Missing,
         directory: PathBuf::from("/home/user"),
     });
-    // A Chain and a Phrase, then a Step whose Instrument is the first Custom Instrument.
     keys(&mut app, &[(Key::Char('0'), NONE), (Key::Char('0'), NONE)]);
     keys(&mut app, &[(Key::Right, Modifiers::SHIFT)]);
     keys(&mut app, &[(Key::Char('0'), NONE), (Key::Char('0'), NONE)]);

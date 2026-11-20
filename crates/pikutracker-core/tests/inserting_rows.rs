@@ -1,5 +1,3 @@
-//! Insert and Delete row in the Song, Chain and Phrase panes.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -27,7 +25,6 @@ fn pitch(app: &App, index: usize) -> u8 {
     app.project().phrase(PhraseId::new(0)).step(index).pitch()
 }
 
-/// Rows 0 to 2 of the Song hold Chains 10, 11 and 12 on Track 1 and 20, 21 and 22 on Track 2.
 fn song_rows() -> Project {
     let mut project = Project::new();
     for row in 0..3 {
@@ -37,7 +34,6 @@ fn song_rows() -> Project {
     project
 }
 
-/// Chain 00 on the first Song row, every entry playing the Phrase numbered after its position.
 fn full_chain() -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));
@@ -48,8 +44,6 @@ fn full_chain() -> Project {
     project
 }
 
-/// Phrase 00 under the cursors with a LEN of 4. Every one of its 32 Steps sounds, at a pitch equal
-/// to its position.
 fn short_phrase() -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));

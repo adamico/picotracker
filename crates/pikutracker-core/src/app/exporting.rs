@@ -1,8 +1,3 @@
-//! Ctrl+E: reads the Target Cart, compiles the Project into it and writes it back. Claimed bytes
-//! changed outside the tracker are overwritten only once the user says so, and a Target Cart that
-//! has moved can be located. The claimed-bytes hash is stored only once the Cart is safely written,
-//! and never becomes an undo entry.
-
 use super::App;
 use super::claim_text::named_slots;
 use super::files::{Accepted, OVERWRITE_ANSWERS, Waiting, shown_name};
@@ -16,14 +11,12 @@ use std::path::{Path, PathBuf};
 const EDIT_CLAIM_HINT: &str = "^T EDIT CLAIM";
 const LOCATE_ANSWERS: &str = "ENTER LOCATE  ESC CANCEL";
 
-/// An Export whose Cart is being written.
 #[derive(Debug)]
 pub(super) struct FinishedExport {
     claimed_bytes_hash: String,
     report: Report,
 }
 
-/// The Export Tracks as messages show them: `T1-T4` for a run, or else `T1 T3`.
 fn tracks_text(tracks: [Option<u8>; EXPORT_CHANNELS]) -> String {
     let mut tracks: Vec<u8> = tracks.into_iter().flatten().collect();
     tracks.sort_unstable();
@@ -38,7 +31,6 @@ fn tracks_text(tracks: [Option<u8>; EXPORT_CHANNELS]) -> String {
     }
 }
 
-/// Where a failure can be fixed, if it has one place.
 fn failure_location(failure: ExportFailure) -> Option<SongPlace> {
     match failure {
         ExportFailure::NoteOutOfRange {
@@ -57,7 +49,6 @@ fn failure_location(failure: ExportFailure) -> Option<SongPlace> {
     }
 }
 
-/// Whether a failure is fixed by changing the Claim.
 const fn is_about_the_claim(failure: ExportFailure) -> bool {
     matches!(
         failure,
@@ -80,11 +71,10 @@ fn failure_item(failure: ExportFailure) -> LogItem {
     }
 }
 
-/// The slots that a Claim still holds.
 fn still_claimed(slots: Slots, claim: &Claim) -> Slots {
     let in_pattern_range = |slot: &u8| {
         claim
-            .patterns
+            .first_and_last_pattern
             .is_some_and(|(first, last)| (first..=last).contains(slot))
     };
     Slots {
@@ -101,7 +91,6 @@ fn still_claimed(slots: Slots, claim: &Claim) -> Slots {
     }
 }
 
-/// Changed slots as the overwrite question names them, such as `SFX 03 04 AND PATTERN 18`.
 fn changed_slots_text(changed: &Slots) -> String {
     [
         named_slots(&changed.sfx, "SFX", "SFX"),
@@ -113,7 +102,6 @@ fn changed_slots_text(changed: &Slots) -> String {
     .join(" AND ")
 }
 
-/// An Export warning as a Log item, which jumps to the place it is about.
 fn warning_item(warning: ExportWarning) -> LogItem {
     let item = LogItem::new(Severity::Warning, warning.to_string());
     match warning {
@@ -130,7 +118,6 @@ fn warning_item(warning: ExportWarning) -> LogItem {
     }
 }
 
-/// The result of an Export that wrote the Cart: its warnings, if any, go to the Log.
 fn written_report(summary: String, warnings: &[ExportWarning]) -> Report {
     if warnings.is_empty() {
         return Report::info(summary);
@@ -140,7 +127,6 @@ fn written_report(summary: String, warnings: &[ExportWarning]) -> Report {
     Report::warning(format!("{summary} WITH {count}")).with_items(items)
 }
 
-/// The result of an Export that failed: every problem goes to the Log.
 fn failure_report(cart_name: &str, failures: &[ExportFailure]) -> Report {
     let summary = if failures.contains(&ExportFailure::EmptyClaim) {
         format!("EXPORT FAILED: NO CLAIM IN {cart_name}")
@@ -154,7 +140,6 @@ fn failure_report(cart_name: &str, failures: &[ExportFailure]) -> Report {
 }
 
 impl App {
-    /// The folder the Target Cart's path starts from.
     pub(super) fn target_cart_folder(&self) -> &Path {
         self.project_path
             .as_deref()
@@ -163,13 +148,10 @@ impl App {
             .unwrap_or(&self.directory)
     }
 
-    /// Where the Target Cart is: its path is relative to the Project file.
     pub(super) fn target_cart_path(&self, cart: &str) -> PathBuf {
         self.target_cart_folder().join(cart)
     }
 
-    /// Starts an Export by asking for the Target Cart's bytes. With no Target Cart, the Cart view
-    /// opens so that the user can pick one.
     pub(super) fn export(&mut self) {
         self.close_cart_view();
         let Some(target) = self.project.target_cart() else {
@@ -181,7 +163,6 @@ impl App {
         self.waiting = Some(Waiting::ExportReading(path));
     }
 
-    /// Compiles the Project into the Target Cart's bytes, and writes them if nothing failed.
     pub(super) fn finish_reading_target(&mut self, path: PathBuf, original: &[u8]) {
         let cart_name = shown_name(&path);
         let Some(target) = self.project.target_cart() else {
@@ -206,14 +187,11 @@ impl App {
         }
     }
 
-    /// Asks whether to look for a Target Cart that is no longer where its path says.
     pub(super) fn ask_to_locate(&mut self, path: &Path) {
         let text = format!("{} NOT FOUND  {LOCATE_ANSWERS}", shown_name(path));
         self.ask(text, Accepted::LocateCart);
     }
 
-    /// Points the Target Cart at the file the user located, keeping the Claim and the
-    /// claimed-bytes hash, and Exports to it.
     pub(super) fn locate_target_cart(&mut self, path: &Path) {
         self.file_list = None;
         let Some(mut target) = self.project.target_cart().cloned() else {
@@ -230,7 +208,7 @@ impl App {
             "EXPORTED TO {cart_name}: {} SFX, {} PATTERNS. {}",
             exported.sfx_count,
             exported.pattern_count,
-            tracks_text(self.project.export_tracks()),
+            tracks_text(self.project.export_track_numbers()),
         );
         let report = written_report(summary, &exported.warnings);
         self.request_write_bytes(path.clone(), exported.cart_bytes);
@@ -243,8 +221,6 @@ impl App {
         ));
     }
 
-    /// The Cart is written: remembers what it now holds. This is not an edit, so it happens
-    /// outside the undo history.
     pub(super) fn finish_writing_target(&mut self, finished: FinishedExport) {
         if let Some(target) = self.project.target_cart() {
             let mut target = target.clone();

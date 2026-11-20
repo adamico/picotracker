@@ -1,4 +1,3 @@
-//! Small Standard MIDI Files built in test code.
 #![allow(dead_code)]
 
 use midly::num::{u4, u7, u15, u24, u28};
@@ -9,7 +8,6 @@ use midly::{
 pub const TICKS_PER_BEAT: u32 = 96;
 pub const TICKS_PER_STEP: u32 = TICKS_PER_BEAT / 4;
 
-/// A file under construction: events at absolute ticks, track by track.
 pub struct Song {
     tracks: Vec<Vec<(u32, TrackEventKind<'static>)>>,
 }
@@ -27,7 +25,6 @@ impl Song {
         Self::default()
     }
 
-    /// Starts the next MIDI track.
     pub fn track(mut self) -> Self {
         self.tracks.push(Vec::new());
         self
@@ -70,7 +67,6 @@ impl Song {
         )
     }
 
-    /// A note on a channel numbered from 1.
     pub fn note(self, start: u32, length: u32, channel: u8, key: u8, velocity: u8) -> Self {
         self.note_on(start, channel, key, velocity)
             .note_off(start + length, channel, key)
@@ -114,7 +110,6 @@ impl Song {
         )
     }
 
-    /// A time signature, with the denominator written as a power of two.
     pub fn metre(self, tick: u32, numerator: u8, denominator_power: u8) -> Self {
         self.event(
             tick,
@@ -127,7 +122,6 @@ impl Song {
         )
     }
 
-    /// The finished file.
     pub fn bytes(&self) -> Vec<u8> {
         let tracks = self.tracks.iter().map(|events| {
             let mut events = events.clone();

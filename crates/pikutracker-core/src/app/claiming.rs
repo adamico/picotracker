@@ -1,6 +1,3 @@
-//! Ctrl+T: the Cart view, where the user picks the Target Cart and types the Claim. Each visit is
-//! one undo step, and Esc restores the Target Cart as it was when the view opened.
-
 use super::files::{Waiting, cannot_use};
 use super::focus::Focus;
 use super::messages::Report;
@@ -16,7 +13,6 @@ use std::path::Path;
 const PICK_A_CART_FIRST: &str = "PICK A TARGET CART FIRST";
 
 impl App {
-    /// Whether the Cart view is showing in the right-hand slot and has focus.
     pub(super) fn cart_view_has_focus(&self) -> bool {
         self.cart_view.is_some() && self.focus == Focus::RightSlot && !self.log_open
     }
@@ -29,7 +25,6 @@ impl App {
         }
     }
 
-    /// Opens the Cart view with focus, and asks for the Target Cart's bytes to draw its maps.
     pub(super) fn open_cart_view(&mut self) {
         self.log_open = false;
         self.cart_visits += 1;
@@ -43,7 +38,6 @@ impl App {
         }
     }
 
-    /// Closes the Cart view, keeping the Claim, and gives focus back to the pane it came from.
     pub(super) fn close_cart_view(&mut self) {
         let Some(view) = self.cart_view.take() else {
             return;
@@ -53,7 +47,6 @@ impl App {
         }
     }
 
-    /// What an action does in the Cart view, if it does anything there.
     pub(super) fn use_cart_view(&mut self, action: Action) -> bool {
         let Some(view) = self.cart_view.as_mut() else {
             return false;
@@ -83,7 +76,6 @@ impl App {
         true
     }
 
-    /// Edits the text of a Claim field, putting in force whatever it now holds that is whole.
     fn edit_claim(&mut self, edit: impl FnOnce(&mut CartView)) {
         let Some(view) = self.cart_view.as_mut() else {
             return;
@@ -100,7 +92,6 @@ impl App {
         self.project.set_target_cart(Some(target));
     }
 
-    /// `=`: claims what the Target Cart's free slots suggest.
     fn suggest_claim(&mut self) {
         let Some(target) = self.project.target_cart() else {
             self.remark = Some(PICK_A_CART_FIRST);
@@ -109,7 +100,6 @@ impl App {
         self.apply_suggestion(target.clone());
     }
 
-    /// Gives the Target Cart the Claim its free slots suggest, once the view knows them.
     fn apply_suggestion(&mut self, mut target: TargetCart) {
         let Some(view) = self.cart_view.as_mut() else {
             return;
@@ -123,7 +113,6 @@ impl App {
         self.project.set_target_cart(Some(target));
     }
 
-    /// Shows the Claim in force, after undo or redo has changed it.
     pub(super) fn show_claim_in_cart_view(&mut self) {
         let claim = self
             .project
@@ -147,7 +136,6 @@ impl App {
         }
     }
 
-    /// A path as the Target Cart stores it: from the folder of the Project file.
     pub(super) fn path_from_project(&self, path: &Path) -> String {
         relative_path(self.target_cart_folder(), path)
             .unwrap_or_else(|| path.to_path_buf())
@@ -155,7 +143,6 @@ impl App {
             .into_owned()
     }
 
-    /// Makes a Cart the user picked the Target Cart, with the Claim its free slots suggest.
     pub(super) fn finish_picking_cart(&mut self, path: &Path, contents: &[u8]) {
         self.file_list = None;
         let cart = match Cart::read(contents) {
@@ -166,8 +153,7 @@ impl App {
             }
         };
         let path = self.path_from_project(path);
-        // The same Cart picked again still holds what the last Export wrote.
-        let claimed_bytes_hash = self
+        let claimed_bytes_hash_of_same_cart = self
             .project
             .target_cart()
             .filter(|target| target.path == path)
@@ -175,7 +161,7 @@ impl App {
         let target = TargetCart {
             path,
             claim: Claim::default(),
-            claimed_bytes_hash,
+            claimed_bytes_hash: claimed_bytes_hash_of_same_cart,
         };
         if let Some(view) = self.cart_view.as_mut() {
             view.show_contents(Ok(cart));

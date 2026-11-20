@@ -1,5 +1,3 @@
-//! The named actions that drive the App core. Every key press becomes one of these.
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Direction {
     Up,
@@ -9,8 +7,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// The change in column and row.
-    pub(super) const fn delta(self) -> (isize, isize) {
+    pub(super) const fn column_and_row_delta(self) -> (isize, isize) {
         match self {
             Direction::Up => (0, -1),
             Direction::Down => (0, 1),

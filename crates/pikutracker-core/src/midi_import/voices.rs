@@ -1,12 +1,9 @@
-//! Splits each source into voices that play one note at a time.
-
 use super::Voice;
 use super::read::{Note, Score, Source};
 use super::table::{drum_row, family_name};
 
 const LEGATO_BEAT_FRACTION: u32 = 8;
 
-/// The voices of every source, in file order, with one source's voices next to each other.
 pub(super) fn split(score: &Score) -> Vec<Voice> {
     score
         .sources
@@ -16,8 +13,6 @@ pub(super) fn split(score: &Score) -> Vec<Voice> {
         .collect()
 }
 
-/// A note may overlap the next one by a fraction of a beat and still share its voice, because
-/// played parts rarely let go exactly on time.
 fn voices_of(score: &Score, index: usize, source: &Source) -> Vec<Voice> {
     let legato = score.ticks_per_beat / LEGATO_BEAT_FRACTION;
     let mut notes: Vec<Note> = source
@@ -26,7 +21,6 @@ fn voices_of(score: &Score, index: usize, source: &Source) -> Vec<Voice> {
         .filter(|note| !source.is_drums() || drum_row(note.key).is_some())
         .copied()
         .collect();
-    // Notes struck together go highest first, or in the order of the kit for drums.
     notes.sort_by_key(|note| {
         let order = if source.is_drums() {
             drum_row(note.key).unwrap_or(usize::MAX)
@@ -79,7 +73,6 @@ fn voices_of(score: &Score, index: usize, source: &Source) -> Vec<Voice> {
         .collect()
 }
 
-/// The kit row a drum voice plays most, with the earlier row winning a tie.
 fn drum_name(notes: &[Note]) -> &'static str {
     let mut counts = [0_usize; super::DRUM_ROWS];
     for row in notes.iter().filter_map(|note| drum_row(note.key)) {

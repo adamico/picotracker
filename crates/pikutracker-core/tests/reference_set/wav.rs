@@ -1,12 +1,9 @@
-//! Reads the WAV files PICO-8 records with `extcmd("audio_rec")`: 16-bit mono PCM at 22,050 Hz.
-
 use pikutracker_core::synth::SAMPLE_RATE;
 
 const PCM: u16 = 1;
 const MONO: u16 = 1;
 const BITS: u16 = 16;
 
-/// Samples from -1 to 1 as a WAV file in the same format.
 pub fn bytes(samples: &[f32]) -> Vec<u8> {
     let data = (samples.len() * 2) as u32;
     let mut bytes = Vec::with_capacity(44 + samples.len() * 2);
@@ -28,12 +25,10 @@ pub fn bytes(samples: &[f32]) -> Vec<u8> {
     bytes
 }
 
-/// A sample from -1 to 1 as a 16-bit sample.
 pub fn pcm(sample: f32) -> i16 {
     (sample * 32768.0).round().clamp(-32768.0, 32767.0) as i16
 }
 
-/// The samples of a recording, scaled to -1 to 1.
 pub fn samples(bytes: &[u8]) -> Result<Vec<f32>, String> {
     if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err("not a WAV file".to_owned());

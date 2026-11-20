@@ -1,5 +1,3 @@
-//! The Chain row strip and the flag on Steps a transpose pushes outside PICO-8's pitch range.
-
 use pikutracker_core::app::{Action, App};
 use pikutracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
 
@@ -7,7 +5,6 @@ const FIRST_STRIP_LINE: usize = 21;
 const FIRST_ENTRY_LINE: usize = 2;
 const FIRST_STEP_LINE: usize = 5;
 
-/// Puts a Phrase of a given LEN and Speed in the Project.
 fn phrase(project: &mut Project, id: u8, length: i32, speed: i32) -> PhraseId {
     let id = PhraseId::new(id);
     let phrase = project.phrase_mut(id);
@@ -16,7 +13,6 @@ fn phrase(project: &mut Project, id: u8, length: i32, speed: i32) -> PhraseId {
     id
 }
 
-/// Fills a Chain's entries from its first and places it on a Song row.
 fn place(project: &mut Project, row: usize, track: usize, chain: u8, entries: &[ChainEntry]) {
     let id = ChainId::new(chain);
     for (index, entry) in entries.iter().enumerate() {
@@ -143,7 +139,6 @@ fn a_chain_row_with_no_entries_lasts_no_time() {
     assert_eq!(project.chain_row_ticks(1, 0), 0);
 }
 
-/// An app showing Phrase 01 through an entry with this transpose, its first Step at C-2.
 fn transposed_app(semitones: i32, volume: i32) -> App {
     let mut project = Project::new();
     let id = phrase(&mut project, 1, 4, 8);
@@ -199,7 +194,6 @@ fn a_step_past_len_is_not_flagged() {
     assert_eq!(chain_text(&app, 0), "0 01 +0C ----");
 }
 
-/// Phrase 01 with an arpeggio on Step 00 that reads Step 01, a silent D#5, through a +1 transpose.
 fn arpeggio_reading_a_silent_d_sharp_5(length: i32) -> App {
     let mut project = Project::new();
     let id = phrase(&mut project, 1, length, 8);
