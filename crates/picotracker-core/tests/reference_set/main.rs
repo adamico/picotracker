@@ -60,7 +60,6 @@ const SPEC_LIMITS: Limits = Limits {
 const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_music0",
     "coverage_music1",
-    "coverage_sfx15",
     "coverage_sfx18",
     "coverage_sfx20",
 ];
