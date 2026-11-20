@@ -3,6 +3,7 @@
 
 use picotracker_core::synth::{SAMPLE_RATE, SAMPLES_PER_TICK};
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
 
 const AUDIBLE: f32 = 0.002;
 const LEVEL_FLOOR_DB: f32 = -50.0;
@@ -24,12 +25,14 @@ pub struct Fingerprint {
     pub window_pitches: Vec<Option<f32>>,
 }
 
-/// How closely our synth must match a fingerprint.
-#[derive(Clone, Copy, Debug)]
+/// How closely our synth must match a fingerprint. Each span of Ticks in `level_averaged_tick_spans`
+/// is held to the level limit on its average level, and every other Tick on its own level.
+#[derive(Clone, Debug)]
 pub struct Tolerance {
     pub duration_percent: f32,
     pub pitch_cents: f32,
     pub level_db: f32,
+    pub level_averaged_tick_spans: Vec<Range<usize>>,
 }
 
 /// The samples from the first audible one, `ticks` Ticks long, padded with silence.
@@ -134,7 +137,7 @@ pub fn measure(samples: &[f32], ticks: usize) -> Fingerprint {
 
 /// Where these samples differ from a fingerprint by more than the tolerance, in words. An empty
 /// list means they match.
-pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: Tolerance) -> Vec<String> {
+pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: &Tolerance) -> Vec<String> {
     let ticks = reference.tick_levels_db.len();
     let ours = measure(samples, ticks);
     let mut differences = Vec::new();
@@ -148,17 +151,38 @@ pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: Toleranc
         ));
     }
 
-    let levels: Vec<String> = reference
-        .tick_levels_db
-        .iter()
-        .zip(&ours.tick_levels_db)
-        .enumerate()
-        .filter(|(_, (expected, actual))| (*actual - *expected).abs() > tolerance.level_db)
-        .map(|(tick, (expected, actual))| format!("tick {tick}: {actual} dB, PICO-8 {expected}"))
+    let spans = tolerance.level_averaged_tick_spans.iter().cloned();
+    let single_ticks = (0..ticks)
+        .filter(|tick| {
+            !tolerance
+                .level_averaged_tick_spans
+                .iter()
+                .any(|span| span.contains(tick))
+        })
+        .map(|tick| tick..tick + 1);
+    let mut compared: Vec<Range<usize>> = spans.chain(single_ticks).collect();
+    compared.sort_by_key(|span| span.start);
+    let levels: Vec<String> = compared
+        .into_iter()
+        .filter_map(|span| {
+            let span = span.start.min(ticks)..span.end.min(ticks);
+            if span.is_empty() {
+                return None;
+            }
+            let expected = average_level_db(&reference.tick_levels_db[span.clone()]);
+            let actual = average_level_db(&ours.tick_levels_db[span.clone()]);
+            let place = if span.len() == 1 {
+                format!("tick {}", span.start)
+            } else {
+                format!("ticks {}-{} on average", span.start, span.end)
+            };
+            ((actual - expected).abs() > tolerance.level_db)
+                .then(|| format!("{place}: {actual:.2} dB, PICO-8 {expected:.2}"))
+        })
         .collect();
     if !levels.is_empty() {
         differences.push(format!(
-            "level differs by more than ±{} dB in {} of {ticks} ticks, first {}",
+            "level differs by more than ±{} dB in {} places, first {}",
             tolerance.level_db,
             levels.len(),
             listed(&levels)
@@ -196,6 +220,16 @@ pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: Toleranc
         ));
     }
     differences
+}
+
+/// The level of Ticks taken together: the power average of their levels in dB.
+fn average_level_db(tick_levels_db: &[f32]) -> f32 {
+    let power = tick_levels_db
+        .iter()
+        .map(|level| 10f32.powf(level / 10.0))
+        .sum::<f32>()
+        / tick_levels_db.len() as f32;
+    10.0 * power.log10()
 }
 
 fn listed(items: &[String]) -> String {
