@@ -1,6 +1,3 @@
-//! The Keymap: key presses in, named actions out. A binding's trigger is a single key press, a
-//! hold-chord or a double-tap, so the Keyboard remembers which keys are held and the last tap.
-
 mod key;
 mod m8_style;
 mod names;
@@ -19,7 +16,6 @@ use std::time::Duration;
 
 pub const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(300);
 
-/// One key binding of a Keymap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Binding {
     pub scope: Scope,
@@ -40,7 +36,6 @@ pub enum RebindProblem {
     UnreadableKey { action: String, key: String },
 }
 
-/// A set of key bindings.
 #[derive(Clone, Debug)]
 pub struct Keymap {
     bindings: HashMap<(Scope, Trigger), Action>,
@@ -53,7 +48,6 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    /// A shipped preset as it is.
     pub fn preset(preset: Preset) -> Self {
         let bindings = match preset {
             Preset::PcTracker => pc_tracker::bindings(),
@@ -67,20 +61,14 @@ impl Keymap {
         }
     }
 
-    /// The PC tracker preset.
     pub fn pc_tracker() -> Self {
         Self::preset(Preset::PcTracker)
     }
 
-    /// The M8-style preset.
     pub fn m8_style() -> Self {
         Self::preset(Preset::M8Style)
     }
 
-    /// A preset with the user's changed keys, by action name, and what could not be used. A
-    /// changed key replaces the action's preset keys in the widest scope the preset binds it in,
-    /// and takes the key from any action that had it there. Narrower keys stay, such as P in the
-    /// song picker beside Space.
     pub fn rebound(preset: Preset, keys: &BTreeMap<String, String>) -> (Self, Vec<RebindProblem>) {
         let mut keymap = Self::preset(preset);
         let mut problems = Vec::new();
@@ -123,7 +111,6 @@ impl Keymap {
         }
     }
 
-    /// Every binding.
     pub fn bindings(&self) -> Vec<Binding> {
         self.bindings
             .iter()
@@ -135,15 +122,11 @@ impl Keymap {
             .collect()
     }
 
-    /// The action a single key press triggers wherever the cursor is, if any. Only cursor
-    /// movement and nudges repeat while a key is held.
     pub fn action_for(&self, press: KeyPress) -> Option<Action> {
         let (_, action) = self.lookup(press, &[Scope::Anywhere], &[], false)?;
         repeats_or_new(press, action)
     }
 
-    /// The action a single key press triggers with the cursor in this context, if any. Keys that
-    /// type characters depend on the context, and they do not repeat while held.
     pub fn action_in(&self, press: KeyPress, context: KeyContext) -> Option<Action> {
         if typing_a_name(context)
             && let Some(action) = name_action(press)
@@ -154,8 +137,6 @@ impl Keymap {
         repeats_or_new(press, action)
     }
 
-    /// The binding a key press sets off: a double-tap first, then a chord with a held key, then
-    /// the press itself, each looked for in the scopes in order.
     fn lookup(
         &self,
         press: KeyPress,
@@ -163,7 +144,7 @@ impl Keymap {
         held: &[Key],
         double: bool,
     ) -> Option<(Trigger, Action)> {
-        let key = press.key.normalised();
+        let key = press.key.with_letter_lowercased();
         let mut triggers = Vec::new();
         if double {
             triggers.push(Trigger::DoubleTap(key));
@@ -180,7 +161,6 @@ impl Keymap {
         })
     }
 
-    /// Whether the key is held first in any chord of these scopes.
     fn starts_chords(&self, key: Key, scopes: &[Scope]) -> bool {
         self.bindings.keys().any(|(scope, trigger)| {
             scopes.contains(scope) && matches!(trigger, Trigger::Chord { held, .. } if *held == key)
@@ -188,7 +168,6 @@ impl Keymap {
     }
 }
 
-/// The Keymap with the keys held now and the last tap, which chords and double-taps need.
 #[derive(Clone, Debug, Default)]
 pub struct Keyboard {
     keymap: Keymap,
@@ -205,10 +184,6 @@ impl Keyboard {
         }
     }
 
-    /// The action a key going down triggers, if any, with the cursor in this context and a
-    /// selection active or not. `at` is the time of the press, from any fixed start. A key that is
-    /// held first in a chord acts when it goes up instead, unless another key went down meanwhile,
-    /// so that holding it for a chord does not also act.
     pub fn key_down(
         &mut self,
         press: KeyPress,
@@ -221,7 +196,7 @@ impl Keyboard {
         {
             return Some(action);
         }
-        let key = press.key.normalised();
+        let key = press.key.with_letter_lowercased();
         let mut double = false;
         if !press.repeat {
             let alone = press.modifiers == Modifiers::NONE;
@@ -238,19 +213,18 @@ impl Keyboard {
         let scopes = scopes(context, selecting);
         let others: Vec<Key> = self.held.iter().copied().filter(|&k| k != key).collect();
         let (trigger, action) = self.keymap.lookup(press, &scopes, &others, double)?;
-        let waits = !press.repeat
+        let waits_for_chord = !press.repeat
             && matches!(trigger, Trigger::Press(_, Modifiers::NONE))
             && self.keymap.starts_chords(key, &scopes);
-        if waits {
+        if waits_for_chord {
             self.on_release = Some((key, action));
             return None;
         }
         repeats_or_new(press, action)
     }
 
-    /// The action a key going up triggers: the action it held back for a chord that never came.
     pub fn key_up(&mut self, key: Key) -> Option<Action> {
-        let key = key.normalised();
+        let key = key.with_letter_lowercased();
         self.held.retain(|&held| held != key);
         self.on_release
             .take_if(|(waiting, _)| *waiting == key)
@@ -258,7 +232,6 @@ impl Keyboard {
     }
 }
 
-/// The scopes a key press looks in, in order.
 fn scopes(context: KeyContext, selecting: bool) -> Vec<Scope> {
     let mut scopes = vec![Scope::Context(context)];
     if selecting {
@@ -268,17 +241,18 @@ fn scopes(context: KeyContext, selecting: bool) -> Vec<Scope> {
     scopes
 }
 
-/// A held key repeats only cursor movement and nudges.
 fn repeats_or_new(press: KeyPress, action: Action) -> Option<Action> {
-    (!press.repeat || matches!(action, Action::Move(_) | Action::Nudge { .. })).then_some(action)
+    (!press.repeat || repeats_while_held(action)).then_some(action)
+}
+
+const fn repeats_while_held(action: Action) -> bool {
+    matches!(action, Action::Move(_) | Action::Nudge { .. })
 }
 
 const fn typing_a_name(context: KeyContext) -> bool {
     matches!(context, KeyContext::FileName | KeyContext::InstrumentName)
 }
 
-/// What a key does while a file name or an Instrument name is being typed. Characters keep their
-/// case, and they repeat while held, as they do in any text field.
 fn name_action(press: KeyPress) -> Option<Action> {
     if press.modifiers.ctrl || press.modifiers.alt {
         return None;

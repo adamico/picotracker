@@ -1,5 +1,3 @@
-//! Selection, cells Nudge and Clear, and the clipboard.
-
 use super::messages::Report;
 use super::selection::{CellPosition, CellRange};
 use super::{App, Chain, ChainPane, Focus, NO_CHAIN_HERE, NO_PHRASE_HERE};
@@ -24,7 +22,6 @@ pub(super) enum Clipboard {
 }
 
 impl Clipboard {
-    /// What the clipboard holds, as messages name it.
     const fn contents(&self) -> &'static str {
         match self {
             Clipboard::Song(_) => "SONG CELLS",
@@ -34,7 +31,6 @@ impl Clipboard {
     }
 }
 
-/// The name of a pane in messages.
 const fn pane_name(focus: Focus) -> &'static str {
     match focus {
         Focus::Song => "SONG",
@@ -45,7 +41,6 @@ const fn pane_name(focus: Focus) -> &'static str {
 }
 
 impl App {
-    /// The cell under the cursor of the focused pane, if a selection can hold it.
     fn cursor_cell(&self) -> Option<CellPosition> {
         match self.focus {
             Focus::Song => Some(self.song.cell()),
@@ -55,7 +50,6 @@ impl App {
         }
     }
 
-    /// The cells selected in the focused pane.
     pub(super) fn selected_cells(&self) -> Option<CellRange> {
         Some(CellRange::between(
             self.selection_start?,
@@ -63,13 +57,11 @@ impl App {
         ))
     }
 
-    /// The cells an action works on: the selection, or else the cell under the cursor.
     pub(super) fn target_cells(&self) -> Option<CellRange> {
         self.selected_cells()
             .or_else(|| self.cursor_cell().map(CellRange::at))
     }
 
-    /// Starts a selection at the cursor. The arrow keys then extend it.
     pub(super) fn start_selection(&mut self) {
         match self.cursor_cell() {
             Some(cell) => {
@@ -81,7 +73,6 @@ impl App {
         }
     }
 
-    /// Edits the Chain under the Song cursor, or says that there is none.
     fn edit_selected_chain(&mut self, edit: impl FnOnce(&ChainPane, &mut Chain)) {
         match self.chain_under_cursor() {
             Some(id) => edit(&self.chain, self.project.chain_mut(id)),
@@ -89,7 +80,6 @@ impl App {
         }
     }
 
-    /// Raises or lowers every selected cell.
     pub(super) fn nudge_selection(&mut self, up: bool, coarse: bool) {
         let Some(cells) = self.selected_cells() else {
             return;
@@ -106,7 +96,6 @@ impl App {
         }
     }
 
-    /// Empties the selected cells, or else the cell under the cursor.
     pub(super) fn clear_cells(&mut self) {
         match (self.focus, self.selected_cells()) {
             (Focus::Song, Some(cells)) => self.song.clear_cells(&mut self.project, cells),
@@ -125,7 +114,6 @@ impl App {
         }
     }
 
-    /// A copy of the cells an action works on, or a remark about why there is none.
     fn copied_cells(&mut self) -> Option<Clipboard> {
         let cells = self.target_cells();
         match self.focus {
@@ -166,7 +154,6 @@ impl App {
         }
     }
 
-    /// Copies the cells and empties them, without shifting anything.
     pub(super) fn cut(&mut self) {
         if let Some(copied) = self.copied_cells() {
             self.clipboard = Some(copied);
@@ -175,7 +162,6 @@ impl App {
         }
     }
 
-    /// Overwrites cells from the cursor, and says how many rows did not fit.
     pub(super) fn paste(&mut self) {
         if self.focus == Focus::RightSlot {
             return;
@@ -242,7 +228,6 @@ impl App {
         )
     }
 
-    /// Marks the selected cells on the grid.
     pub(super) fn draw_selection(&self, grid: &mut Grid) {
         let Some(cells) = self.selected_cells() else {
             return;

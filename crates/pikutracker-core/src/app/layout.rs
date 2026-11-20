@@ -1,9 +1,6 @@
-//! Where each pane sits on the grid.
-
 use crate::screen::grid::{GRID_ROWS, Grid, Style};
 use crate::screen::palette::Colour;
 
-/// A pane's position on the grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Area {
     pub column: usize,
@@ -33,7 +30,6 @@ pub const RIGHT_SLOT: Area = Area {
 
 const SEPARATOR_COLUMNS: [usize; 3] = [28, 62, 82];
 
-/// Draws the lines between the panes.
 pub fn draw_separators(grid: &mut Grid) {
     for column in SEPARATOR_COLUMNS {
         for row in 0..PANE_ROWS {

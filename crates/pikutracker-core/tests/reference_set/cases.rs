@@ -1,8 +1,3 @@
-//! The cases of the reference set. Each case is one driver Cart: it holds only the SFX and Patterns
-//! the case plays, and its Lua records what PICO-8 plays to `recording.wav`, prints `ALLDONE` and
-//! waits to be closed. PICO-8 crashes on long recording names, so the name is the same for every
-//! case and the recording command renames the file.
-
 use super::support::{TestNote, TestPattern, TestSfx};
 use pikutracker_core::synth::{SAMPLES_PER_TICK, packed_filters};
 use std::fmt::Write;
@@ -47,8 +42,6 @@ pub enum Plays {
     Sfx(u8),
 }
 
-/// One case: a driver Cart, what it plays once recording begins and for how many Ticks the
-/// recording is measured.
 #[derive(Clone, Debug)]
 pub struct Case {
     pub name: &'static str,
@@ -59,7 +52,6 @@ pub struct Case {
 }
 
 impl Case {
-    /// The driver Cart as `.p8` text.
     pub fn p8(&self) -> String {
         let start = match self.plays {
             Plays::Music => "music(0)".to_owned(),
@@ -104,7 +96,6 @@ const fn note(pitch: u8, instrument: u8, volume: u8, effect: u8) -> TestNote {
     }
 }
 
-/// A note that plays the SFX Instrument in slot `instrument`.
 const fn on_sfx_instrument(pitch: u8, instrument: u8, volume: u8, effect: u8) -> TestNote {
     TestNote {
         custom: true,
@@ -114,7 +105,6 @@ const fn on_sfx_instrument(pitch: u8, instrument: u8, volume: u8, effect: u8) ->
 
 const REST: TestNote = note(0, 0, 0, 0);
 
-/// An SFX whose filter byte holds the editor bit and these filters.
 fn sfx(notes: &[TestNote], speed: u8, loop_start: u8, loop_end: u8, filters: u8) -> TestSfx {
     let mut all = [REST; 32];
     all[..notes.len()].copy_from_slice(notes);
@@ -163,12 +153,10 @@ const fn dampen(level: u8) -> u8 {
     packed_filters(false, false, 0, 0, level)
 }
 
-/// The same note `count` times.
 fn repeated(note: TestNote, count: usize) -> Vec<TestNote> {
     vec![note; count]
 }
 
-/// A Waveform Instrument: 64 signed samples in the note bytes, flagged by bit 7 of byte 66.
 fn waveform_instrument(samples: [u8; 64], speed: u8, flagged: bool, filters: u8) -> TestSfx {
     let mut notes = [REST; 32];
     for (index, note) in notes.iter_mut().enumerate() {
@@ -190,12 +178,10 @@ fn waveform_instrument(samples: [u8; 64], speed: u8, flagged: bool, filters: u8)
     }
 }
 
-/// Eight steps of eight samples each, from silence up to the highest and lowest values.
 fn stepped_waveform() -> [u8; 64] {
     std::array::from_fn(|index| STEPPED_WAVEFORM[index / 8])
 }
 
-/// Builds one case's Cart: instruments in slots 0 to 7, played SFX from slot 8.
 struct CartBuilder {
     sfx: Vec<TestSfx>,
     patterns: Vec<TestPattern>,
@@ -214,7 +200,6 @@ impl CartBuilder {
         self
     }
 
-    /// Adds an SFX after the instruments, or finds an identical one, and gives its slot.
     fn add(&mut self, sfx: TestSfx) -> u8 {
         let known = self.sfx[usize::from(FIRST_PLAYED_SLOT)..]
             .iter()
@@ -229,7 +214,6 @@ impl CartBuilder {
         index as u8
     }
 
-    /// Plays one SFX straight through `sfx()`.
     fn sfx_case(mut self, name: &'static str, played: TestSfx, ticks: u32) -> Case {
         let slot = self.add(played);
         Case {
@@ -241,7 +225,6 @@ impl CartBuilder {
         }
     }
 
-    /// Plays these Patterns through `music(0)`, with STOP on the last one.
     fn music_case(mut self, name: &'static str, patterns: &[&[TestSfx]], ticks: u32) -> Case {
         for channels in patterns {
             let mut pattern = TestPattern::default();
@@ -260,8 +243,6 @@ impl CartBuilder {
         }
     }
 
-    /// Plays one Pattern and then a short audible marker, so that the recording shows when the
-    /// Pattern ended.
     fn length_case(self, name: &'static str, channels: &[TestSfx], pattern_ticks: u32) -> Case {
         let marker = with_len(&[note(C4, SQUARE, 5, 0), note(C4, SQUARE, 5, 0)], 4, 2);
         self.music_case(
@@ -280,7 +261,6 @@ fn length_case(name: &'static str, channels: &[TestSfx], pattern_ticks: u32) -> 
     CartBuilder::new().length_case(name, channels, pattern_ticks)
 }
 
-/// Every case, in the order they are recorded.
 pub fn all() -> Vec<Case> {
     let mut cases = coverage();
     cases.extend(checked_behaviours());
@@ -294,7 +274,6 @@ pub fn all() -> Vec<Case> {
     cases
 }
 
-/// The playback spike's coverage Cart: 23 SFX and 5 Patterns, one case each.
 fn coverage() -> Vec<Case> {
     let effects: [(u8, [u8; 4]); 8] = [
         (0, [C3; 4]),
@@ -450,7 +429,6 @@ fn coverage() -> Vec<Case> {
     cases
 }
 
-/// The behaviours checked in "Check open PICO-8 behaviours against real PICO-8".
 fn checked_behaviours() -> Vec<Case> {
     let audible = |pitch, count| repeated(note(pitch, SQUARE, 5, 0), count);
     let silent = |count| repeated(note(C3, SQUARE, 0, 0), count);
@@ -544,7 +522,6 @@ fn checked_behaviours() -> Vec<Case> {
     ]
 }
 
-/// One case for each of the four synth fixes, plus the one-level nesting that already matches.
 fn synth_fixes() -> Vec<Case> {
     let stepped = looping(
         &[
@@ -662,7 +639,6 @@ fn synth_fixes() -> Vec<Case> {
     ]
 }
 
-/// Waveform Instruments, as "Check open PICO-8 behaviours against real PICO-8" found them.
 fn waveform_instruments() -> Vec<Case> {
     let case = |name, instrument: TestSfx, pitch| {
         CartBuilder::new().instrument(0, instrument).sfx_case(
@@ -717,7 +693,6 @@ fn waveform_instruments() -> Vec<Case> {
     ]
 }
 
-/// The behaviours measured in "Measure the last unchecked behaviours on real PICO-8".
 fn last_measured_behaviours() -> Vec<Case> {
     let pitches = [C2, E2, G2, C3, E3, G3, C4, C3];
     let on_waveform: Vec<TestNote> = pitches
@@ -759,7 +734,6 @@ fn last_measured_behaviours() -> Vec<Case> {
     ]
 }
 
-/// Custom Instruments with less DAMPEN than the SFX that plays them, as #54 measured them.
 fn custom_instruments_inside_a_dampened_sfx() -> Vec<Case> {
     let played = |speed| sfx(&[on_sfx_instrument(C2, 0, 7, 0)], speed, 1, 0, dampen(2));
     let sfx_instrument = sfx(&repeated(note(C2, SAW, 5, 0), 32), 16, 0, 32, dampen(1));
@@ -778,7 +752,6 @@ fn custom_instruments_inside_a_dampened_sfx() -> Vec<Case> {
     ]
 }
 
-/// Every pitch from 0 to 63 held for 16 Ticks, in two SFX of 32 notes.
 fn every_pitch() -> Vec<Case> {
     let rising = |from: u8| {
         let notes: Vec<TestNote> = (from..from + 32)
@@ -792,8 +765,6 @@ fn every_pitch() -> Vec<Case> {
     ]
 }
 
-/// The phaser's second wave through the notes that move it in their own way: noise, which keeps
-/// no second wave of its own.
 fn phaser_second_wave() -> Vec<Case> {
     let phaser = |pitch| note(pitch, PHASER, 5, 0);
     let quiet_noise = |pitch| note(pitch, NOISE, 1, 0);
@@ -816,9 +787,6 @@ fn phaser_second_wave() -> Vec<Case> {
     )]
 }
 
-/// The two cases near silence that Export's sample-for-sample check could not settle, as #63
-/// measured them: a shorter channel's echo under DAMPEN, whether it ends at LEN or loops on a
-/// silent note, and the waves running on through a silent note marked as an SFX Instrument.
 fn near_silence() -> Vec<Case> {
     let echoed = repeated(note(C3, SQUARE, 5, 0), 8);
     let filters = packed_filters(false, false, 0, 2, 2);

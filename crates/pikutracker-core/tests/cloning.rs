@@ -1,5 +1,3 @@
-//! Clone, Deep clone and new unused Chains and Phrases.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -29,8 +27,6 @@ fn put_entry(project: &mut Project, chain: u8, index: usize, phrase: u8) {
         Some(ChainEntry::new(PhraseId::new(phrase)));
 }
 
-/// Chain 00 on the first Song row. Its entries play Phrases 00, 01 and 00 again, and Phrase 00
-/// holds a note, a Speed, a LEN and a filter of its own.
 fn project_with_a_song() -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));
@@ -81,10 +77,11 @@ fn cloning_a_phrase_copies_all_of_it_and_keeps_the_entrys_transpose_and_fill() {
 #[test]
 fn a_clone_never_lands_on_a_loose_phrase_or_a_chain_nothing_places() {
     let mut project = project_with_a_song();
-    // Phrase 02 is loose: no Chain plays it, but it holds a note.
-    *project.phrase_mut(PhraseId::new(2)).step_mut(0) = Step::new(12, 0, 3, 0).unwrap();
-    // Chain 01 is not on the Song, and it is the only thing that plays Phrase 03.
-    put_entry(&mut project, 1, 0, 3);
+    let loose_phrase = PhraseId::new(2);
+    *project.phrase_mut(loose_phrase).step_mut(0) = Step::new(12, 0, 3, 0).unwrap();
+    let chain_off_the_song = 1;
+    let phrase_only_it_plays = 3;
+    put_entry(&mut project, chain_off_the_song, 0, phrase_only_it_plays);
     let mut app = App::with_project(project);
 
     app.apply(Action::Clone);
@@ -216,7 +213,6 @@ fn the_phrase_pane_has_no_cell_to_point_at_a_clone() {
     assert!(status_line(&app).contains("SONG OR CHAIN PANE"));
 }
 
-/// A Project in which every Chain holds an entry, so none is free.
 fn no_free_chains() -> Project {
     let mut project = project_with_a_song();
     for chain in 1..=255 {

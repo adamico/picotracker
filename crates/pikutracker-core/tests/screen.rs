@@ -1,5 +1,3 @@
-//! The pixels the character grid turns into, and how they scale to fit a window.
-
 use pikutracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use pikutracker_core::screen::grid::{GRID_COLUMNS, GRID_ROWS, Grid, Style};
 use pikutracker_core::screen::palette::Colour;
@@ -34,7 +32,6 @@ fn pixel(frame: &Frame, x: usize, y: usize) -> [u8; 4] {
     frame.rgba()[offset..offset + 4].try_into().unwrap()
 }
 
-/// Every glyph in every foreground colour, and every colour as a background.
 fn font_and_palette_grid() -> Grid {
     let mut grid = Grid::new();
     let glyphs: Vec<char> = (' '..='_').chain(['|', '~', '│']).collect();
@@ -74,7 +71,6 @@ fn a_glyph_is_drawn_5_by_7_from_the_top_left_of_its_cell() {
     grid.put(2, 1, "A", Style::fg(Colour::White));
     let frame = Frame::from_grid(&grid);
 
-    // The cell at column 2, row 1 starts at pixel (12, 8).
     let expected = [
         ".###..", "#...#.", "#...#.", "#####.", "#...#.", "#...#.", "#...#.", "......",
     ];

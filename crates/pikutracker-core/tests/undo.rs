@@ -1,5 +1,3 @@
-//! One linear undo history for the whole Project, driven through named actions.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
@@ -30,7 +28,6 @@ fn song_cell(app: &App, row: usize, track: usize) -> Option<u8> {
     app.project().song_cell(row, track).map(ChainId::number)
 }
 
-/// A Project with Chain 00 on the first Song row, holding Phrase 00.
 fn project_with_a_song() -> Project {
     let mut project = Project::new();
     let chain = ChainId::new(0);
@@ -39,7 +36,6 @@ fn project_with_a_song() -> Project {
     project
 }
 
-/// Saves the Project as `./demo.ptrk`, and gives back what was written.
 fn save(app: &mut App) -> String {
     app.apply(Action::SaveAs);
     app.take_file_requests();
@@ -59,7 +55,6 @@ fn save(app: &mut App) -> String {
     contents
 }
 
-/// Opens a Project from a file through the file list.
 fn open(app: &mut App, project: &Project) {
     app.apply(Action::OpenProject);
     app.take_file_requests();
@@ -332,7 +327,6 @@ fn undo_turns_follow_off_because_it_moves_the_cursor() {
 fn the_history_keeps_the_last_thousand_steps() {
     let mut app = App::new();
     apply(&mut app, &[Action::ToggleSongLoopRow; 1001]);
-    // An odd number of flips leaves the loop off, and the oldest flip can no longer be undone.
     assert_eq!(app.project().song_loop_row(), None);
 
     apply(&mut app, &[Action::Undo; 1000]);

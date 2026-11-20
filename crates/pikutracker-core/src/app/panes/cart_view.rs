@@ -1,6 +1,3 @@
-//! The Cart view, a view of the right-hand slot: the Target Cart, the Claim typed as hex, a map of
-//! the Cart's SFX and one of its Patterns, and live checks of the Claim.
-
 use super::log::{TAG_COLUMN, TEXT_COLUMN, TEXT_WIDTH, tag, tag_style, wrapped};
 use super::{EMPTY, HEADING, VALUE, draw_title, stepped};
 use crate::app::Direction;
@@ -66,7 +63,6 @@ impl SlotMapMark {
     }
 }
 
-/// Which slots of the Target Cart are in use, and which of them hold this Project's own Export.
 #[derive(Debug)]
 struct SlotUse {
     used: Slots,
@@ -90,8 +86,7 @@ impl SlotUse {
         }
     }
 
-    /// Slots the Project may take: unused ones and those holding its own Export.
-    fn free(used: &[u8], own: &[u8]) -> Vec<u8> {
+    fn free_or_own(used: &[u8], own: &[u8]) -> Vec<u8> {
         (0..SLOTS as u8)
             .filter(|slot| !used.contains(slot) || own.contains(slot))
             .collect()
@@ -107,7 +102,6 @@ impl SlotUse {
         }
     }
 
-    /// The claimed slots that hold sounds other than the Project's own.
     fn overwritten(used: &[u8], own: &[u8], claimed: &[u8]) -> Vec<u8> {
         claimed
             .iter()
@@ -117,11 +111,9 @@ impl SlotUse {
     }
 }
 
-/// The Claim a Cart's free slots suggest: the lowest free SFX, which leaves the most room in
-/// 00-07 for Custom Instruments, and the lowest run of free Patterns long enough for the Song.
 fn suggestion(slot_use: &SlotUse, needs: ExportNeeds) -> Claim {
-    let free_sfx = SlotUse::free(&slot_use.used.sfx, &slot_use.own.sfx);
-    let free_patterns = SlotUse::free(&slot_use.used.patterns, &slot_use.own.patterns);
+    let free_sfx = SlotUse::free_or_own(&slot_use.used.sfx, &slot_use.own.sfx);
+    let free_patterns = SlotUse::free_or_own(&slot_use.used.patterns, &slot_use.own.patterns);
     let patterns = (needs.patterns > 0)
         .then(|| {
             free_patterns
@@ -136,7 +128,6 @@ fn suggestion(slot_use: &SlotUse, needs: ExportNeeds) -> Claim {
     }
 }
 
-/// The SFX slots and Patterns a Claim names, each in ascending order.
 fn claimed_slots(claim: &Claim) -> Slots {
     let mut sfx = claim.sfx.clone();
     sfx.sort_unstable();
@@ -149,7 +140,6 @@ fn claimed_slots(claim: &Claim) -> Slots {
     }
 }
 
-/// A count check: OK when the Claim holds enough, ERR when it does not.
 fn room_check(needed: usize, claimed: usize, what: &str) -> (Severity, String) {
     let severity = if claimed >= needed {
         Severity::Info
@@ -163,7 +153,6 @@ fn overwrite_check(slots: &[u8], one: &str, many: &str) -> Option<(Severity, Str
     named_slots(slots, one, many).map(|named| (Severity::Warning, format!("OVERWRITES {named}")))
 }
 
-/// The Cart view's fields and what it has read of the Target Cart.
 #[derive(Debug)]
 pub struct CartView {
     field: CartField,
@@ -175,8 +164,6 @@ pub struct CartView {
 }
 
 impl CartView {
-    /// The view as it opens on a Project's Target Cart, starting on the SFX field when there is one
-    /// to claim in.
     pub fn new(target: Option<&TargetCart>, focus_before: Focus) -> Self {
         let claim = target
             .map(|target| target.claim.clone())
@@ -199,12 +186,10 @@ impl CartView {
         self.field
     }
 
-    /// The Target Cart as it was when the view opened.
     pub fn opened_with(&self) -> Option<&TargetCart> {
         self.opened_with.as_ref()
     }
 
-    /// The pane that had focus before the view opened.
     pub fn focus_before(&self) -> Focus {
         self.focus_before
     }
@@ -218,8 +203,7 @@ impl CartView {
         self.field = FIELDS[stepped(index, rows, FIELDS.len())];
     }
 
-    /// The text of the field under the cursor, unless it is the Cart field.
-    fn text_mut(&mut self) -> Option<&mut ClaimText> {
+    fn claim_text_under_cursor(&mut self) -> Option<&mut ClaimText> {
         match self.field {
             CartField::Cart => None,
             CartField::Sfx => Some(&mut self.sfx),
@@ -228,25 +212,23 @@ impl CartView {
     }
 
     pub fn type_digit(&mut self, digit: u8) {
-        if let Some(text) = self.text_mut() {
+        if let Some(text) = self.claim_text_under_cursor() {
             text.type_digit(digit);
         }
     }
 
     pub fn type_dash(&mut self) {
-        if let Some(text) = self.text_mut() {
+        if let Some(text) = self.claim_text_under_cursor() {
             text.type_dash();
         }
     }
 
     pub fn backspace(&mut self) {
-        if let Some(text) = self.text_mut() {
+        if let Some(text) = self.claim_text_under_cursor() {
             text.backspace();
         }
     }
 
-    /// The Claim with each field whose text is whole put in force. A field whose text is not
-    /// whole leaves its part of the Claim as it was.
     pub fn typed_claim(&self, claim: &Claim) -> Claim {
         Claim {
             sfx: self.sfx.sfx_slots().unwrap_or_else(|| claim.sfx.clone()),
@@ -254,13 +236,11 @@ impl CartView {
         }
     }
 
-    /// Shows a Claim that was set some other way than by typing.
     pub fn show_claim(&mut self, claim: &Claim) {
         self.sfx = ClaimText::sfx(&claimed_slots(claim).sfx);
         self.patterns = ClaimText::patterns(claim.patterns);
     }
 
-    /// Takes in the Target Cart's contents, or why they cannot be read.
     pub fn show_contents(&mut self, contents: Result<Cart, String>) {
         self.contents = match contents {
             Ok(cart) => TargetCartContents::Read(Box::new(cart)),
@@ -268,7 +248,6 @@ impl CartView {
         };
     }
 
-    /// The Claim the Target Cart's free slots suggest, once its contents are known.
     pub fn suggested_claim(&self, hash: Option<&str>, needs: ExportNeeds) -> Option<Claim> {
         match &self.contents {
             TargetCartContents::Read(cart) => Some(suggestion(&SlotUse::of(cart, hash), needs)),
@@ -365,7 +344,6 @@ impl CartView {
         draw_checks(grid, area, &checks);
     }
 
-    /// What the view says about the Claim, worst first within each kind.
     fn checks(
         &self,
         target: Option<&TargetCart>,
@@ -384,10 +362,10 @@ impl CartView {
         if let TargetCartContents::Unreadable(reason) = &self.contents {
             checks.push((Severity::Failure, format!("CANNOT READ THE CART: {reason}")));
         }
-        if !self.sfx.is_valid() {
+        if !self.sfx.is_whole_claim() {
             checks.push((Severity::Failure, "SFX TEXT IS INCOMPLETE".to_owned()));
         }
-        if !self.patterns.is_valid() {
+        if !self.patterns.is_whole_claim() {
             checks.push((Severity::Failure, "PATTERN TEXT IS INCOMPLETE".to_owned()));
         }
         checks.push(room_check(needs.sfx, claimed.sfx.len(), "SFX"));
@@ -413,7 +391,6 @@ impl CartView {
     }
 }
 
-/// The end of a path that fits the Cart field.
 fn path_tail(path: &str) -> &str {
     let extra = path.chars().count().saturating_sub(PATH_WIDTH);
     path.char_indices()
@@ -421,7 +398,6 @@ fn path_tail(path: &str) -> &str {
         .map_or("", |(at, _)| &path[at..])
 }
 
-/// Draws 64 slots as four rows of 16, each row labelled with its slots' first hex digit.
 fn draw_map(grid: &mut Grid, area: Area, row: usize, name: &str, look: impl Fn(u8) -> SlotMapMark) {
     grid.put(area.column, row, name, HEADING);
     for slot in 0..SLOTS as u8 {

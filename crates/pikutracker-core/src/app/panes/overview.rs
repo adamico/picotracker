@@ -1,5 +1,3 @@
-//! Overview, the default view of the right-hand slot: the Export Tracks and the scope.
-
 use super::{EMPTY, HEADING, VALUE, draw_styled_value, draw_title, stepped};
 use crate::app::Direction;
 use crate::app::layout::Area;
@@ -15,7 +13,6 @@ const FIRST_CHANNEL_ROW: usize = 2;
 const CHANNEL_VALUE_COLUMN: usize = 5;
 const SCOPE_ROW: usize = 7;
 
-/// The Overview's cursor.
 #[derive(Debug, Default)]
 pub struct OverviewPane {
     channel: usize,
@@ -27,18 +24,14 @@ impl OverviewPane {
         self.channel = stepped(self.channel, rows, CHANNELS);
     }
 
-    /// The channel under the cursor.
     pub fn channel(&self) -> usize {
         self.channel
     }
 
-    /// Puts the cursor back on a channel.
     pub fn return_to(&mut self, channel: usize) {
         self.channel = channel;
     }
 
-    /// Puts the Track with this number on the channel under the cursor. A Track already on another
-    /// channel swaps places with the one it replaces. Digits that name no Track do nothing.
     pub fn type_digit(&self, project: &mut Project, digit: u8) {
         if !(1..=TRACKS as u8).contains(&digit) {
             return;
@@ -50,7 +43,6 @@ impl OverviewPane {
         project.set_export_track(self.channel, Some(digit));
     }
 
-    /// Takes the Track off the channel under the cursor.
     pub fn clear(&self, project: &mut Project) {
         project.set_export_track(self.channel, None);
     }
@@ -88,7 +80,6 @@ impl OverviewPane {
     }
 }
 
-/// Draws the mix as one waveform filling the rows below the title. Silence draws nothing.
 fn draw_scope(grid: &mut Grid, area: Area, scope: &[i8; SCOPE_COLUMNS]) {
     if scope.iter().all(|value| *value == 0) {
         return;

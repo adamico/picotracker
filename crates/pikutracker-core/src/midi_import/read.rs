@@ -1,5 +1,3 @@
-//! Reads a Standard MIDI File into notes, one list for each source, and the file's timing.
-
 use super::ImportError;
 use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,7 +11,6 @@ const EXPRESSION: u8 = 11;
 const DEFAULT_MICROS_PER_BEAT: u32 = 500_000;
 const CHANNELS: usize = 16;
 
-/// One note as the file plays it, in ticks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Note {
     pub(super) start: u32,
@@ -22,7 +19,6 @@ pub(super) struct Note {
     pub(super) velocity: u8,
 }
 
-/// The notes of one (MIDI track, channel) pair. Channel 10 is one source across the whole file.
 #[derive(Clone, Debug)]
 pub(super) struct Source {
     pub(super) channel: u8,
@@ -35,7 +31,6 @@ impl Source {
     }
 }
 
-/// A time signature: beats in a bar, and the note value of a beat as a power of two.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Metre {
     pub(super) numerator: u8,
@@ -58,7 +53,6 @@ pub(super) enum Unused {
     Controller(u8),
 }
 
-/// Everything Import needs from the file.
 #[derive(Clone, Debug)]
 pub(super) struct Score {
     pub(super) ticks_per_beat: u32,
@@ -72,7 +66,6 @@ pub(super) struct Score {
 }
 
 impl Score {
-    /// The program a channel has selected at a tick.
     pub(super) fn program_at(&self, channel: u8, tick: u32) -> u8 {
         self.programs[usize::from(channel)]
             .iter()
@@ -81,16 +74,13 @@ impl Score {
             .map_or(0, |(_, program)| *program)
     }
 
-    /// The tempo the file starts with when it names none.
     pub(super) const fn default_micros_per_beat() -> u32 {
         DEFAULT_MICROS_PER_BEAT
     }
 }
 
-/// Where a note is kept: which source, and which of its notes.
 type NoteRef = (usize, usize);
 
-/// What one MIDI track is doing at the current tick.
 #[derive(Default)]
 struct TrackState {
     sounding: BTreeMap<(u8, u8), NoteRef>,
@@ -98,7 +88,6 @@ struct TrackState {
     pedal_down: [bool; CHANNELS],
 }
 
-/// Reads a file, refusing what Import cannot use.
 pub(super) fn read(bytes: &[u8]) -> Result<Score, ImportError> {
     let smf = Smf::parse(bytes).map_err(|_| ImportError::NotMidi)?;
     if smf.header.format == Format::Sequential {
@@ -248,7 +237,6 @@ impl Reader {
         (key, velocity): (u8, u8),
         state: &mut TrackState,
     ) {
-        // A key struck again ends the note it was still playing.
         let held = (channel, key);
         for note in [
             state.sounding.remove(&held),
@@ -285,7 +273,6 @@ impl Reader {
         self.score.sources[source].notes[note].end = tick;
     }
 
-    /// Notes still sounding when a track ends stop there.
     fn finish_track(&mut self, tick: u32, state: TrackState) {
         for note in state
             .sounding

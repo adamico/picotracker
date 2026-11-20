@@ -1,7 +1,3 @@
-//! The Cart codec's write side: claimed SFX and Patterns go back into the original bytes. Every
-//! Cart here is generated in test code, and the expected bytes are worked out by hand from the
-//! formats in the spec.
-
 mod support;
 
 use pikutracker_core::cart::Cart;
@@ -10,8 +6,6 @@ use support::HEADER;
 
 const WRITTEN_SFX_LINE_START: &str = "0a20020818350";
 
-/// Filters 0x0a, Speed 0x20, loop 2 to 8, and a first note `18350`: pitch 0x18, instrument 3,
-/// volume 5, effect 0, which is the word 0x0AD8.
 fn sfx_bytes() -> [u8; 68] {
     let mut sfx = [0; 68];
     sfx[..2].copy_from_slice(&[0xD8, 0x0A]);
@@ -34,7 +28,6 @@ fn claim(sfx: &[u8], patterns: (u8, u8)) -> Claim {
     }
 }
 
-/// Reads a Cart, puts the claimed values in it and writes it back into the same bytes.
 fn write_into(original: &str, claim: &Claim) -> String {
     let mut cart = Cart::read(original.as_bytes()).unwrap();
     for &slot in &claim.sfx {
@@ -48,8 +41,7 @@ fn write_into(original: &str, claim: &Claim) -> String {
     String::from_utf8(cart.write_claimed(original.as_bytes(), claim).unwrap()).unwrap()
 }
 
-/// The row PICO-8 leaves out: no notes, Speed 16.
-fn default_sfx_line() -> String {
+fn sfx_line_pico8_leaves_out() -> String {
     format!("00100000{}", "00000".repeat(32))
 }
 
@@ -62,7 +54,7 @@ fn a_claimed_line_past_the_end_of_its_section_is_created_after_default_rows() {
 
     let expected = format!(
         "{HEADER}__sfx__\n{first}\n{}\n{}\n\n__music__\n05 01024344\n",
-        default_sfx_line(),
+        sfx_line_pico8_leaves_out(),
         written_sfx_line()
     );
     assert_eq!(written, expected);
@@ -179,7 +171,6 @@ fn a_claimed_default_row_past_the_end_adds_nothing() {
     assert_eq!(String::from_utf8(written).unwrap(), original);
 }
 
-/// The decoded RGBA pixels of an image.
 fn pixels_of(file: &[u8]) -> Vec<u8> {
     let mut reader = png::Decoder::new(std::io::Cursor::new(file))
         .read_info()
@@ -189,7 +180,6 @@ fn pixels_of(file: &[u8]) -> Vec<u8> {
     pixels
 }
 
-/// The Cart bytes an image's pixels hold.
 fn memory_of(pixels: &[u8]) -> Vec<u8> {
     pixels
         .as_chunks::<4>()
@@ -201,10 +191,15 @@ fn memory_of(pixels: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// An all-zero Cart image, apart from a version block that has to survive.
+const VERSION_BLOCK: [u8; 6] = [1, 2, 3, 4, 5, 6];
+const SHA1_FROM_PYTHON_HASHLIB: [u8; 20] = [
+    0x4e, 0xad, 0x1c, 0xb9, 0xfd, 0x3c, 0x48, 0x2e, 0x39, 0x1a, 0x7f, 0x3c, 0x18, 0x1f, 0x60, 0x6b,
+    0x2f, 0x50, 0x9b, 0xb3,
+];
+
 fn blank_png() -> Vec<u8> {
     let mut memory = vec![0; 0x8020];
-    memory[0x8000..0x8006].copy_from_slice(&[1, 2, 3, 4, 5, 6]);
+    memory[0x8000..0x8006].copy_from_slice(&VERSION_BLOCK);
     support::png_of(&memory, 160, 205)
 }
 
@@ -222,15 +217,8 @@ fn a_png_cart_gets_the_claimed_bytes_and_a_new_sha1() {
     let memory = memory_of(&pixels_of(&written));
     assert_eq!(memory[0x3100..0x3104], [0x81, 0x02, 0xC3, 0x44]);
     assert_eq!(memory[0x3200..0x3200 + 68], sfx_bytes());
-    assert_eq!(memory[0x8000..0x8006], [1, 2, 3, 4, 5, 6]);
-    // Worked out with Python's hashlib from the same memory.
-    assert_eq!(
-        memory[0x8006..0x801A],
-        [
-            0x4e, 0xad, 0x1c, 0xb9, 0xfd, 0x3c, 0x48, 0x2e, 0x39, 0x1a, 0x7f, 0x3c, 0x18, 0x1f,
-            0x60, 0x6b, 0x2f, 0x50, 0x9b, 0xb3
-        ]
-    );
+    assert_eq!(memory[0x8000..0x8006], VERSION_BLOCK);
+    assert_eq!(memory[0x8006..0x801A], SHA1_FROM_PYTHON_HASHLIB);
 }
 
 #[test]

@@ -1,7 +1,3 @@
-//! Launching the headless App core with what `state.ron` held, and keeping the recent Projects in
-//! it up to date. File contents go in and out through the App core's interface, so these tests
-//! touch no disk.
-
 mod support;
 
 use pikutracker_core::app::{
@@ -34,8 +30,6 @@ fn launch_with(state: SettingsContents) -> App {
     app
 }
 
-/// Edits, saves as `s.ptrk` in the launch folder and finishes the write; returns what the app
-/// asks for next.
 fn save_a_new_project(app: &mut App, folder: &str) -> Vec<FileRequest> {
     app.apply(Action::HexDigit(1));
     app.apply(Action::SaveAs);
@@ -53,7 +47,6 @@ fn save_a_new_project(app: &mut App, folder: &str) -> Vec<FileRequest> {
     app.take_file_requests()
 }
 
-/// The recent Projects in the `state.ron` the app has just asked to write, if it asked.
 fn state_written(requests: &[FileRequest]) -> Option<Vec<PathBuf>> {
     requests.iter().find_map(|request| match request {
         FileRequest::Write { path, contents }
@@ -145,7 +138,6 @@ fn opening_a_project_remembers_it_first() {
             is_directory: false,
         }],
     });
-    // Past the recent Project and "..", to the file.
     for _ in 0..2 {
         app.apply(Action::Move(pikutracker_core::app::Direction::Down));
     }

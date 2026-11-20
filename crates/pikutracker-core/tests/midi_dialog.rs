@@ -1,5 +1,3 @@
-//! The four-page MIDI Import dialog, driven through the headless App core.
-
 mod midi_support;
 
 use midi_support::{Song, TICKS_PER_STEP};
@@ -34,7 +32,6 @@ fn melody() -> Song {
     Song::new().note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
 }
 
-/// Two sources: a two-note chord on channel 1, and a kick on channel 10.
 fn band() -> Song {
     Song::new()
         .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127)
@@ -54,7 +51,6 @@ fn press(app: &mut App, actions: &[Action]) {
     }
 }
 
-/// Goes from Voices to Review and presses Enter there.
 fn import(app: &mut App) {
     press(
         app,
@@ -148,7 +144,6 @@ fn each_voice_shows_its_track_and_ticks_decide_what_is_kept() {
     app.apply(Action::ToggleVoice);
     import(&mut app);
 
-    // The chord's top voice is gone, so its lower voice moves up to Track 1.
     let entry = app.project().chain_row_entry(0, 0, 0).unwrap();
     assert_eq!(app.project().phrase(entry.phrase()).step(0).pitch(), 24);
     assert!(app.project().chain_row_entry(0, 2, 0).is_none());
@@ -161,7 +156,6 @@ fn s_ticks_a_whole_source() {
     app.apply(Action::ToggleSource);
     import(&mut app);
 
-    // Only the kick is left, and it fills Track 1.
     assert_eq!(first_step_instrument(&app, 0), 0);
     assert!(app.project().chain_row_entry(0, 1, 0).is_none());
 }
@@ -202,7 +196,6 @@ fn up_down_and_left_right_pick_the_steps_per_beat() {
         &[Action::Confirm, Action::Confirm, Action::Confirm],
     );
 
-    // 120 BPM at 8 Steps per beat.
     let entry = app.project().chain_row_entry(0, 0, 0).unwrap();
     assert_eq!(app.project().phrase(entry.phrase()).speed(), 8);
 }

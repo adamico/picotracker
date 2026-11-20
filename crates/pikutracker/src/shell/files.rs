@@ -1,5 +1,3 @@
-//! Carries out the App core's file requests on the real file system.
-
 use directories::ProjectDirs;
 use pikutracker_core::app::{DirectoryEntry, FileRequest, FileResponse, SettingsContents};
 use std::ffi::OsString;
@@ -7,7 +5,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Does what the app asked for, and says how it went.
 pub fn carry_out(request: FileRequest) -> FileResponse {
     match request {
         FileRequest::List { directory } => match list(&directory) {
@@ -31,8 +28,6 @@ pub fn carry_out(request: FileRequest) -> FileResponse {
     }
 }
 
-/// Reads `config.ron` or `state.ron`. Only a missing file counts as no file: any other error
-/// leaves the file to the App core to keep safe.
 pub fn read_settings(path: &Path) -> SettingsContents {
     match fs::read(path) {
         Ok(bytes) => SettingsContents::Bytes(bytes),
@@ -43,20 +38,15 @@ pub fn read_settings(path: &Path) -> SettingsContents {
     }
 }
 
-/// The app's folders, named after the package so the name has one home.
 fn app_folders() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", env!("CARGO_PKG_NAME"))
 }
 
-/// Where `config.ron` lives: `$XDG_CONFIG_HOME/pikutracker` on Linux, falling back as the
-/// `directories` crate does.
 pub fn config_file() -> Option<PathBuf> {
     let folders = app_folders()?;
     Some(folders.config_dir().join("config.ron"))
 }
 
-/// Where `state.ron` lives: `$XDG_STATE_HOME/pikutracker` on Linux, falling back as the
-/// `directories` crate does, or the platform's local data folder where there is no state folder.
 pub fn state_file() -> Option<PathBuf> {
     let folders = app_folders()?;
     let folder = folders.state_dir().unwrap_or(folders.data_local_dir());
@@ -64,7 +54,7 @@ pub fn state_file() -> Option<PathBuf> {
 }
 
 fn written(path: PathBuf, contents: &[u8]) -> FileResponse {
-    match replace(&path, contents) {
+    match replace_atomically(&path, contents) {
         Ok(()) => FileResponse::Written { path },
         Err(error) => failed(path, &error),
     }
@@ -92,9 +82,7 @@ fn list(directory: &Path) -> io::Result<Vec<DirectoryEntry>> {
         .collect()
 }
 
-/// Writes beside the file and then swaps it in, so that a failed write leaves the old file whole.
-/// Creates the file's folder first, which `state.ron` needs on first launch.
-fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
+fn replace_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     if let Some(folder) = path
         .parent()
         .filter(|folder| !folder.as_os_str().is_empty())
@@ -105,7 +93,6 @@ fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
     temporary.push(".tmp");
     fs::write(&temporary, contents)?;
     fs::rename(&temporary, path).inspect_err(|_| {
-        // The rename's own error is the one worth reporting.
         let _ = fs::remove_file(&temporary);
     })
 }

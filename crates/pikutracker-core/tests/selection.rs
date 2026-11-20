@@ -1,5 +1,3 @@
-//! One rectangular selection per pane, and what Nudge and Clear do to it.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -48,7 +46,6 @@ fn song_cell_background(app: &App, row: usize, track: usize) -> Colour {
     app.grid().cell(column, SONG_FIRST_LINE + row).style.bg
 }
 
-/// A Song whose first two rows hold Chains 10, 20 on Track 1 and 30, 40 on Track 2.
 fn song_block() -> Project {
     let mut project = Project::new();
     for (row, track, chain) in [(0, 0, 0x10), (1, 0, 0x20), (0, 1, 0x30), (1, 1, 0x40)] {
@@ -57,7 +54,6 @@ fn song_block() -> Project {
     project
 }
 
-/// Chain 00 on the first Song row, with Phrase 00 in the first entries and Steps of music.
 fn music() -> Project {
     let mut project = Project::new();
     let chain = ChainId::new(0);

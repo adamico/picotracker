@@ -1,9 +1,3 @@
-//! What sets off a binding, and where it applies. A trigger is a key pressed with modifiers held
-//! (`Ctrl+S`), a hold-chord of a key pressed while another is still held (`Z+X`), or a double-tap
-//! of the same key twice in quick succession with nothing between (`Double-tap Z`). A binding for
-//! the cursor's context comes before one for an active selection, which comes before one that
-//! applies anywhere. Also reads triggers written as text, as `config.ron` holds them.
-
 use super::key::{Key, Modifiers};
 use crate::app::KeyContext;
 
@@ -25,7 +19,6 @@ pub enum Scope {
 }
 
 impl Scope {
-    /// How widely the scope applies: anywhere is widest.
     pub(super) const fn width(self) -> u8 {
         match self {
             Scope::Context(_) => 0,
@@ -36,8 +29,6 @@ impl Scope {
 }
 
 impl Trigger {
-    /// Reads a trigger written as `config.ron` holds it: `Ctrl+Shift+S`, `Z+X` or `Double-tap Z`.
-    /// Names ignore case.
     pub fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if let Some(rest) = text
@@ -67,12 +58,11 @@ impl Trigger {
     }
 }
 
-/// A key by its name, such as `Up`, `F9`, `Space` or `Z`.
 fn key_named(name: &str) -> Option<Key> {
     let name = name.trim();
     let mut chars = name.chars();
     if let (Some(ch), None) = (chars.next(), chars.next()) {
-        return Some(Key::Char(ch).normalised());
+        return Some(Key::Char(ch).with_letter_lowercased());
     }
     let lower = name.to_ascii_lowercase();
     Some(match lower.as_str() {

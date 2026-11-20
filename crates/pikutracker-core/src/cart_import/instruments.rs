@@ -1,6 +1,3 @@
-//! Custom Instruments from a Cart: each SFX 0–7 that notes use as an instrument becomes one
-//! (ADR 0004).
-
 use super::rebuild::{built_in_step, filters_of, has_bit_7, stored_length};
 use crate::cart::Cart;
 use crate::project::{
@@ -9,9 +6,6 @@ use crate::project::{
 
 const BASS_BIT: u8 = 0x01;
 
-/// The Custom Instrument that notes marked as SFX Instruments play from this slot. Bit 7 of byte
-/// 66 makes it a Waveform Instrument, whose header bits other than Bass and the filters cannot be
-/// heard.
 pub(super) fn imported_instrument(cart: &Cart, slot: u8) -> CustomInstrument {
     let sfx = cart.sfx(slot);
     let filters = filters_of(sfx);
@@ -25,7 +19,6 @@ pub(super) fn imported_instrument(cart: &Cart, slot: u8) -> CustomInstrument {
             dampen: filters.dampen(),
         })
     } else {
-        // PICO-8 plays a note marked as an SFX Instrument inside one as a Built-in Instrument.
         let steps = (0..stored_length(sfx))
             .map(|index| built_in_step(sfx.note(index)))
             .collect();

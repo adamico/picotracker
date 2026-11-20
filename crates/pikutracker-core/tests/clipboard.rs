@@ -1,5 +1,3 @@
-//! Copy, cut and paste, which stay within one kind of pane.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
@@ -31,7 +29,6 @@ fn moves(direction: Action, count: usize) -> Vec<Action> {
     vec![direction; count]
 }
 
-/// A Song whose first two rows hold Chains 10, 20 on Track 1 and 30, 40 on Track 2.
 fn song_block() -> Project {
     let mut project = Project::new();
     for (row, track, chain) in [(0, 0, 0x10), (1, 0, 0x20), (0, 1, 0x30), (1, 1, 0x40)] {
@@ -40,8 +37,6 @@ fn song_block() -> Project {
     project
 }
 
-/// Chain 00 on the first Song row. Entry 0 plays Phrase 05 up 3 semitones with Fill, and entry 1
-/// plays Phrase 06.
 fn chain_music() -> Project {
     let mut project = Project::new();
     let chain = ChainId::new(0);
@@ -54,7 +49,6 @@ fn chain_music() -> Project {
     project
 }
 
-/// Chain 00 holding Phrase 00, whose first Steps are 24, 25, 26 and 27 and whose LEN is 8.
 fn phrase_music() -> Project {
     let mut project = Project::new();
     let chain = ChainId::new(0);

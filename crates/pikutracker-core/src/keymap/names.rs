@@ -1,6 +1,3 @@
-//! The names that `config.ron` uses for actions. Every action has one except the typed
-//! characters: piano keys, hex digits and the characters of a name, which follow the keyboard.
-
 use crate::app::{Action, Direction};
 use crate::project::TRACKS;
 
@@ -57,8 +54,6 @@ const DIRECTIONS: [(Direction, &str); 4] = [
     (Direction::Right, "Right"),
 ];
 
-/// Every action that has a name, with its name, such as `Save`, `MoveUp`, `Mute3` or
-/// `NudgeDownCoarse`.
 pub fn named_actions() -> Vec<(String, Action)> {
     let units = UNIT_ACTIONS
         .into_iter()
@@ -90,7 +85,6 @@ pub fn named_actions() -> Vec<(String, Action)> {
     units.chain(moves).chain(tracks).chain(nudges).collect()
 }
 
-/// The action with this name, if there is one.
 pub(super) fn action_named(name: &str) -> Option<Action> {
     named_actions()
         .into_iter()

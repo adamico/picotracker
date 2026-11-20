@@ -1,5 +1,3 @@
-//! Hearing a Song: actions in, audio requests out, and offline-rendered samples from the Player.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -23,7 +21,6 @@ const A3: Option<i32> = Some(45);
 const A4: Option<i32> = Some(57);
 const REST: Option<i32> = None;
 
-/// Writes a Phrase at Speed 8 with one Step per pitch.
 fn write(project: &mut Project, id: u8, steps: &[Option<i32>]) -> PhraseId {
     let id = PhraseId::new(id);
     let phrase = project.phrase_mut(id);
@@ -39,8 +36,6 @@ fn write(project: &mut Project, id: u8, steps: &[Option<i32>]) -> PhraseId {
     id
 }
 
-/// Fills a Chain's entries from its first and places it on a Song row. `None` leaves an entry
-/// empty.
 fn place(
     project: &mut Project,
     row: usize,
@@ -71,7 +66,6 @@ fn transposed(phrase: PhraseId, semitones: i32) -> Option<ChainEntry> {
     Some(entry)
 }
 
-/// Plays whatever the app has asked for and renders a number of Steps.
 fn render(app: &mut App, player: &mut Player, steps: usize) -> Vec<f32> {
     for request in app.take_audio_requests() {
         player.handle(request);
@@ -79,7 +73,6 @@ fn render(app: &mut App, player: &mut Player, steps: usize) -> Vec<f32> {
     player.render(steps * STEP_SAMPLES)
 }
 
-/// Applies the actions to an app holding this Project and renders a number of Steps.
 fn hear(project: Project, actions: &[Action], steps: usize) -> Vec<f32> {
     let mut app = App::with_project(project);
     for action in actions {
@@ -107,7 +100,6 @@ fn step_peak(samples: &[f32], step: usize) -> f32 {
         .fold(0.0, |peak, sample| peak.max(sample.abs()))
 }
 
-/// Checks what each Step of a render sounds like: a frequency, or silence for 0.
 fn assert_steps(samples: &[f32], expected: &[f32]) {
     for (step, frequency) in expected.iter().enumerate() {
         if *frequency == 0.0 {
@@ -198,7 +190,6 @@ fn fill_repeats_a_phrase_until_the_chain_row_ends() {
 
     let samples = hear(project, &[SPACE], 7);
 
-    // The fifth Step cuts the repeat short when the Chain row ends.
     assert_steps(&samples, &[440.0, 880.0, 440.0, 880.0, 440.0, 220.0, 220.0]);
 }
 
@@ -247,11 +238,9 @@ fn a_step_transposed_past_63_plays_at_its_true_pitch() {
 
     let samples = hear(project, &[SPACE], 2);
 
-    // Pitch 64 is 31 semitones above A-2.
     assert_steps(&samples, &[2637.0, 2637.0]);
 }
 
-/// A Song of three one-Phrase rows: 220 Hz, then 440 Hz, then 880 Hz.
 fn three_row_song() -> Project {
     let mut project = Project::new();
     let first = write(&mut project, 1, &[A1]);
@@ -403,7 +392,6 @@ fn moving_the_cursor_during_playback_changes_nothing_that_plays() {
     assert!(app.take_audio_requests().is_empty());
 }
 
-/// Track 1 holds a Chain of two entries; Track 2 stretches its first Chain row to four Steps.
 fn two_track_chain() -> Project {
     let mut project = Project::new();
     let low = write(&mut project, 1, &[A2, A2]);

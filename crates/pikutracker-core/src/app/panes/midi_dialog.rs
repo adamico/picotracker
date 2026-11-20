@@ -1,5 +1,3 @@
-//! The full-screen MIDI Import dialog: Voices, Steps per beat, Instruments and Review.
-
 use super::{EMPTY, HEADING, VALUE, stepped};
 use crate::app::{Action, Direction};
 use crate::midi_import::{
@@ -80,7 +78,6 @@ pub enum Outcome {
     Import,
 }
 
-/// Everything the user is deciding. Nothing reaches the open Project until Import.
 #[derive(Debug)]
 pub struct MidiDialog {
     file_name: String,
@@ -99,7 +96,6 @@ pub struct MidiDialog {
 }
 
 impl MidiDialog {
-    /// Opens on the file's analysis, starting from the app's default MIDI table.
     pub fn new(file_name: String, folder: PathBuf, analysis: Analysis, table: MidiTable) -> Self {
         let choices = Choices {
             table,
@@ -124,7 +120,6 @@ impl MidiDialog {
         }
     }
 
-    /// The file's name, its folder, the finished Import and the MIDI table it used.
     pub fn finish(self) -> (String, PathBuf, Imported, MidiTable) {
         let imported = self
             .preview
@@ -132,7 +127,6 @@ impl MidiDialog {
         (self.file_name, self.folder, imported, self.choices.table)
     }
 
-    /// The keys of the current page.
     pub fn hints(&self) -> &'static str {
         match (self.page, self.table) {
             (Page::Voices, _) => VOICES_KEYS,
@@ -143,7 +137,6 @@ impl MidiDialog {
         }
     }
 
-    /// Takes one key.
     pub fn apply(&mut self, action: Action) -> Outcome {
         match action {
             Action::Confirm => return self.forward(),
@@ -313,7 +306,6 @@ impl MidiDialog {
         grid.put(0, FILE_ROW, &file, HEADING);
     }
 
-    /// The name each Track will hold.
     fn track_names(&self) -> [Option<&str>; TRACKS] {
         let mut names = [None; TRACKS];
         for (voice, track) in self.analysis.voices().iter().zip(self.choices.tracks()) {
@@ -489,7 +481,6 @@ impl MidiDialog {
     }
 }
 
-/// How a Steps per beat lays out, such as `SPEED 0F  32 STEPS = 2 BARS A PHRASE`.
 fn readout(option: &GridOption) -> String {
     let bars = match option.bars {
         0 => "LESS THAN A BAR".to_owned(),

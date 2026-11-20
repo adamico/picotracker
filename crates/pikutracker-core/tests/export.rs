@@ -1,7 +1,3 @@
-//! The Export compiler seam: a Project, a Claim and a Cart's bytes in, new Cart bytes or the whole
-//! list of failures out. Every Cart here is generated in test code, and the expected bytes are
-//! worked out by hand from the spec.
-
 mod support;
 
 use pikutracker_core::cart::Cart;
@@ -25,7 +21,6 @@ fn claim(sfx: &[u8], patterns: (u8, u8)) -> Claim {
     }
 }
 
-/// Writes a Phrase of `length` Steps whose first Step is pitch 12, volume 5.
 fn write_phrase(project: &mut Project, id: u8, length: i32, speed: i32) {
     let phrase = project.phrase_mut(PhraseId::new(id));
     phrase.set_length(length);
@@ -33,7 +28,6 @@ fn write_phrase(project: &mut Project, id: u8, length: i32, speed: i32) {
     *phrase.step_mut(0) = Step::new(12, 3, 5, 1).unwrap();
 }
 
-/// Puts a one-entry Chain playing a Phrase on a Song row of a Track.
 fn place(project: &mut Project, row: usize, track: usize, chain: u8, phrase: u8) {
     let mut entries = Chain::default();
     *entries.entry_mut(0) = Some(ChainEntry::new(PhraseId::new(phrase)));
@@ -41,7 +35,6 @@ fn place(project: &mut Project, row: usize, track: usize, chain: u8, phrase: u8)
     project.set_song_cell(row, track, Some(ChainId::new(chain)));
 }
 
-/// One Song row: Track 1 plays a 16-Step Phrase, and it is the only Export Track.
 fn one_row_project() -> Project {
     let mut project = Project::new();
     write_phrase(&mut project, 0, 16, 20);
@@ -61,10 +54,16 @@ fn a_phrase_becomes_an_sfx_with_its_speed_len_and_notes() {
     let cart = exported_cart(&one_row_project(), &claim(&[8], (0, 0)));
 
     let sfx = cart.sfx_bytes(8);
-    // Pitch 12, instrument 3, volume 5, effect 1: 12 | 3 << 6 | 5 << 9 | 1 << 12 = 0x1ACC.
-    assert_eq!(sfx[..2], [0xCC, 0x1A]);
-    // The editor-mode bit, Speed 20, and LEN 16 held as loop start 16 with loop end 0.
-    assert_eq!(sfx[64..], [0x01, 20, 16, 0]);
+    let pitch_12_instrument_3_volume_5_effect_1 = 12u16 | 3 << 6 | 5 << 9 | 1 << 12;
+    assert_eq!(
+        sfx[..2],
+        pitch_12_instrument_3_volume_5_effect_1.to_le_bytes()
+    );
+    let (editor_mode_bit, speed, len_as_loop_start, loop_end) = (0x01, 20, 16, 0);
+    assert_eq!(
+        sfx[64..],
+        [editor_mode_bit, speed, len_as_loop_start, loop_end]
+    );
 }
 
 #[test]
@@ -89,8 +88,11 @@ fn filters_come_from_the_phrase() {
 
     let cart = exported_cart(&project, &claim(&[8], (0, 0)));
 
-    // 1 editor + 2 NOIZ + 4 BUZZ + 1 x 8 DETUNE + 2 x 24 REVERB + 1 x 72 DAMPEN.
-    assert_eq!(cart.sfx_bytes(8)[64], 135);
+    let (editor, noiz, buzz, detune_unit, reverb_unit, dampen_unit) = (1, 2, 4, 8, 24, 72);
+    assert_eq!(
+        cart.sfx_bytes(8)[64],
+        editor + noiz + buzz + detune_unit + 2 * reverb_unit + dampen_unit
+    );
 }
 
 #[test]
@@ -115,7 +117,6 @@ fn each_chain_row_becomes_one_pattern_in_song_order() {
 
     let cart = exported_cart(&project, &claim(&[8, 9], (4, 7)));
 
-    // Song row 0 holds two Chain rows and Song row 1 holds one. The last one stops the Song.
     assert_eq!(cart.pattern_bytes(4), [8, 0x42, 0x43, 0x44]);
     assert_eq!(cart.pattern_bytes(5), [9, 0x42, 0x43, 0x44]);
     assert_eq!(cart.pattern_bytes(6), [9, 0x42, 0x43 | 0x80, 0x44]);
@@ -233,8 +234,6 @@ fn a_song_looping_to_its_first_row_still_writes_loop_start() {
 
     let exported = export(&project, &claim(&[8], (0, 1)), &original).unwrap();
 
-    // PICO-8 would loop back to Pattern 0 without the flag, but the Claim may start elsewhere.
-    // Flags left in the claimed Patterns are cleared.
     let cart = Cart::read(&exported.cart_bytes).unwrap();
     assert_eq!(cart.pattern_bytes(0), [8 | 0x80, 0x42, 0x43, 0x44]);
     assert_eq!(cart.pattern_bytes(1), [8, 0x42 | 0x80, 0x43, 0x44]);
@@ -249,7 +248,6 @@ fn a_song_loop_row_past_a_gap_is_compiled_as_the_player_plays_it() {
 
     let cart = exported_cart(&project, &claim(&[8, 9], (0, 1)));
 
-    // Row 0 plays, the gap at row 1 jumps to row 2, and row 2 then loops for ever.
     assert_eq!(cart.pattern_bytes(0), [8, 0x42, 0x43, 0x44]);
     assert_eq!(cart.pattern_bytes(1), [9 | 0x80, 0x42 | 0x80, 0x43, 0x44]);
 }
@@ -415,7 +413,6 @@ fn in_an_all_fill_chain_row_the_longest_entry_plays_once_with_len() {
 
     let cart = exported_cart(&project, &claim(&[8, 9], (0, 0)));
 
-    // Track 2's 8 Steps loop beside Track 1's 16, which play once and end the Pattern.
     assert_eq!(cart.sfx_bytes(8)[66..], [16, 0]);
     assert_eq!(cart.sfx_bytes(9)[66..], [0, 8]);
 }
@@ -468,7 +465,6 @@ fn a_chain_row_timed_by_an_unexported_track_is_padded_with_a_silent_sfx() {
 
     let cart = Cart::read(&exported.cart_bytes).unwrap();
     assert_eq!(exported.warnings, []);
-    // The padding lasts Track 6's 32 Steps at Speed 20: 640 Ticks, held as 4 notes at Speed 160.
     assert_eq!(cart.pattern_bytes(0), [8, 9, 0x43 | 0x80, 0x44]);
     assert_eq!(cart.sfx_bytes(9)[..64], [0; 64]);
     assert_eq!(cart.sfx_bytes(9)[64..], [0x01, 160, 4, 0]);
@@ -486,7 +482,6 @@ fn a_chain_row_with_no_exported_entries_becomes_one_silent_sfx() {
 
     let cart = exported_cart(&project, &claim(&[8, 9], (0, 1)));
 
-    // Chain row 1 plays only on Track 6: 320 Ticks, held as 2 notes at Speed 160.
     assert_eq!(cart.pattern_bytes(1), [9, 0x42, 0x43 | 0x80, 0x44]);
     assert_eq!(cart.sfx_bytes(9)[64..], [0x01, 160, 2, 0]);
 }
@@ -513,8 +508,6 @@ fn a_chain_row_timed_by_an_unexported_track_with_no_free_channel_warns() {
     );
 }
 
-/// One Song row playing a 6-Step Phrase whose last two Steps are a fast arpeggio. Its group runs
-/// on to Steps 6 and 7, which lie past LEN.
 fn arpeggio_past_len() -> Project {
     let mut project = one_row_project();
     let phrase = project.phrase_mut(PhraseId::new(0));
@@ -544,7 +537,6 @@ fn an_arpeggio_reading_steps_past_len_sounds_the_same_after_export() {
 fn the_steps_an_arpeggio_reads_past_len_stay_silent_in_the_cart() {
     let cart = exported_cart(&arpeggio_past_len(), &claim(&[8], (0, 0)));
 
-    // A channel that does not set the Pattern's length plays on past LEN, so they must not sound.
     assert_eq!(cart.sfx(8).note(6).volume, 0);
     assert_eq!(cart.sfx(8).note(7).volume, 0);
 }
@@ -574,7 +566,6 @@ fn a_pitch_an_arpeggio_reads_past_the_top_of_the_range_is_named() {
     );
 }
 
-/// One Song row whose Phrase plays Custom Instrument 0A on Step 2.
 fn custom_instrument_project(sound: InstrumentSound) -> Project {
     let mut project = one_row_project();
     *project.phrase_mut(PhraseId::new(0)).step_mut(2) = Step::new(12, 0x0A, 5, 0).unwrap();
@@ -604,9 +595,11 @@ fn a_custom_instrument_takes_the_lowest_free_claimed_slot_in_0_to_7() {
 
     let cart = exported_cart(&project, &claim(&[20, 5, 3, 8], (0, 0)));
 
-    // 36 | 2 << 6 | 5 << 9 = 0x0AA4, and 40 | 1 << 6 | 4 << 9 | 3 << 12 = 0x3868.
+    let first_note = 36u16 | 2 << 6 | 5 << 9;
+    let second_note = 40u16 | 1 << 6 | 4 << 9 | 3 << 12;
     let instrument = cart.sfx_bytes(3);
-    assert_eq!(instrument[..4], [0xA4, 0x0A, 0x68, 0x38]);
+    assert_eq!(instrument[..2], first_note.to_le_bytes());
+    assert_eq!(instrument[2..4], second_note.to_le_bytes());
     assert_eq!(instrument[4..64], [0; 60]);
     assert_eq!(instrument[64..], [1 + 24, 4, 0, 2]);
     assert_eq!(cart.pattern(0).channel(0), Some(5));
@@ -653,7 +646,6 @@ fn a_waveform_instrument_writes_its_samples_and_the_fixed_header() {
 
     let instrument = cart.sfx_bytes(0);
     assert_eq!(instrument[..3], [0xFF, 100, 0]);
-    // The editor-mode bit, 2 x 8 DETUNE and 1 x 72 DAMPEN, then 16 + Bass, 0x80 and 0x00.
     assert_eq!(instrument[64..], [1 + 16 + 72, 17, 0x80, 0]);
 }
 

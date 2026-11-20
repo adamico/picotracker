@@ -1,5 +1,3 @@
-//! Clone, Deep clone, new unused Chains and Phrases, and Insert and Delete row.
-
 use super::cell_edits::NO_STEP_HERE;
 use super::files::Question;
 use super::messages::Report;
@@ -14,7 +12,6 @@ const NO_FREE_PHRASE: &str = "NO UNUSED PHRASE LEFT";
 const NEEDS_A_REFERENCE: &str = "USE THE SONG OR CHAIN PANE";
 const NOTHING_TO_PURGE: &str = "NOTHING TO PURGE";
 
-/// How many Chains and Phrases these are, as messages say it.
 fn counted_items(items: &UnusedItems) -> String {
     format!(
         "{} AND {}",
@@ -24,8 +21,6 @@ fn counted_items(items: &UnusedItems) -> String {
 }
 
 impl App {
-    /// Copies the Chains or Phrases under the cursor or the selection, and points the cells at the
-    /// copies. Items shared inside the selection stay shared with each other.
     pub(super) fn clone_items(&mut self, deep: bool) {
         let Some(cells) = self.target_cells() else {
             return;
@@ -111,7 +106,6 @@ impl App {
         self.selection_start = None;
     }
 
-    /// The distinct Chains in a range of Song cells, in the order they first appear.
     pub(super) fn chains_in(&self, cells: CellRange) -> Vec<ChainId> {
         let mut chains = Vec::new();
         for row in cells.rows() {
@@ -126,7 +120,6 @@ impl App {
         chains
     }
 
-    /// The distinct Phrases these Chains play, in the order they first appear.
     pub(super) fn phrases_of(&self, chains: &[ChainId]) -> Vec<PhraseId> {
         let mut phrases = Vec::new();
         for chain in chains {
@@ -152,7 +145,6 @@ impl App {
         copies
     }
 
-    /// This many free Chain slots, or a failure on the status line if there are too few.
     fn free_chain_slots(&mut self, count: usize) -> Option<Vec<ChainId>> {
         let free = self.project.free_chains();
         if free.len() < count {
@@ -162,7 +154,6 @@ impl App {
         Some(free[..count].to_vec())
     }
 
-    /// This many free Phrase slots, or a failure on the status line if there are too few.
     fn free_phrase_slots(&mut self, count: usize) -> Option<Vec<PhraseId>> {
         let free = self.project.free_phrases();
         if free.len() < count {
@@ -172,7 +163,6 @@ impl App {
         Some(free[..count].to_vec())
     }
 
-    /// Opens an empty row at the cursor, shifting later rows down.
     pub(super) fn insert_row(&mut self) {
         self.shift_rows(
             Project::insert_song_row,
@@ -181,7 +171,6 @@ impl App {
         );
     }
 
-    /// Closes the row at the cursor, shifting later rows up.
     pub(super) fn delete_row(&mut self) {
         self.shift_rows(
             Project::delete_song_row,
@@ -221,7 +210,6 @@ impl App {
         self.selection_start = None;
     }
 
-    /// Asks whether to remove what nothing refers to, saying how much that is.
     pub(super) fn ask_to_purge(&mut self) {
         let unused = self.project.unused_items();
         if unused.is_empty() {
@@ -239,14 +227,12 @@ impl App {
         )));
     }
 
-    /// Removes what nothing refers to.
     pub(super) fn purge_unused(&mut self) {
         let unused = self.project.unused_items();
         self.project.purge(&unused);
         self.report(Report::info(format!("PURGED {}", counted_items(&unused))));
     }
 
-    /// Points the cell under the cursor at a new, empty Chain or Phrase.
     pub(super) fn new_unused(&mut self) {
         match self.focus {
             Focus::Song => {

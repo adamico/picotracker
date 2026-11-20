@@ -1,5 +1,3 @@
-//! The Phrase pane: the header and Steps of the Phrase being edited.
-
 use super::{
     EMPTY, HEADING, SELECTED, VALUE, draw_out_of_range_flag, draw_row_label, draw_styled_value,
     draw_title, id_text, stepped,
@@ -59,7 +57,6 @@ const HEADER_CELLS: [&[(HeaderCell, usize)]; 3] = [
     ],
 ];
 
-/// What the Phrase pane shows.
 #[derive(Clone, Copy, Debug)]
 pub struct PhraseView<'a> {
     pub id: Option<PhraseId>,
@@ -68,7 +65,6 @@ pub struct PhraseView<'a> {
     pub playing_step: Option<usize>,
 }
 
-/// The Phrase pane's cursor, and the values that new notes take.
 #[derive(Debug)]
 pub struct PhrasePane {
     step: usize,
@@ -94,7 +90,6 @@ impl Default for PhrasePane {
     }
 }
 
-/// Where the Phrase pane's cursor is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PhraseCursorPlace {
     step: usize,
@@ -103,7 +98,6 @@ pub struct PhraseCursorPlace {
 }
 
 impl PhrasePane {
-    /// Where the cursor is now.
     pub fn cursor_place(&self) -> PhraseCursorPlace {
         PhraseCursorPlace {
             step: self.step,
@@ -112,19 +106,16 @@ impl PhrasePane {
         }
     }
 
-    /// Puts the cursor back where it was.
     pub fn return_to(&mut self, place: PhraseCursorPlace) {
         self.step = place.step;
         self.column = place.column;
         self.header_row = place.header_row;
     }
 
-    /// The Step under the cursor.
     pub fn step(&self) -> usize {
         self.step
     }
 
-    /// The Step under the cursor, when the cursor is on its pitch or Instrument.
     pub fn note_step(&self) -> Option<usize> {
         matches!(
             self.step_cell(),
@@ -133,25 +124,21 @@ impl PhrasePane {
         .then_some(self.step)
     }
 
-    /// Puts the cursor on a Step.
     pub fn jump_to(&mut self, step: usize) {
         self.step = step.min(MAX_STEPS - 1);
         self.header_row = None;
     }
 
-    /// Puts the cursor back on the first Step, keeping the values that new notes take.
     pub fn return_to_top(&mut self) {
         self.step = 0;
         self.column = 0;
         self.header_row = None;
     }
 
-    /// Keeps the cursor inside a Phrase the pane has just moved to.
     pub fn keep_inside(&mut self, phrase: &Phrase) {
         self.step = self.step.min(phrase.length() - 1);
     }
 
-    /// What the keys that type characters do here.
     pub fn key_context(&self) -> KeyContext {
         if self.step_cell() == Some(StepCell::Pitch) {
             KeyContext::PhrasePitch
@@ -200,7 +187,6 @@ impl PhrasePane {
         Some(HEADER_CELLS[row][self.column].0)
     }
 
-    /// Enters a note with the current Instrument and volume, then moves down one Step.
     pub fn enter_note(&mut self, phrase: &mut Phrase, piano_key: u8) {
         if self.step_cell() != Some(StepCell::Pitch) {
             return;
@@ -213,8 +199,6 @@ impl PhrasePane {
         self.step = stepped(self.step, 1, phrase.length());
     }
 
-    /// The Instrument of the Step under the cursor, when the cursor is on its Instrument column: the
-    /// Step's own, or the current one for new notes when the Step is silent and shows none.
     pub fn instrument_under_cursor(&self, phrase: &Phrase) -> Option<u8> {
         (self.step_cell() == Some(StepCell::Instrument)).then(|| {
             let step = phrase.step(self.step);
@@ -226,28 +210,22 @@ impl PhrasePane {
         })
     }
 
-    /// The octave that piano keys play in.
     pub fn octave(&self) -> u8 {
         self.octave
     }
 
-    /// Sets the octave that piano keys play in, stopping at the highest.
     pub fn set_octave(&mut self, octave: u8) {
         self.octave = octave.min(MAX_OCTAVE);
     }
 
-    /// Changes the octave that piano keys play in, stopping at 0 and 4.
     pub fn change_octave(&mut self, delta: i8) {
         self.octave = self.octave.saturating_add_signed(delta).min(MAX_OCTAVE);
     }
 
-    /// Ends the two-digit value being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
         self.first_digit = None;
     }
 
-    /// Types a hexadecimal digit into the cell under the cursor. Two digits in a row make one
-    /// value in the cells that hold two.
     pub fn type_digit(&mut self, phrase: &mut Phrase, digit: u8) {
         let typed = self.first_digit.map_or(0, |high| high << 4) | digit;
         let two_digits = matches!(self.step_cell(), Some(StepCell::Instrument))
@@ -260,7 +238,6 @@ impl PhrasePane {
         self.set_cell(phrase, value);
     }
 
-    /// Raises or lowers the cell under the cursor.
     pub fn nudge(&mut self, phrase: &mut Phrase, up: bool, coarse: bool) {
         let amount = if coarse { self.coarse_amount() } else { 1 };
         let delta = if up { amount } else { -amount };
@@ -331,7 +308,6 @@ impl PhrasePane {
         }
     }
 
-    /// The cell under the cursor: a column and a Step. The header holds no cells to select.
     pub fn cell(&self) -> Option<CellPosition> {
         self.header_row.is_none().then_some(CellPosition {
             column: self.column,
@@ -339,8 +315,6 @@ impl PhrasePane {
         })
     }
 
-    /// Raises or lowers every cell in the range. Silent Steps show as empty, so they stay as they
-    /// are.
     pub fn nudge_cells(&self, phrase: &mut Phrase, cells: CellRange, up: bool, coarse: bool) {
         for index in cells.rows() {
             let step = phrase.step_mut(index);
@@ -352,8 +326,6 @@ impl PhrasePane {
         }
     }
 
-    /// Empties every cell in the range. A Step has no empty pitch or Instrument, so clearing either
-    /// silences the Step and keeps its values.
     pub fn clear_cells(&self, phrase: &mut Phrase, cells: CellRange) {
         for index in cells.rows() {
             let step = phrase.step_mut(index);
@@ -366,13 +338,10 @@ impl PhrasePane {
         }
     }
 
-    /// The Steps the range of cells is on.
     pub fn copy(&self, phrase: &Phrase, cells: CellRange) -> Vec<Step> {
         cells.rows().map(|index| phrase.step(index)).collect()
     }
 
-    /// Overwrites the copied columns of the Steps from the cursor down, and says how many rows
-    /// fell past LEN.
     pub fn paste(
         &self,
         phrase: &mut Phrase,
@@ -387,7 +356,6 @@ impl PhrasePane {
         rows.len() - fitting
     }
 
-    /// Marks the selected cells, leaving the cursor as it is.
     pub fn draw_selection(&self, grid: &mut Grid, area: Area, cells: CellRange) {
         for index in cells.rows() {
             for column in cells.columns() {
@@ -400,7 +368,6 @@ impl PhrasePane {
         }
     }
 
-    /// Moves the cursor to the Step the Playhead is on.
     pub fn follow(&mut self, step: usize) {
         if self.step != step {
             self.step = step;
@@ -408,7 +375,6 @@ impl PhrasePane {
         }
     }
 
-    /// Draws a Phrase, or a blank Phrase under the title `--` when there is none to show.
     pub fn draw(&self, grid: &mut Grid, area: Area, focused: bool, view: PhraseView) {
         let PhraseView {
             id,
@@ -480,8 +446,6 @@ impl PhrasePane {
     }
 }
 
-/// Raises or lowers one cell of a Step, stopping at its limits. A selection nudges Instruments only
-/// among the Built-in Instruments, and Steps on Custom Instruments keep theirs.
 fn nudge_step_cell(step: &mut Step, cell: StepCell, up: bool, coarse: bool) {
     let amount = if coarse && cell == StepCell::Pitch {
         SEMITONES_PER_OCTAVE
@@ -501,8 +465,6 @@ fn nudge_step_cell(step: &mut Step, cell: StepCell, up: bool, coarse: bool) {
     }
 }
 
-/// A Step with the copied columns of another written over it. A silent source shows as empty, so
-/// pasting its pitch or Instrument silences the Step, as clearing those cells does.
 fn pasted_step(target: Step, source: Step, columns: &RangeInclusive<usize>) -> Step {
     let copied = |cell| {
         STEP_CELLS
@@ -537,7 +499,6 @@ fn pasted_step(target: Step, source: Step, columns: &RangeInclusive<usize>) -> S
     .unwrap_or(target)
 }
 
-/// The text of each cell of a Step. A silent Step shows as empty.
 pub(super) fn step_texts(step: Step) -> [String; 4] {
     if step.is_silent() {
         return STEP_CELLS.map(|(_, _, empty)| empty.to_owned());

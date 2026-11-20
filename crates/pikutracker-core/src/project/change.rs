@@ -1,10 +1,7 @@
-//! What one edit did to a Project, kept small enough that a long undo history stays cheap.
-
 use super::{
     Chain, ChainId, CustomInstrument, EXPORT_CHANNELS, Phrase, Project, TRACKS, TargetCart,
 };
 
-/// A value before and after an edit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Swap<T> {
     before: T,
@@ -12,7 +9,6 @@ struct Swap<T> {
 }
 
 impl<T: Clone + PartialEq> Swap<T> {
-    /// The two values, if they differ.
     fn between(before: &T, after: &T) -> Option<Self> {
         (before != after).then(|| Self {
             before: before.clone(),
@@ -34,9 +30,6 @@ enum Way {
     Forward,
 }
 
-/// Every difference between two versions of a Project.
-///
-/// The claimed-bytes hash is left out: Export updates it, and Export is not an edit.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ProjectChange {
     phrases: Vec<(usize, Swap<Phrase>)>,
@@ -49,7 +42,6 @@ pub(crate) struct ProjectChange {
     custom_instruments: Vec<(u8, Swap<Option<CustomInstrument>>)>,
 }
 
-/// The items that differ between two equally long lists, with their positions.
 fn changed_items<T: Clone + PartialEq>(before: &[T], after: &[T]) -> Vec<(usize, Swap<T>)> {
     before
         .iter()
@@ -59,8 +51,7 @@ fn changed_items<T: Clone + PartialEq>(before: &[T], after: &[T]) -> Vec<(usize,
         .collect()
 }
 
-/// A Target Cart with the claimed-bytes hash taken out.
-fn without_hash(target_cart: Option<&TargetCart>) -> Option<TargetCart> {
+fn without_claimed_bytes_hash(target_cart: Option<&TargetCart>) -> Option<TargetCart> {
     target_cart.cloned().map(|mut target_cart| {
         target_cart.claimed_bytes_hash = None;
         target_cart
@@ -68,11 +59,10 @@ fn without_hash(target_cart: Option<&TargetCart>) -> Option<TargetCart> {
 }
 
 impl ProjectChange {
-    /// What it takes to turn one version of a Project into another.
     pub(crate) fn between(before: &Project, after: &Project) -> Self {
         let target_cart = Swap::between(
-            &without_hash(before.target_cart.as_ref()),
-            &without_hash(after.target_cart.as_ref()),
+            &without_claimed_bytes_hash(before.target_cart.as_ref()),
+            &without_claimed_bytes_hash(after.target_cart.as_ref()),
         )
         .map(|_| Swap {
             before: before.target_cart.clone(),
@@ -104,17 +94,14 @@ impl ProjectChange {
         }
     }
 
-    /// Whether the two versions hold the same music.
     pub(crate) fn is_empty(&self) -> bool {
         *self == Self::default()
     }
 
-    /// Takes the change out of a Project.
     pub(crate) fn undo(&self, project: &mut Project) {
         self.apply(project, Way::Back);
     }
 
-    /// Makes the change to a Project again.
     pub(crate) fn redo(&self, project: &mut Project) {
         self.apply(project, Way::Forward);
     }
@@ -139,7 +126,8 @@ impl ProjectChange {
             project.export_tracks = *swap.value(way);
         }
         if let Some(swap) = &self.target_cart {
-            project.target_cart = keeping_hash(swap.value(way), project.target_cart.as_ref());
+            project.target_cart =
+                keeping_current_claimed_bytes_hash(swap.value(way), project.target_cart.as_ref());
         }
         for (id, swap) in &self.custom_instruments {
             project.set_custom_instrument(*id, swap.value(way).clone());
@@ -147,8 +135,10 @@ impl ProjectChange {
     }
 }
 
-/// A Target Cart being put back, holding the hash Export last stored for that same Cart.
-fn keeping_hash(restored: &Option<TargetCart>, current: Option<&TargetCart>) -> Option<TargetCart> {
+fn keeping_current_claimed_bytes_hash(
+    restored: &Option<TargetCart>,
+    current: Option<&TargetCart>,
+) -> Option<TargetCart> {
     let mut restored = restored.clone();
     if let (Some(restored), Some(current)) = (restored.as_mut(), current)
         && restored.path == current.path

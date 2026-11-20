@@ -1,7 +1,3 @@
-//! Choosing Export Tracks and Exporting through the headless App core. File contents go in and
-//! out through the App core's interface, so these tests touch no disk. Every Cart here is
-//! generated in test code.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
@@ -35,7 +31,6 @@ fn cart_path() -> PathBuf {
     Path::new(".").join(CART_NAME)
 }
 
-/// A one-song Cart with two SFX and a disabled channel.
 fn simple_cart() -> TestCart {
     let mut last = TestPattern::playing([Some(1), Some(0), None, None]);
     last.stop = true;
@@ -48,7 +43,6 @@ fn simple_cart() -> TestCart {
     }
 }
 
-/// An app holding the Project Imported from a Cart with these bytes.
 fn imported(contents: Vec<u8>) -> App {
     let mut app = App::new();
     app.apply(Action::Import);
@@ -70,7 +64,6 @@ fn imported(contents: Vec<u8>) -> App {
     app
 }
 
-/// Presses Ctrl+E and hands the app the Target Cart, returning what the app asks for next.
 fn export_with(app: &mut App, contents: Vec<u8>) -> Vec<FileRequest> {
     app.apply(Action::Export);
     assert_eq!(
@@ -84,7 +77,6 @@ fn export_with(app: &mut App, contents: Vec<u8>) -> Vec<FileRequest> {
     app.take_file_requests()
 }
 
-/// Runs a whole Export, returning the bytes written to the Target Cart.
 fn export_ok(app: &mut App, contents: Vec<u8>) -> Vec<u8> {
     let requests = export_with(app, contents);
     let [FileRequest::WriteBytes { path, contents }] = &requests[..] else {
@@ -373,7 +365,6 @@ fn export_without_a_target_cart_opens_the_cart_view() {
     assert_eq!(right_slot(&app, 1), ">NO TARGET CART");
 }
 
-/// The Cart with its first SFX and second Pattern changed, as if edited in PICO-8.
 fn edited_in_pico8() -> Vec<u8> {
     let mut cart = simple_cart();
     cart.sfx[0] = TestSfx::with_pitches(8, &[40]);
@@ -577,7 +568,6 @@ fn a_failed_write_keeps_the_old_hash() {
     assert_eq!(stored_hash(&app), hash);
 }
 
-/// Answers the folder listing the app has just asked for.
 fn answer_listing(app: &mut App, directory: &Path, entries: Vec<DirectoryEntry>) {
     assert_eq!(
         app.take_file_requests(),
@@ -591,7 +581,6 @@ fn answer_listing(app: &mut App, directory: &Path, entries: Vec<DirectoryEntry>)
     });
 }
 
-/// An app holding the Project Imported from `./carts/game.p8`.
 fn imported_from_a_subfolder(contents: Vec<u8>) -> App {
     let mut app = App::new();
     app.apply(Action::Import);
@@ -617,7 +606,6 @@ fn imported_from_a_subfolder(contents: Vec<u8>) -> App {
     app
 }
 
-/// Saves the Project as `s.ptrk` one folder up from `./carts`, returning the text written.
 fn save_as_one_folder_up(app: &mut App) -> String {
     app.apply(Action::SaveAs);
     answer_listing(app, &Path::new(".").join("carts"), Vec::new());

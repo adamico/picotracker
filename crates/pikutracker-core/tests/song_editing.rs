@@ -1,5 +1,3 @@
-//! Building a Song from Chains and Phrases, checked on the Project and the character grid.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, KeyContext};
@@ -34,7 +32,6 @@ fn app_after(actions: &[Action]) -> App {
     app
 }
 
-/// Types a two-digit hexadecimal value.
 fn id(value: u8) -> [Action; 2] {
     [Action::HexDigit(value >> 4), Action::HexDigit(value & 0xF)]
 }
@@ -66,7 +63,6 @@ fn phrase_text(app: &App, line: usize) -> String {
     pane_text(app, line, 63..82)
 }
 
-/// An app with Chain 03 on the first Song row and the Chain pane focused.
 fn chain_app() -> App {
     app_after(&[&id(3)[..], &[TAB]].concat())
 }
@@ -340,7 +336,6 @@ fn the_phrase_cursor_stays_inside_a_shorter_phrase_it_follows_to() {
     apply(&mut app, &id(1));
     app.apply(DOWN);
     apply(&mut app, &id(2));
-    // Phrase 02 gets LEN 2, then the cursor goes to Step 0F of Phrase 01 and back.
     apply(
         &mut app,
         &[TAB, UP, UP, Action::HexDigit(0), Action::HexDigit(2)],

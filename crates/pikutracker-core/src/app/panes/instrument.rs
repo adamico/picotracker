@@ -1,6 +1,3 @@
-//! The Instrument view: a full-screen editor for one Custom Instrument, opened from a Step's
-//! Instrument column.
-
 use super::phrase::{STEP_CELLS, StepCell, step_texts};
 use super::{HEADING, VALUE, draw_row_label, draw_styled_value, draw_title, stepped, typed_value};
 use crate::app::{Action, Direction, KeyContext};
@@ -48,7 +45,6 @@ enum Field {
     Sample(usize),
 }
 
-/// A row of the view: where it sits on the grid, and its fields with their columns.
 struct Row {
     screen_row: usize,
     fields: Vec<(Field, usize)>,
@@ -63,7 +59,6 @@ impl Row {
     }
 }
 
-/// Every row of the view for this kind of Instrument, top to bottom.
 fn rows(sound: &InstrumentSound) -> Vec<Row> {
     let mut rows = vec![
         Row::new(NAME_ROW, &[(Field::Name, VALUE_COLUMN)]),
@@ -120,7 +115,6 @@ fn rows(sound: &InstrumentSound) -> Vec<Row> {
     rows
 }
 
-/// The Instrument view's cursor, and the values that new notes in an SFX Instrument take.
 #[derive(Debug)]
 pub struct InstrumentView {
     id: u8,
@@ -132,7 +126,6 @@ pub struct InstrumentView {
 }
 
 impl InstrumentView {
-    /// The view of the Custom Instrument with this number, with the cursor on its name.
     pub fn new(id: u8) -> Self {
         Self {
             id,
@@ -144,12 +137,10 @@ impl InstrumentView {
         }
     }
 
-    /// The number of the Instrument shown.
     pub fn id(&self) -> u8 {
         self.id
     }
 
-    /// The Instrument shown: the Project's, or a new SFX Instrument until the first edit.
     fn shown(&self, project: &Project) -> CustomInstrument {
         project
             .custom_instrument(self.id)
@@ -162,7 +153,6 @@ impl InstrumentView {
         row.fields[self.column.min(row.fields.len() - 1)].0
     }
 
-    /// What the keys that type characters do at the cursor.
     pub fn key_context(&self, project: &Project) -> KeyContext {
         match self.field(&rows(&self.shown(project).sound)) {
             Field::Name => KeyContext::InstrumentName,
@@ -171,8 +161,6 @@ impl InstrumentView {
         }
     }
 
-    /// Carries out an editing action on the Instrument. An action that changes nothing leaves the
-    /// Project as it was, so that only viewing an Instrument never defines it.
     pub fn apply(&mut self, action: Action, project: &mut Project, octave: u8) {
         if !matches!(action, Action::HexDigit(_)) {
             self.first_digit = None;
@@ -289,7 +277,6 @@ impl InstrumentView {
         }
     }
 
-    /// Sets one field, stopping at its limits.
     fn set(&mut self, instrument: &mut CustomInstrument, field: Field, value: i32) {
         match &mut instrument.sound {
             InstrumentSound::Sfx(sfx) => self.set_sfx(sfx, field, value),
@@ -331,12 +318,10 @@ impl InstrumentView {
         }
     }
 
-    /// Ends the two-digit value being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
         self.first_digit = None;
     }
 
-    /// Draws the Instrument over the whole grid.
     pub fn draw(&self, grid: &mut Grid, project: &Project) {
         let instrument = self.shown(project);
         draw_title(grid, 0, 0, &format!("INSTRUMENT {:02X}", self.id), true);
@@ -395,7 +380,6 @@ fn coarse_amount(field: Field) -> i32 {
     }
 }
 
-/// The number a field holds, for nudging. The name has none.
 fn value(instrument: &CustomInstrument, field: Field) -> Option<i32> {
     let value = match &instrument.sound {
         InstrumentSound::Sfx(sfx) => sfx_value(sfx, field)?,
@@ -436,7 +420,6 @@ fn sfx_value(sfx: &SfxInstrument, field: Field) -> Option<u8> {
     })
 }
 
-/// The text a field shows.
 fn field_text(instrument: &CustomInstrument, field: Field) -> String {
     match (field, &instrument.sound) {
         (Field::Name, _) => {

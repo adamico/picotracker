@@ -1,14 +1,7 @@
-//! Cart codec: reads `.p8` or `.p8.png` bytes into Cart data and writes claimed SFX and Patterns
-//! back into the original bytes.
-//!
-//! [`Cart`] holds the music data exactly as Cart memory lays it out, so that writing can put the
-//! same bytes back.
-
 mod write;
 
 use crate::project::Claim;
 use std::fmt;
-use std::fmt::Write as _;
 use std::io::Cursor;
 
 pub const SLOTS: usize = 64;
@@ -39,6 +32,7 @@ const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 const PNG_WIDTH: u32 = 160;
 const PNG_HEIGHT: u32 = 205;
 const PNG_CHANNELS: usize = 4;
+const PIXEL_DATA_BITS: u8 = 0b11;
 
 const BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
 const TEXT_HEADER: &[u8] = b"pico-8 cartridge";
@@ -71,7 +65,6 @@ impl fmt::Display for CartError {
 
 impl std::error::Error for CartError {}
 
-/// A note as Cart memory packs it into one word.
 pub(crate) const fn note_word(
     pitch: u16,
     instrument: u16,
@@ -82,7 +75,6 @@ pub(crate) const fn note_word(
     pitch | instrument << 6 | volume << 9 | effect << 12 | custom << 15
 }
 
-/// One note of an SFX.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CartNote {
     pub pitch: u8,
@@ -92,14 +84,12 @@ pub struct CartNote {
     pub custom: bool,
 }
 
-/// One of a Cart's SFX, read from its bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sfx<'a> {
     bytes: &'a [u8; SFX_BYTES],
 }
 
 impl Sfx<'_> {
-    /// The note at an index from 0 to 31.
     pub fn note(self, index: usize) -> CartNote {
         let word = u16::from_le_bytes([self.bytes[index * 2], self.bytes[index * 2 + 1]]);
         CartNote {
@@ -111,7 +101,6 @@ impl Sfx<'_> {
         }
     }
 
-    /// The editor mode bit, NOIZ, BUZZ, DETUNE, REVERB and DAMPEN, packed into one byte.
     pub const fn filters(self) -> u8 {
         self.bytes[FILTERS_BYTE]
     }
@@ -128,27 +117,23 @@ impl Sfx<'_> {
         self.bytes[LOOP_END_BYTE]
     }
 
-    /// Whether any note holds anything, so that the SFX is in use.
     pub fn is_used(self) -> bool {
         self.bytes[..SFX_NOTES * 2].iter().any(|byte| *byte != 0)
     }
 }
 
-/// Some SFX slots and some Pattern slots, each in ascending order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Slots {
     pub sfx: Vec<u8>,
     pub patterns: Vec<u8>,
 }
 
-/// One of a Cart's Patterns, read from its bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pattern {
     bytes: [u8; PATTERN_BYTES],
 }
 
 impl Pattern {
-    /// The SFX a channel from 0 to 3 plays, unless the channel is disabled.
     pub const fn channel(self, channel: usize) -> Option<u8> {
         let byte = self.bytes[channel];
         if byte & CHANNEL_DISABLED == 0 {
@@ -158,7 +143,6 @@ impl Pattern {
         }
     }
 
-    /// Whether every channel is disabled.
     pub fn is_empty(self) -> bool {
         (0..CHANNELS).all(|channel| self.channel(channel).is_none())
     }
@@ -176,7 +160,6 @@ impl Pattern {
     }
 }
 
-/// The music data of a Cart.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cart {
     patterns: [[u8; PATTERN_BYTES]; SLOTS],
@@ -184,7 +167,6 @@ pub struct Cart {
 }
 
 impl Default for Cart {
-    /// A Cart whose every row is at its default.
     fn default() -> Self {
         let mut blank = [0; SFX_BYTES];
         blank[SPEED_BYTE] = OMITTED_ROW_SPEED;
@@ -196,7 +178,6 @@ impl Default for Cart {
 }
 
 impl Cart {
-    /// Reads the bytes of a `.p8` or `.p8.png` file, telling the two apart by their contents.
     pub fn read(bytes: &[u8]) -> Result<Self, CartError> {
         if bytes.starts_with(&PNG_SIGNATURE) {
             read_png(bytes)
@@ -205,70 +186,34 @@ impl Cart {
         }
     }
 
-    /// The 68 bytes of an SFX, as Cart memory holds them.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot is 64 or more.
     pub fn sfx_bytes(&self, slot: u8) -> &[u8; 68] {
         &self.sfx[usize::from(slot)]
     }
 
-    /// The 4 bytes of a Pattern, as Cart memory holds them.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot is 64 or more.
     pub fn pattern_bytes(&self, slot: u8) -> [u8; 4] {
         self.patterns[usize::from(slot)]
     }
 
-    /// Replaces the 68 bytes of an SFX.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot is 64 or more.
     pub fn set_sfx_bytes(&mut self, slot: u8, bytes: [u8; 68]) {
         self.sfx[usize::from(slot)] = bytes;
     }
 
-    /// Replaces the 4 bytes of a Pattern.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot is 64 or more.
     pub fn set_pattern_bytes(&mut self, slot: u8, bytes: [u8; 4]) {
         self.patterns[usize::from(slot)] = bytes;
     }
 
-    /// An SFX, read from its bytes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot is 64 or more.
     pub fn sfx(&self, slot: u8) -> Sfx<'_> {
         Sfx {
             bytes: self.sfx_bytes(slot),
         }
     }
 
-    /// A Pattern, read from its bytes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the slot is 64 or more.
     pub fn pattern(&self, slot: u8) -> Pattern {
         Pattern {
             bytes: self.pattern_bytes(slot),
         }
     }
 
-    /// The hash of the bytes a Claim covers: one FNV-1a checksum per claimed slot, each named by
-    /// its slot, so that a later comparison can say which SFX and Patterns have changed.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the Claim names a slot of 64 or more.
     pub fn claimed_bytes_hash(&self, claim: &Claim) -> String {
         let mut hash = String::new();
         for &slot in &claim.sfx {
@@ -282,12 +227,10 @@ impl Cart {
         hash
     }
 
-    /// The slots a claimed-bytes hash names whose bytes have changed since it was taken.
     pub fn changed_since(&self, hash: &str) -> Slots {
         self.slots_in_hash(hash, false)
     }
 
-    /// The slots a claimed-bytes hash names whose bytes are still those it describes.
     pub fn unchanged_since(&self, hash: &str) -> Slots {
         self.slots_in_hash(hash, true)
     }
@@ -312,9 +255,6 @@ impl Cart {
     }
 }
 
-/// One entry of a claimed-bytes hash, such as `S03=0123abcd`: the kind, the slot and its
-/// fingerprint.
-/// An entry that names no slot of a Cart is not one.
 fn slot_hash_entry(entry: &str) -> Option<(char, u8, u32)> {
     let (name, stored) = entry.split_once('=')?;
     let kind = name
@@ -339,8 +279,7 @@ fn push_slot_hash(hash: &mut String, kind: char, slot: u8, bytes: &[u8]) {
         hash.push(' ');
     }
     let fingerprint = slot_fingerprint(bytes);
-    // Writing to a String cannot fail.
-    let _ = write!(hash, "{kind}{slot:02X}={fingerprint:08x}");
+    hash.push_str(&format!("{kind}{slot:02X}={fingerprint:08x}"));
 }
 
 fn read_png(bytes: &[u8]) -> Result<Cart, CartError> {
@@ -357,8 +296,6 @@ fn read_png(bytes: &[u8]) -> Result<Cart, CartError> {
     Ok(cart)
 }
 
-/// The Cart bytes held in the low 2 bits of each pixel's channels, up to the end of the music.
-/// The alpha bits are data, so the pixels are taken exactly as stored.
 fn decode_png(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(
         png_pixels(bytes)?
@@ -371,13 +308,11 @@ fn decode_png(bytes: &[u8]) -> Option<Vec<u8>> {
     )
 }
 
-/// The Cart byte one pixel holds.
 fn pixel_byte(pixel: [u8; PNG_CHANNELS]) -> u8 {
-    let [r, g, b, a] = pixel.map(|bits| bits & 3);
+    let [r, g, b, a] = pixel.map(|bits| bits & PIXEL_DATA_BITS);
     a << 6 | r << 4 | g << 2 | b
 }
 
-/// The decoded RGBA pixels of a `.p8.png` image, if it has a Cart's size and format.
 fn png_pixels(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut reader = png::Decoder::new(Cursor::new(bytes)).read_info().ok()?;
     let info = reader.info();
@@ -449,8 +384,6 @@ fn hex_digits(text: &[u8]) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// A `__sfx__` line: the 4 header bytes as they are, then 32 notes of 5 digits `PPIVE`, where an
-/// instrument digit of 8 or more sets the custom bit.
 fn parse_sfx_line(line: &[u8]) -> Option<[u8; SFX_BYTES]> {
     if line.len() != SFX_LINE_DIGITS {
         return None;
@@ -473,7 +406,6 @@ fn parse_sfx_line(line: &[u8]) -> Option<[u8; SFX_BYTES]> {
     Some(sfx)
 }
 
-/// A `__music__` line, `FF CCCCCCCC`: bit n of the flags becomes bit 7 of channel byte n.
 fn parse_music_line(line: &[u8]) -> Option<[u8; PATTERN_BYTES]> {
     if line.len() != MUSIC_LINE_LENGTH || line[MUSIC_FLAGS_DIGITS] != b' ' {
         return None;

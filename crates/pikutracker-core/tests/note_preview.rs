@@ -1,5 +1,3 @@
-//! Hearing a note while stopped: actions in, offline-rendered samples from the Player.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -26,7 +24,6 @@ const SPEED: i32 = 8;
 const STEP_SAMPLES: usize = SPEED as usize * SAMPLES_PER_TICK as usize;
 const CROSSFADE_SAMPLES: usize = 300;
 
-/// An app with the Phrase pane focused on Phrase 01, whose first Step is a quiet A-2.
 fn phrase_app(transpose: i32) -> App {
     let mut project = Project::new();
     let id = PhraseId::new(1);
@@ -137,7 +134,6 @@ fn changing_a_steps_volume_or_effect_previews_nothing() {
 
 #[test]
 fn a_nudge_that_changes_nothing_previews_nothing() {
-    // The Step is on Instrument 00, the lowest there is.
     let mut app = phrase_app(0);
     apply(&mut app, &[RIGHT]);
     app.take_audio_requests();

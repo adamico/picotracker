@@ -1,5 +1,3 @@
-//! Turns the character grid into RGBA pixels.
-
 use super::font::{GLYPH_HEIGHT, GLYPH_WIDTH, glyph};
 use super::grid::{Cell, GRID_COLUMNS, GRID_ROWS, Grid};
 use super::palette::Colour;
@@ -14,14 +12,12 @@ const HEIGHT: usize = LOGICAL_HEIGHT as usize;
 const SEPARATOR: char = '│';
 const SEPARATOR_COLUMN: usize = 2;
 
-/// One finished 640×360 picture.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
     rgba: Vec<u8>,
 }
 
 impl Frame {
-    /// Draws a character grid.
     pub fn from_grid(grid: &Grid) -> Self {
         let mut frame = Self {
             rgba: Colour::Black.rgba().repeat(WIDTH * HEIGHT),
@@ -38,7 +34,6 @@ impl Frame {
         frame
     }
 
-    /// The picture as RGBA bytes, row by row from the top left.
     pub fn rgba(&self) -> &[u8] {
         &self.rgba
     }

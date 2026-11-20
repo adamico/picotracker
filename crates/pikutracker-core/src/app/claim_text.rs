@@ -1,7 +1,3 @@
-//! The Claim as the Cart view's fields hold it: SFX as hex slots and ranges such as `03 04 32-3D`,
-//! and Patterns as one range such as `18-1D`. Separators are added as the digits are typed, so
-//! only `-` is ever typed, for SFX ranges.
-
 use crate::cart::SLOTS;
 
 const PAIR: usize = 2;
@@ -13,15 +9,13 @@ pub(super) enum ClaimPart {
     Patterns,
 }
 
-/// The text of one Claim field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClaimText {
     part: ClaimPart,
     text: String,
 }
 
-/// The digits typed since the last separator.
-fn last_number(text: &str) -> &str {
+fn digits_since_last_separator(text: &str) -> &str {
     text.rsplit([' ', '-']).next().unwrap_or("")
 }
 
@@ -34,8 +28,7 @@ fn slot(digits: &str) -> Option<u8> {
         .filter(|slot| usize::from(*slot) < SLOTS)
 }
 
-/// A slot, `XX`, or a range of slots, `XX-YY`, as its first and last slot.
-fn range(token: &str) -> Option<(u8, u8)> {
+fn first_and_last_slot(token: &str) -> Option<(u8, u8)> {
     match token.split_once('-') {
         Some((first, last)) => {
             let (first, last) = (slot(first)?, slot(last)?);
@@ -53,7 +46,6 @@ fn range_text((first, last): (u8, u8)) -> String {
     }
 }
 
-/// Slots as text, such as `03 04 32-3D`: runs of three or more as ranges, and the rest one by one.
 pub(super) fn slots_text(sfx: &[u8]) -> String {
     let mut runs: Vec<(u8, u8)> = Vec::new();
     for &slot in sfx {
@@ -73,8 +65,6 @@ pub(super) fn slots_text(sfx: &[u8]) -> String {
     tokens.join(" ")
 }
 
-/// Slots named with the word for one or for several of them, such as `PATTERNS 18-1D`, unless
-/// there are none.
 pub(super) fn named_slots(slots: &[u8], one: &str, many: &str) -> Option<String> {
     let what = if slots.len() == 1 { one } else { many };
     (!slots.is_empty()).then(|| format!("{what} {}", slots_text(slots)))
@@ -103,10 +93,8 @@ impl ClaimText {
         &self.text
     }
 
-    /// Types one hex digit. A finished pair of digits gets a separator first: a space between
-    /// SFX, and the dash of the range between Patterns.
     pub(super) fn type_digit(&mut self, digit: u8) {
-        if last_number(&self.text).len() == PAIR {
+        if digits_since_last_separator(&self.text).len() == PAIR {
             match self.part {
                 ClaimPart::Sfx => self.text.push(' '),
                 ClaimPart::Patterns if self.text.contains('-') => return,
@@ -116,7 +104,6 @@ impl ClaimText {
         self.text.push_str(&format!("{digit:X}"));
     }
 
-    /// Types the dash of an SFX range after its first slot.
     pub(super) fn type_dash(&mut self) {
         let token = self.text.rsplit(' ').next().unwrap_or("");
         if self.part == ClaimPart::Sfx && token.len() == PAIR && !token.contains('-') {
@@ -124,7 +111,6 @@ impl ClaimText {
         }
     }
 
-    /// Takes back the last character typed, with any separator added before it.
     pub(super) fn backspace(&mut self) {
         self.text.pop();
         let added = match self.part {
@@ -136,11 +122,10 @@ impl ClaimText {
         }
     }
 
-    /// The SFX slots the text names, in ascending order, if it is a whole Claim.
     pub(super) fn sfx_slots(&self) -> Option<Vec<u8>> {
         let mut slots = Vec::new();
         for token in self.text.split(' ').filter(|token| !token.is_empty()) {
-            let (first, last) = range(token)?;
+            let (first, last) = first_and_last_slot(token)?;
             slots.extend(first..=last);
         }
         slots.sort_unstable();
@@ -148,16 +133,14 @@ impl ClaimText {
         Some(slots)
     }
 
-    /// The range of Patterns the text names, if it is a whole Claim. Empty text claims none.
     pub(super) fn pattern_range(&self) -> Option<Option<(u8, u8)>> {
         if self.text.is_empty() {
             return Some(None);
         }
-        range(&self.text).map(Some)
+        first_and_last_slot(&self.text).map(Some)
     }
 
-    /// Whether the text is a whole Claim.
-    pub(super) fn is_valid(&self) -> bool {
+    pub(super) fn is_whole_claim(&self) -> bool {
         match self.part {
             ClaimPart::Sfx => self.sfx_slots().is_some(),
             ClaimPart::Patterns => self.pattern_range().is_some(),

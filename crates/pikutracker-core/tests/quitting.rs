@@ -1,6 +1,3 @@
-//! Quitting through the headless App core. The Window shell closes once the App core says to,
-//! both for Ctrl+Q and for the window's close button.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, KeyContext};

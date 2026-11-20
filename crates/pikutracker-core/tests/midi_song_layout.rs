@@ -1,5 +1,3 @@
-//! The MIDI compiler's voices, tables, Song structure, pitch offsets and warnings.
-
 mod midi_support;
 
 use midi_support::{Song, TICKS_PER_STEP};
@@ -192,27 +190,26 @@ fn unticking_a_voice_makes_room_for_a_dropped_one() {
 
 #[test]
 fn programs_map_to_built_in_instruments_by_general_midi_family() {
-    // Bass, piano, chromatic percussion, organ, guitar, strings, lead, pad, ensemble, synth FX.
     let families = [
-        (33, 0),
-        (0, 1),
-        (8, 1),
-        (16, 5),
-        (24, 2),
-        (40, 2),
-        (80, 3),
-        (88, 4),
-        (48, 4),
-        (96, 7),
+        ("bass", 33, 0),
+        ("piano", 0, 1),
+        ("chromatic percussion", 8, 1),
+        ("organ", 16, 5),
+        ("guitar", 24, 2),
+        ("strings", 40, 2),
+        ("lead", 80, 3),
+        ("pad", 88, 4),
+        ("ensemble", 48, 4),
+        ("synth FX", 96, 7),
     ];
-    for (program, instrument) in families {
+    for (family, program, instrument) in families {
         let song = Song::new()
             .program(0, 1, program)
             .note(0, TICKS_PER_STEP, 1, MIDDLE_C, 127);
 
         let step = phrase(&project(&song), 0, 0, 0).step(0);
 
-        assert_eq!(step.instrument(), instrument, "program {program}");
+        assert_eq!(step.instrument(), instrument, "{family} program {program}");
     }
 }
 
@@ -269,7 +266,6 @@ fn when_two_notes_land_on_one_step_the_later_wins_and_import_warns() {
 
 #[test]
 fn a_phrase_holds_the_most_whole_bars_that_fit_in_32_steps() {
-    // Numerator, denominator power, Steps per beat, and the Phrase length that follows.
     let cases = [
         (4, 2, 4, 32),
         (3, 2, 4, 24),
@@ -294,7 +290,6 @@ fn a_phrase_holds_the_most_whole_bars_that_fit_in_32_steps() {
 
 #[test]
 fn each_song_row_holds_a_chain_of_four_chain_rows() {
-    // Each Phrase differs, so that none are shared.
     let song = (0..5).fold(Song::new(), |song, phrase| {
         song.note(
             phrase * TICKS_PER_STEP * 32,
@@ -440,7 +435,6 @@ fn notes_above_the_range_sit_an_octave_down_with_the_offset_in_the_chain_transpo
 
 #[test]
 fn a_voice_that_fits_no_whole_octave_still_lands_inside_the_range() {
-    // Sounding pitches -5 and 54: the only offsets that fit are -9 to -5.
     let song = Song::new().note(0, TICKS_PER_STEP, 1, 31, 127).note(
         TICKS_PER_STEP,
         TICKS_PER_STEP,
@@ -509,7 +503,6 @@ fn pitch_bend_and_other_controllers_share_one_warning() {
 
 #[test]
 fn the_grids_compare_speed_phrase_length_bars_and_collisions() {
-    // Two short notes 20 ticks apart share a Step only at 2 Steps per beat, where a Step is 48.
     let song = Song::new()
         .note(0, 4, 1, MIDDLE_C, 127)
         .note(20, 4, 1, MIDDLE_C + 2, 127);

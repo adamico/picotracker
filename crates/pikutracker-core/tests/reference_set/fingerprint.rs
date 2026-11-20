@@ -1,6 +1,3 @@
-//! The measurement fingerprint of one recording, and the comparison of our synth's samples with
-//! it. Both sides are measured the same way, from the first audible sample.
-
 use pikutracker_core::synth::{SAMPLE_RATE, SAMPLES_PER_TICK};
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
@@ -14,10 +11,6 @@ const A_440_PITCH: f32 = 33.0;
 const CENTS_PER_PITCH: f32 = 100.0;
 const LISTED_DIFFERENCES: usize = 4;
 
-/// What a recording measures, from its first audible sample up to `ticks` Ticks later: how long
-/// it sounds in samples, its RMS level in dBFS for each Tick (never below the floor), and its
-/// pitch in PICO-8 pitch numbers (33 is A at 440 Hz) for each window of four Ticks that holds a
-/// clear tone.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Fingerprint {
     pub duration_samples: usize,
@@ -25,9 +18,6 @@ pub struct Fingerprint {
     pub window_pitches: Vec<Option<f32>>,
 }
 
-/// How closely our synth must match a fingerprint. Each span of Ticks in `level_averaged_tick_spans`
-/// is held to the level limit on its average level, and every other Tick on its own level. A pitch
-/// window holding any Tick in `pitch_skipped_ticks` is not compared.
 #[derive(Clone, Debug)]
 pub struct Tolerance {
     pub duration_percent: f32,
@@ -37,7 +27,6 @@ pub struct Tolerance {
     pub pitch_skipped_ticks: Vec<usize>,
 }
 
-/// The samples from the first audible one, `ticks` Ticks long, padded with silence.
 fn window(samples: &[f32], ticks: usize) -> Vec<f32> {
     let length = ticks * SAMPLES_PER_TICK as usize;
     let onset = samples
@@ -54,9 +43,6 @@ fn level_db(samples: &[f32]) -> f32 {
     (10.0 * power.log10()).max(LEVEL_FLOOR_DB)
 }
 
-/// The pitch of a window, and how clearly the window repeats at its period, from 0 to 1. The
-/// period is the shortest that repeats clearly enough to count as a tone, or else the one that
-/// repeats best.
 fn pitch_and_clarity(samples: &[f32]) -> Option<(f32, f32)> {
     let longest = samples.len() / 2;
     let correlation = |lag: usize| {
@@ -110,7 +96,6 @@ fn pitch_windows(window: &[f32]) -> impl Iterator<Item = &[f32]> {
         .map(|chunk| chunk.as_slice())
 }
 
-/// Measures samples at 22,050 Hz over `ticks` Ticks from their first audible sample.
 pub fn measure(samples: &[f32], ticks: usize) -> Fingerprint {
     let window = window(samples, ticks);
     let duration_samples = window
@@ -137,8 +122,6 @@ pub fn measure(samples: &[f32], ticks: usize) -> Fingerprint {
     }
 }
 
-/// Where these samples differ from a fingerprint by more than the tolerance, in words. An empty
-/// list means they match.
 pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: &Tolerance) -> Vec<String> {
     let ticks = reference.tick_levels_db.len();
     let ours = measure(samples, ticks);
@@ -231,7 +214,6 @@ pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: &Toleran
     differences
 }
 
-/// The level of Ticks taken together: the power average of their levels in dB.
 fn average_level_db(tick_levels_db: &[f32]) -> f32 {
     let power = tick_levels_db
         .iter()

@@ -1,14 +1,10 @@
-//! Puts a Cart's claimed SFX and Patterns back into the bytes of the file they came from, leaving
-//! every other byte as it was.
-
 use super::{
-    BOM, Cart, CartError, MUSIC_SECTION, NOTE_DIGITS, PATTERN_BYTES, PATTERNS_AT, PNG_CHANNELS,
-    PNG_HEIGHT, PNG_SIGNATURE, PNG_WIDTH, SFX_AT, SFX_BYTES, SFX_NOTES, SFX_SECTION, SLOTS,
-    Section, TEXT_HEADER, is_section_mark, pixel_byte, png_pixels,
+    BOM, Cart, CartError, MUSIC_SECTION, NOTE_DIGITS, PATTERN_BYTES, PATTERNS_AT, PIXEL_DATA_BITS,
+    PNG_CHANNELS, PNG_HEIGHT, PNG_SIGNATURE, PNG_WIDTH, SFX_AT, SFX_BYTES, SFX_NOTES, SFX_SECTION,
+    SLOTS, Section, TEXT_HEADER, is_section_mark, pixel_byte, png_pixels,
 };
 use crate::project::Claim;
 use sha1::{Digest, Sha1};
-use std::fmt::Write as _;
 use std::ops::Range;
 
 const SHA1_COVERED_BYTES: usize = 0x8000;
@@ -22,15 +18,9 @@ const IMAGE_END: &[u8] = b"IEND";
 const SECTIONS_BEFORE_SFX: [&[u8]; 5] =
     [b"__map__", b"__gff__", b"__label__", b"__gfx__", b"__lua__"];
 
-/// A range of the original bytes and the text that takes its place.
 type Edit = (Range<usize>, String);
 
 impl Cart {
-    /// The bytes of a Cart file with the SFX and Patterns of a Claim replaced by this Cart's.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the Claim names a slot of 64 or more.
     pub fn write_claimed(&self, original: &[u8], claim: &Claim) -> Result<Vec<u8>, CartError> {
         if original.starts_with(&PNG_SIGNATURE) {
             self.write_png(original, claim)
@@ -39,8 +29,6 @@ impl Cart {
         }
     }
 
-    /// Rewrites the claimed bytes and the SHA-1 in the low bits of the original pixels. Code is
-    /// not recompressed, and the picture the high bits hold stays as it was.
     fn write_png(&self, original: &[u8], claim: &Claim) -> Result<Vec<u8>, CartError> {
         let mut pixels = png_pixels(original).ok_or(CartError::NotACart)?;
         for &slot in &claim.sfx {
@@ -98,18 +86,16 @@ impl Cart {
     }
 }
 
-/// Stores Cart bytes from an address on in the low 2 bits of each pixel's channels.
 fn put_bytes(pixels: &mut [u8], at: usize, bytes: &[u8]) {
     for (index, byte) in bytes.iter().enumerate() {
         let pixel = &mut pixels[(at + index) * PNG_CHANNELS..][..PNG_CHANNELS];
         let bits = [byte >> 4, byte >> 2, *byte, byte >> 6];
         for (channel, bits) in pixel.iter_mut().zip(bits) {
-            *channel = *channel & !3 | bits & 3;
+            *channel = *channel & !PIXEL_DATA_BITS | bits & PIXEL_DATA_BITS;
         }
     }
 }
 
-/// A whole PNG file holding these pixels.
 fn encode_png(pixels: &[u8]) -> Option<Vec<u8>> {
     let mut file = Vec::new();
     let mut encoder = png::Encoder::new(&mut file, PNG_WIDTH, PNG_HEIGHT);
@@ -121,7 +107,6 @@ fn encode_png(pixels: &[u8]) -> Option<Vec<u8>> {
     Some(file)
 }
 
-/// The chunks of a PNG file, each with its length, type, data and checksum.
 fn png_chunks(file: &[u8]) -> Option<Vec<&[u8]>> {
     let mut chunks = Vec::new();
     let mut rest = file.get(PNG_SIGNATURE.len()..)?;
@@ -141,8 +126,6 @@ fn chunk_type(chunk: &[u8]) -> &[u8] {
     &chunk[4..CHUNK_FRAMING_BYTES]
 }
 
-/// The original file with its image swapped for a newly encoded one. Every other chunk, and
-/// anything after the end of the image, stays byte for byte.
 fn spliced_png(original: &[u8], encoded: &[u8]) -> Option<Vec<u8>> {
     let new_chunks = png_chunks(encoded)?;
     let new_of_type = |kind: &[u8]| -> Vec<u8> {
@@ -171,8 +154,6 @@ fn spliced_png(original: &[u8], encoded: &[u8]) -> Option<Vec<u8>> {
     Some(file)
 }
 
-/// Replaces the claimed rows a section already has, and returns the rows it has to gain: default
-/// rows up to the last claimed row that holds anything. A row PICO-8 would leave out stays out.
 fn claimed_rows(
     rows: &[Range<usize>],
     claimed: &[u8],
@@ -203,21 +184,18 @@ fn claimed_rows(
         .collect()
 }
 
-/// The rows of a `__sfx__` or `__music__` section, as the reader counts them.
 #[derive(Default)]
 struct SectionRows {
     rows: Vec<Range<usize>>,
     append_at: Option<usize>,
 }
 
-/// One section of a `.p8` file, from its mark up to the next mark.
 struct Span<'a> {
     name: &'a [u8],
     start: usize,
     end: usize,
 }
 
-/// Where everything is in a `.p8` file.
 struct TextLayout<'a> {
     bytes: &'a [u8],
     sfx: SectionRows,
@@ -284,13 +262,11 @@ impl<'a> TextLayout<'a> {
         });
     }
 
-    /// The end of the last section with this name.
     fn end_of(&self, name: &[u8]) -> Option<usize> {
         let span = self.spans.iter().rev().find(|span| span.name == name)?;
         Some(span.end)
     }
 
-    /// Where a new `__sfx__` section goes: after the sections that come before it in a Cart.
     fn canonical_sfx_position(&self) -> usize {
         SECTIONS_BEFORE_SFX
             .iter()
@@ -299,7 +275,6 @@ impl<'a> TextLayout<'a> {
             .unwrap_or(self.bytes.len())
     }
 
-    /// The edit that adds rows to a section, creating the section if the file lacks it.
     fn insertion(&self, section: &SectionRows, name: &[u8], rows: Vec<String>) -> Option<Edit> {
         if rows.is_empty() {
             return None;
@@ -318,8 +293,6 @@ impl<'a> TextLayout<'a> {
         Some(self.inserted_lines(at, lines))
     }
 
-    /// New lines at a position, ending as the file's other lines end. A file that stops without a
-    /// final newline goes on stopping without one.
     fn inserted_lines(&self, at: usize, lines: Vec<String>) -> Edit {
         let line_ending = self.line_ending();
         let open_ended = at == self.bytes.len() && !self.bytes.ends_with(b"\n");
@@ -336,7 +309,6 @@ impl<'a> TextLayout<'a> {
         (at..at, text)
     }
 
-    /// The line ending of the file's first line.
     fn line_ending(&self) -> &'static str {
         let first = self.bytes.iter().position(|byte| *byte == b'\n');
         match first {
@@ -346,8 +318,6 @@ impl<'a> TextLayout<'a> {
     }
 }
 
-/// Replaces ranges of the original bytes, which must not overlap. Edits at the same position keep
-/// their order.
 fn apply_edits(original: &[u8], mut edits: Vec<Edit>) -> Vec<u8> {
     edits.sort_by_key(|(range, _)| range.start);
     let mut written = Vec::with_capacity(original.len());
@@ -361,8 +331,6 @@ fn apply_edits(original: &[u8], mut edits: Vec<Edit>) -> Vec<u8> {
     written
 }
 
-/// A `__sfx__` line: the 4 header bytes, then 32 notes of 5 digits `PPIVE`, where the custom bit
-/// adds 8 to the instrument digit.
 fn sfx_line(sfx: &[u8; SFX_BYTES]) -> String {
     let mut line = String::with_capacity(8 + SFX_NOTES * NOTE_DIGITS);
     for byte in &sfx[SFX_NOTES * 2..] {
@@ -372,17 +340,14 @@ fn sfx_line(sfx: &[u8; SFX_BYTES]) -> String {
         let word = u16::from_le_bytes(*note);
         let instrument = (word >> 6 & 7) | (word >> 15) << 3;
         let (volume, effect) = (word >> 9 & 7, word >> 12 & 7);
-        // Writing to a String cannot fail.
-        let _ = write!(
-            line,
+        line.push_str(&format!(
             "{:02x}{instrument:x}{volume:x}{effect:x}",
             word & 0x3f
-        );
+        ));
     }
     line
 }
 
-/// A `__music__` line, `FF CCCCCCCC`: bit 7 of channel byte n becomes bit n of the flags.
 fn music_line(pattern: [u8; PATTERN_BYTES]) -> String {
     let flags = (0..PATTERN_BYTES).fold(0, |flags, channel| {
         flags | (pattern[channel] >> 7) << channel
@@ -397,6 +362,5 @@ fn music_line(pattern: [u8; PATTERN_BYTES]) -> String {
 }
 
 fn push_hex(line: &mut String, byte: u8) {
-    // Writing to a String cannot fail.
-    let _ = write!(line, "{byte:02x}");
+    line.push_str(&format!("{byte:02x}"));
 }

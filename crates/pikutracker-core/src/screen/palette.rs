@@ -1,5 +1,3 @@
-//! The 16-colour PICO-8 palette.
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Colour {
@@ -41,7 +39,6 @@ impl Colour {
         Colour::LightPeach,
     ];
 
-    /// The colour as opaque RGBA bytes.
     pub const fn rgba(self) -> [u8; 4] {
         match self {
             Colour::Black => [0x00, 0x00, 0x00, 0xff],

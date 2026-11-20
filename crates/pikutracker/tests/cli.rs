@@ -1,5 +1,3 @@
-//! The command line of the `pikutracker` binary.
-
 use std::process::Command;
 
 #[test]

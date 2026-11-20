@@ -1,7 +1,3 @@
-//! The Cart view: choosing the Target Cart and typing the Claim, through the headless App core.
-//! File contents go in and out through the App core's interface, so these tests touch no disk.
-//! Every Cart here is generated in test code.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
@@ -27,7 +23,6 @@ fn right_slot(app: &App, index: usize) -> String {
     text.trim_end().to_owned()
 }
 
-/// The right-hand slot's rows from the top, down to the last one that shows anything.
 fn right_slot_rows(app: &App) -> Vec<String> {
     let mut rows: Vec<String> = (0..44).map(|row| right_slot(app, row)).collect();
     while rows.last().is_some_and(String::is_empty) {
@@ -40,7 +35,6 @@ fn cart_path() -> PathBuf {
     Path::new(".").join(CART_NAME)
 }
 
-/// A one-song Cart: SFX 00 and 01 played by Patterns 00 and 01.
 fn simple_cart() -> TestCart {
     let mut last = TestPattern::playing([Some(1), Some(0), None, None]);
     last.stop = true;
@@ -53,7 +47,6 @@ fn simple_cart() -> TestCart {
     }
 }
 
-/// A Cart whose SFX 00, 01 and 03 and Patterns 00 and 02 hold a game's sounds and music.
 fn busy_cart() -> TestCart {
     let sound = TestSfx::with_pitches(8, &[30]);
     let silent = TestSfx::with_pitches(8, &[]);
@@ -88,7 +81,6 @@ fn answer_listing(app: &mut App, entries: &[&str]) {
     });
 }
 
-/// An app holding the Project Imported from a Cart with these bytes.
 fn imported(contents: Vec<u8>) -> App {
     let mut app = App::new();
     app.apply(Action::Import);
@@ -103,7 +95,6 @@ fn imported(contents: Vec<u8>) -> App {
     app
 }
 
-/// Opens the Cart view and hands it the Target Cart's bytes.
 fn open_cart_view(app: &mut App, contents: Vec<u8>) {
     app.apply(Action::ToggleCart);
     assert_eq!(
@@ -136,7 +127,6 @@ fn clear_field(app: &mut App) {
     }
 }
 
-/// A Project with one Phrase of notes on T1, on a Chain in the first Song row, Exported on CH0.
 fn one_phrase_project() -> Project {
     let mut app = App::new();
     app.apply(Action::HexDigit(0));
@@ -415,7 +405,6 @@ fn a_cancelled_visit_leaves_no_undo_step() {
     assert!(status_line(&app).contains("NOTHING TO UNDO"));
 }
 
-/// Opens the Cart view on a Project with no Target Cart and picks `game.p8` from the file list.
 fn pick_cart(app: &mut App, contents: Vec<u8>) {
     app.apply(Action::ToggleCart);
     assert!(app.take_file_requests().is_empty());

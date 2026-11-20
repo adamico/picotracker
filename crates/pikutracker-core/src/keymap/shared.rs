@@ -1,6 +1,3 @@
-//! Bindings both presets share: the project, playback and Track keys, and the keys that type
-//! characters.
-
 use super::Binding;
 use super::key::{Key, Modifiers};
 use super::trigger::{Scope, Trigger};
@@ -19,7 +16,6 @@ pub(super) const fn nudge(up: bool, coarse: bool) -> Action {
     Action::Nudge { up, coarse }
 }
 
-/// Key presses that act wherever the cursor is.
 pub(super) fn anywhere(
     presses: impl IntoIterator<Item = (Key, Modifiers, Action)>,
 ) -> impl Iterator<Item = Binding> {
@@ -30,7 +26,6 @@ pub(super) fn anywhere(
     })
 }
 
-/// A key that does something only with the cursor in this context.
 pub(super) const fn in_context(context: KeyContext, key: Key, action: Action) -> Binding {
     Binding {
         scope: Scope::Context(context),
@@ -39,7 +34,6 @@ pub(super) const fn in_context(context: KeyContext, key: Key, action: Action) ->
     }
 }
 
-/// The key presses both presets bind the same way, anywhere.
 pub(super) fn common_presses() -> Vec<(Key, Modifiers, Action)> {
     let mut presses = vec![
         (Key::Up, NONE, Action::Move(Direction::Up)),
@@ -81,7 +75,6 @@ pub(super) fn common_presses() -> Vec<(Key, Modifiers, Action)> {
     presses
 }
 
-/// Piano keys on a Step's pitch, one semitone apart from the octave's C.
 pub(super) fn piano(keys: impl Iterator<Item = char>) -> impl Iterator<Item = Binding> {
     (0..).zip(keys).map(|(semitone, ch)| {
         in_context(
@@ -92,7 +85,6 @@ pub(super) fn piano(keys: impl Iterator<Item = char>) -> impl Iterator<Item = Bi
     })
 }
 
-/// Hex digits, Backspace in the Speed question, the Claim's characters and the song picker's key.
 pub(super) fn typed_characters() -> Vec<Binding> {
     let digits = [
         KeyContext::PhraseValue,

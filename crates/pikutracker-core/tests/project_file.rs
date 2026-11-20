@@ -1,5 +1,3 @@
-//! The Project file seam: `.ptrk` text to and from a Project.
-
 use pikutracker_core::project::{
     ChainEntry, ChainId, Claim, CustomInstrument, Filters, InstrumentSound, PhraseId, Project,
     SfxInstrument, Step, TargetCart, WaveformInstrument,
@@ -12,7 +10,6 @@ fn step(pitch: u8, instrument: u8, volume: u8, effect: u8) -> Step {
     Step::new(pitch, instrument, volume, effect).unwrap()
 }
 
-/// The Project that the version 1 fixture describes, written out from the fixture by hand.
 fn fixture_project() -> Project {
     let mut project = Project::new();
     project.set_default_speed(12);
@@ -108,7 +105,6 @@ fn fixture_project() -> Project {
     project
 }
 
-/// Replaces one piece of the fixture, so that a test can damage exactly one value.
 fn fixture_with(from: &str, to: &str) -> String {
     assert!(FIXTURE.contains(from), "the fixture has no {from}");
     FIXTURE.replacen(from, to, 1)
@@ -193,10 +189,9 @@ fn the_fixture_project_survives_a_save_and_reload() {
     );
 }
 
-/// A small repeatable random number generator, so that a failure can be replayed.
-struct Random(u64);
+struct SeededRandom(u64);
 
-impl Random {
+impl SeededRandom {
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -213,7 +208,7 @@ impl Random {
     }
 }
 
-fn random_step(random: &mut Random) -> Step {
+fn random_step(random: &mut SeededRandom) -> Step {
     step(
         random.below(64),
         random.below(256),
@@ -222,7 +217,7 @@ fn random_step(random: &mut Random) -> Step {
     )
 }
 
-fn random_project(random: &mut Random) -> Project {
+fn random_project(random: &mut SeededRandom) -> Project {
     let mut project = Project::new();
     project.set_default_speed(i32::from(random.below(255)) + 1);
     let loop_row = random.flip().then(|| usize::from(random.below(256)));
@@ -254,7 +249,6 @@ fn random_project(random: &mut Random) -> Project {
         phrase.filters_mut().set_detune(i32::from(random.below(3)));
         phrase.filters_mut().set_reverb(i32::from(random.below(3)));
         phrase.filters_mut().set_dampen(i32::from(random.below(3)));
-        // Steps past LEN are kept too, so that lengthening a Phrase again loses nothing.
         for index in 0..32 {
             *phrase.step_mut(index) = random_step(random);
         }
@@ -264,7 +258,7 @@ fn random_project(random: &mut Random) -> Project {
 
 #[test]
 fn any_project_survives_a_save_and_reload() {
-    let mut random = Random(0x9E37_79B9_7F4A_7C15);
+    let mut random = SeededRandom(0x9E37_79B9_7F4A_7C15);
     for _ in 0..50 {
         let project = random_project(&mut random);
 

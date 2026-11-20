@@ -1,8 +1,3 @@
-//! Project file: parses `.ptrk` text into a Project and writes a Project as `.ptrk` text.
-//!
-//! The file is RON with an integer format version at the top. Older versions migrate forward one
-//! step at a time, and newer versions are refused.
-
 use crate::project::{
     CART_SLOTS, CHAIN_ENTRIES, ChainEntry, ChainId, Claim, CustomInstrument, EXPORT_CHANNELS,
     FIRST_CUSTOM_INSTRUMENT, Filters, InstrumentSound, MAX_FILTER_LEVEL, MAX_INSTRUMENT_NAME,
@@ -15,7 +10,6 @@ use std::fmt;
 
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Rewrites the text of one format version as the text of the next.
 pub type Migration = fn(&str) -> Result<String, String>;
 
 const MIGRATIONS: [Migration; FORMAT_VERSION as usize - 1] = [];
@@ -49,15 +43,12 @@ fn damaged(reason: impl fmt::Display) -> ProjectFileError {
     ProjectFileError::Damaged(reason.to_string())
 }
 
-/// Reads `.ptrk` text of any version this app understands.
 pub fn parse(text: &str) -> Result<Project, ProjectFileError> {
     let current = migrate(text, FORMAT_VERSION, &MIGRATIONS)?;
     let file: ProjectDocument = ron::from_str(&current).map_err(damaged)?;
     file.into_project().map_err(damaged)
 }
 
-/// Brings `.ptrk` text up to the target version, one version at a time. The migration at index
-/// `n` takes version `n + 1` to the next version.
 pub fn migrate(
     text: &str,
     target: u32,
@@ -85,22 +76,20 @@ pub fn migrate(
 }
 
 fn version_of(text: &str) -> Result<u32, ProjectFileError> {
-    let header: Header = ron::from_str(text).map_err(damaged)?;
+    let header: VersionHeader = ron::from_str(text).map_err(damaged)?;
     if header.version == 0 {
         return Err(damaged("FORMAT VERSION 0 DOES NOT EXIST"));
     }
     Ok(header.version)
 }
 
-/// Writes a Project as `.ptrk` text in the current format version.
 pub fn write(project: &Project) -> String {
     ron::ser::to_string_pretty(&ProjectDocument::from_project(project), PrettyConfig::new())
         .expect("a Project document always serialises")
 }
 
-/// The part of a file that every format version shares.
 #[derive(Deserialize)]
-struct Header {
+struct VersionHeader {
     version: u32,
 }
 
@@ -375,7 +364,6 @@ impl SongRowDocument {
     }
 }
 
-/// A number written as exactly two hexadecimal digits.
 fn parse_hex(text: &str) -> Option<u8> {
     (text.len() == 2 && text.chars().all(|ch| ch.is_ascii_hexdigit()))
         .then(|| u8::from_str_radix(text, 16).ok())
@@ -577,8 +565,6 @@ impl WaveformDocument {
     }
 }
 
-/// A Step as a tracker-style token. Only a Step of all zeros is written as dashes, so that a
-/// silent Step keeps its pitch, Instrument and effect through a save.
 fn step_token(step: Step) -> String {
     if step == zero_step() {
         return SILENT_TOKEN.to_owned();

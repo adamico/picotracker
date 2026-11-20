@@ -1,5 +1,3 @@
-//! The Playhead marker and Follow: reports from the Player in, the character grid out.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -37,8 +35,6 @@ fn write(project: &mut Project, id: u8, steps: usize) -> PhraseId {
     id
 }
 
-/// Song row 00 holds Chain 00, of two entries with two Steps each. Song row 01 holds Chain 01, of
-/// one entry with four Steps.
 fn song() -> Project {
     let mut project = Project::new();
     let first = write(&mut project, 1, 2);
@@ -53,7 +49,6 @@ fn song() -> Project {
     project
 }
 
-/// Applies the actions, then plays for a number of Steps and shows the Player's report.
 fn played(actions: &[Action], steps: usize) -> (App, Player) {
     let mut app = App::with_project(song());
     let mut player = Player::new();
@@ -113,7 +108,6 @@ fn the_marker_is_separate_from_the_cursor() {
         0,
     );
 
-    // The cursor sits on Song row 01 and the Song plays from there.
     assert_eq!(pane_text(&app, 0, FIRST_SONG_ROW + 1), ">1");
     assert!(line(&app, FIRST_STEP_ROW).contains('['), "cursor stays put");
 }
@@ -122,7 +116,6 @@ fn the_marker_is_separate_from_the_cursor() {
 fn a_pane_showing_something_else_has_no_marker() {
     let (app, _) = played(&[PLAY_SONG, DOWN], 1);
 
-    // The cursor has moved to Song row 01, whose Chain and Phrase are not the ones playing.
     assert_eq!(pane_text(&app, CHAIN_COLUMN, FIRST_CHAIN_ROW), "0");
     assert_eq!(pane_text(&app, PHRASE_COLUMN, FIRST_STEP_ROW + 1), "01");
 }

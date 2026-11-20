@@ -1,6 +1,3 @@
-//! MIDI Import: analyses a Standard MIDI File and turns the user's choices into a Project and
-//! warnings.
-
 mod build;
 mod read;
 mod table;
@@ -36,7 +33,6 @@ impl fmt::Display for ImportError {
 
 impl std::error::Error for ImportError {}
 
-/// One line of notes that a Track can play.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Voice {
     name: String,
@@ -47,22 +43,18 @@ pub struct Voice {
 }
 
 impl Voice {
-    /// The name the dialog and the warnings use.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Which source the voice came from, counted from 0.
     pub const fn source(&self) -> usize {
         self.source
     }
 
-    /// The MIDI channel, numbered from 1.
     pub const fn channel(&self) -> u8 {
         self.channel
     }
 
-    /// The program the voice starts on, or none for drums.
     pub const fn program(&self) -> Option<u8> {
         self.program
     }
@@ -72,7 +64,6 @@ impl Voice {
     }
 }
 
-/// What a file holds, ready for the dialog to show and for `build` to use.
 #[derive(Clone, Debug)]
 pub struct Analysis {
     score: Score,
@@ -82,12 +73,10 @@ pub struct Analysis {
 }
 
 impl Analysis {
-    /// Every voice in file order.
     pub fn voices(&self) -> &[Voice] {
         &self.voices
     }
 
-    /// The programs the file's voices play, in order of number.
     pub fn programs(&self) -> Vec<u8> {
         let mut programs: Vec<u8> = self
             .score
@@ -107,11 +96,6 @@ impl Analysis {
     }
 }
 
-/// Reads a file and works out its voices.
-///
-/// # Errors
-///
-/// Fails if the bytes are not a Standard MIDI File that Import can use.
 pub fn analyse(bytes: &[u8]) -> Result<Analysis, ImportError> {
     let score = read::read(bytes)?;
     let mut unmapped: Vec<u8> = score
@@ -137,7 +121,6 @@ pub fn analyse(bytes: &[u8]) -> Result<Analysis, ImportError> {
     })
 }
 
-/// What the user decides in the dialog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Choices {
     pub ticked: Vec<bool>,
@@ -146,7 +129,6 @@ pub struct Choices {
 }
 
 impl Choices {
-    /// Every voice ticked, the default Steps per beat and the factory table.
     pub fn defaults_for(analysis: &Analysis) -> Self {
         Self {
             ticked: vec![true; analysis.voices.len()],
@@ -155,7 +137,6 @@ impl Choices {
         }
     }
 
-    /// The Track each voice fills, counted from 0: none if unticked or past the 8 Tracks.
     pub fn tracks(&self) -> Vec<Option<usize>> {
         let mut next = 0;
         self.ticked

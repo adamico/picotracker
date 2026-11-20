@@ -1,10 +1,7 @@
-//! Translates `winit` key events into the Keymap's own key presses.
-
 use pikutracker_core::keymap::{Key, KeyPress, Modifiers};
 use winit::event::KeyEvent;
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 
-/// The key press for a `winit` key event, if the Keymap knows the key.
 pub fn key_press(event: &KeyEvent, modifiers: ModifiersState) -> Option<KeyPress> {
     let key = key(event)?;
     let modifiers = Modifiers {
@@ -19,7 +16,6 @@ pub fn key_press(event: &KeyEvent, modifiers: ModifiersState) -> Option<KeyPress
     })
 }
 
-/// The Keymap's key for a `winit` key event, if it knows the key.
 pub fn key(event: &KeyEvent) -> Option<Key> {
     match &event.logical_key {
         WinitKey::Named(named) => named_key(*named),

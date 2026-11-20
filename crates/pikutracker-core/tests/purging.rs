@@ -1,5 +1,3 @@
-//! Purge unused: removing the Chains and Phrases nothing refers to, after a confirmation.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction};
@@ -26,8 +24,6 @@ fn phrase_is_empty(app: &App, phrase: u8) -> bool {
     *app.project().phrase(PhraseId::new(phrase)) == Phrase::default()
 }
 
-/// Chain 00 is on the Song and plays Phrase 00. Chain 05 is not on the Song and is the only thing
-/// playing Phrase 06. Phrase 09 is loose: it holds a note, and no Chain plays it.
 fn with_unused_items() -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));

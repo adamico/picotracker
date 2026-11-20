@@ -1,5 +1,3 @@
-//! Custom Instruments: designing them in the Instrument view and hearing them in Phrases.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, KeyContext};
@@ -23,7 +21,6 @@ fn step(pitch: u8, instrument: u8, volume: u8) -> Step {
     Step::new(pitch, instrument, volume, 0).unwrap()
 }
 
-/// A Project whose Song plays one Phrase holding one held note on this Instrument.
 fn playing_one_note(pitch: u8, instrument: u8) -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));
@@ -48,7 +45,6 @@ fn waveform_instrument() -> CustomInstrument {
     }
 }
 
-/// An SFX Instrument holding A-2 on the triangle.
 fn sfx_instrument() -> CustomInstrument {
     CustomInstrument {
         name: None,
@@ -62,7 +58,6 @@ fn sfx_instrument() -> CustomInstrument {
     }
 }
 
-/// The frequency of a tone, counted from its rising zero crossings.
 fn frequency(samples: &[f32]) -> f32 {
     let rising: Vec<usize> = samples
         .windows(2)
@@ -133,7 +128,6 @@ const ESC: Action = Action::Cancel;
 const SPACE: Action = Action::PlayFocusedPane;
 const C_KEY: Action = Action::PianoKey(0);
 
-/// An app with the Phrase pane focused on Phrase 00, after some actions.
 fn phrase_app(actions: &[Action]) -> App {
     let mut app = App::new();
     apply(
@@ -149,12 +143,10 @@ fn phrase_app(actions: &[Action]) -> App {
     app
 }
 
-/// Types a two-digit hexadecimal value.
 fn typed(value: u8) -> [Action; 2] {
     [Action::HexDigit(value >> 4), Action::HexDigit(value & 0xf)]
 }
 
-/// An app whose first Step plays C-2 on this Instrument, with the cursor on its Instrument column.
 fn on_instrument(instrument: u8) -> App {
     let mut app = phrase_app(&[C_KEY, UP, RIGHT]);
     apply(&mut app, &typed(instrument));
@@ -209,7 +201,6 @@ const NUDGE_UP: Action = Action::Nudge {
     coarse: false,
 };
 
-/// An app with the Instrument view open on this Custom Instrument.
 fn instrument_view(instrument: u8) -> App {
     let mut app = on_instrument(instrument);
     app.apply(ENTER);
@@ -234,7 +225,6 @@ fn wave(app: &App, id: u8) -> WaveformInstrument {
     }
 }
 
-/// The Instrument view with the cursor moved down to KIND and the kind switched to Waveform.
 fn waveform_view(id: u8) -> App {
     let mut app = instrument_view(id);
     apply(&mut app, &[DOWN, NUDGE_UP]);
@@ -420,7 +410,6 @@ fn a_custom_instrument_takes_an_optional_name_of_up_to_12_characters() {
     assert_eq!(instrument(&app, 0x08).name, None);
 }
 
-/// Types all 64 samples of the Waveform Instrument in the view, starting from KIND.
 fn type_samples(app: &mut App, sample: impl Fn(usize) -> u8) {
     apply(app, &[DOWN, DOWN, DOWN]);
     for row in 0..8 {

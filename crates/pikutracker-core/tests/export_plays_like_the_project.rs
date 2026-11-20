@@ -1,6 +1,3 @@
-//! The Export proof: an Exported Cart, played the way PICO-8's `music()` plays it, renders sample
-//! for sample the same through our synth as the Project's Export Tracks through the Player.
-
 mod support;
 
 use pikutracker_core::cart::Cart;
@@ -18,8 +15,6 @@ const SONG_TRACKS: usize = 5;
 const FIRST_PATTERN: u8 = 12;
 const TAIL_TICKS: usize = 40;
 
-/// Writes a Phrase of quiet notes, one every other Step, on these instruments in turn. The Steps
-/// between them are silent, on the triangle.
 fn write_phrase(project: &mut Project, id: u8, length: i32, speed: i32, instruments: &[u8]) {
     let phrase = project.phrase_mut(PhraseId::new(id));
     phrase.set_length(length);
@@ -52,7 +47,6 @@ fn transposed(phrase: u8, semitones: i32) -> Option<ChainEntry> {
     Some(entry)
 }
 
-/// Puts one Chain per Track on a Song row, its entries given Chain row by Chain row.
 fn place_song_row(
     project: &mut Project,
     song_row: usize,
@@ -69,7 +63,6 @@ fn place_song_row(
     }
 }
 
-/// A Project with an SFX Instrument and a Waveform Instrument, whose first 4 Tracks are Exported.
 fn instrumented_project() -> Project {
     let mut project = Project::new();
     let mut sfx = SfxInstrument {
@@ -111,8 +104,6 @@ fn instrumented_project() -> Project {
     project
 }
 
-/// Exports a Project and checks that the Cart plays its Song, `song_ticks` long, and a silent tail
-/// after it, exactly as the Player plays its Export Tracks.
 fn assert_exports_sample_for_sample(project: &Project, song_ticks: usize) {
     let claim = Claim {
         sfx: (0..4).chain(10..30).collect(),
@@ -143,18 +134,20 @@ fn every_kind_of_chain_row_plays_the_same_after_export() {
     write_phrase(&mut project, 6, 16, 8, &[4]);
     write_phrase(&mut project, 7, 4, 8, &[2]);
     write_phrase(&mut project, 8, 32, 5, &[0, SFX_INSTRUMENT]);
+    let shorter_left_of_longest_then_fill_then_shorter =
+        [plays(0), plays(1), fills(2), plays(3), None];
+    let every_entry_fill = [fills(4), fills(5), None, None, None];
+    let timed_by_unexported_t5_with_shorter_left_of_free_channel =
+        [plays(7), None, fills(2), None, plays(6)];
+    let no_exported_entries = [None, None, None, None, plays(4)];
     place_song_row(
         &mut project,
         0,
         &[
-            // A shorter Phrase left of the longest, a Fill and a shorter one on the right.
-            [plays(0), plays(1), fills(2), plays(3), None],
-            // Every entry marked Fill.
-            [fills(4), fills(5), None, None, None],
-            // Timed by the unexported T5, with a shorter Phrase left of the free channel.
-            [plays(7), None, fills(2), None, plays(6)],
-            // No Exported entries at all.
-            [None, None, None, None, plays(4)],
+            shorter_left_of_longest_then_fill_then_shorter,
+            every_entry_fill,
+            timed_by_unexported_t5_with_shorter_left_of_free_channel,
+            no_exported_entries,
         ],
     );
     place_song_row(
@@ -163,8 +156,9 @@ fn every_kind_of_chain_row_plays_the_same_after_export() {
         &[[plays(0), transposed(8, 5), plays(8), None, None]],
     );
 
-    // 96 + 64 + 128 + 64 Ticks on Song row 0, then 160 on Song row 1.
-    assert_exports_sample_for_sample(&project, 96 + 64 + 128 + 64 + 160);
+    let song_row_0_ticks = 96 + 64 + 128 + 64;
+    let song_row_1_ticks = 160;
+    assert_exports_sample_for_sample(&project, song_row_0_ticks + song_row_1_ticks);
 }
 
 #[test]
@@ -270,8 +264,9 @@ fn a_looping_song_plays_the_same_after_export() {
     );
     project.set_song_loop_row(Some(1));
 
-    // Song row 0, then Song row 1 three times over.
-    assert_exports_sample_for_sample(&project, 96 + 3 * (96 + 48));
+    let song_row_0_ticks = 96;
+    let song_row_1_ticks = 96 + 48;
+    assert_exports_sample_for_sample(&project, song_row_0_ticks + 3 * song_row_1_ticks);
 }
 
 #[test]
@@ -287,7 +282,6 @@ fn a_shorter_phrase_under_reverb_and_dampen_left_of_a_longer_one_plays_the_same_
     assert_exports_sample_for_sample(&project, 96);
 }
 
-/// Writes a Phrase under DETUNE 1 and REVERB 1 whose silent Steps name this instrument.
 fn write_silent_steps_on(project: &mut Project, id: u8, audible: &[u8], silent_instrument: u8) {
     write_phrase(project, id, 16, 6, audible);
     let phrase = project.phrase_mut(PhraseId::new(id));

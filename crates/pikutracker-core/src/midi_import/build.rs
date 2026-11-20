@@ -1,5 +1,3 @@
-//! Compiles the voices the user kept into a Project.
-
 use super::read::{Metre, Note, Score, Unused};
 use super::table::drum_row;
 use super::{Analysis, Choices, Voice};
@@ -20,7 +18,6 @@ const HIGHEST_PITCH: i16 = PITCHES - 1;
 const CHAIN_ROWS_PER_SONG_ROW: usize = 4;
 const IDS: usize = 256;
 
-/// Something the Project could not keep from the file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Warning {
     pub text: String,
@@ -33,14 +30,12 @@ impl Warning {
     }
 }
 
-/// The result of an Import.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Imported {
     pub project: Project,
     pub warnings: Vec<Warning>,
 }
 
-/// How one choice of Steps per beat would turn out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GridOption {
     pub steps_per_beat: u8,
@@ -50,7 +45,6 @@ pub struct GridOption {
     pub collisions: usize,
 }
 
-/// The nearest whole number of Steps to a number of ticks, with halves going up.
 fn ticks_to_steps(ticks: u32, steps_per_beat: u8, ticks_per_beat: u32) -> usize {
     let scaled = u64::from(ticks) * u64::from(steps_per_beat);
     let beat = u64::from(ticks_per_beat);
@@ -68,14 +62,12 @@ fn volume_for(velocity: u8) -> u8 {
     (u32::from(velocity) * MAX_VOLUME).div_ceil(MAX_VELOCITY) as u8
 }
 
-/// The Steps in a bar, at least one.
 fn bar_steps(metre: Metre, steps_per_beat: u8) -> usize {
     let quarter_beats =
         f64::from(metre.numerator) * 4.0 / 2_f64.powi(metre.denominator_power.into());
     ((quarter_beats * f64::from(steps_per_beat)).round() as usize).max(1)
 }
 
-/// The Steps in a Phrase: the most whole bars that fit, or 32 if one bar does not fit.
 fn phrase_length(bar: usize) -> usize {
     if bar > MAX_STEPS {
         MAX_STEPS
@@ -84,7 +76,6 @@ fn phrase_length(bar: usize) -> usize {
     }
 }
 
-/// A stretch of the Song with one Speed and one time signature.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Section {
     start: usize,
@@ -92,7 +83,6 @@ struct Section {
     bar: usize,
 }
 
-/// One Chain row's place on the Step grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Slot {
     start: usize,
@@ -100,7 +90,6 @@ struct Slot {
     speed: u8,
 }
 
-/// The file's timing laid out on the Step grid.
 struct Timeline {
     sections: Vec<Section>,
     close_tempos: usize,
@@ -181,8 +170,6 @@ fn same_timing(a: Section, b: Section) -> bool {
     (a.speed, a.bar) == (b.speed, b.bar)
 }
 
-/// Cuts the Song into Chain rows. A section's last Chain row may be short, except at the very end,
-/// where the last Phrase keeps its whole bars.
 fn slots(sections: &[Section], total: usize) -> Vec<Slot> {
     let mut slots = Vec::new();
     for (index, section) in sections.iter().enumerate() {
@@ -202,14 +189,12 @@ fn slots(sections: &[Section], total: usize) -> Vec<Slot> {
     slots
 }
 
-/// One Step's worth of a painted voice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Painted {
     key: u8,
     velocity: u8,
 }
 
-/// A voice laid out on the Step grid.
 struct Painting {
     cells: Vec<Option<Painted>>,
     collisions: usize,
@@ -238,7 +223,6 @@ fn paint(notes: &[Note], steps_per_beat: u8, ticks_per_beat: u32) -> Painting {
             first_collision.get_or_insert(start);
         }
         struck[start] = true;
-        // The later note cuts off whatever was still holding here.
         if start < painted_to {
             cells[start..painted_to].fill(None);
         }
@@ -255,7 +239,6 @@ fn paint(notes: &[Note], steps_per_beat: u8, ticks_per_beat: u32) -> Painting {
     }
 }
 
-/// The program a channel has selected on each Step, as (first Step, program) pairs.
 fn program_steps(score: &Score, channel: u8, steps_per_beat: u8) -> Vec<(usize, u8)> {
     score.programs[usize::from(channel)]
         .iter()
@@ -276,7 +259,6 @@ fn program_on(changes: &[(usize, u8)], step: usize) -> u8 {
         .map_or(0, |(_, program)| *program)
 }
 
-/// How a melodic voice's notes fit the pitches a Phrase can hold.
 struct PitchPlan {
     transpose: i8,
     lowest_pitch: i16,
@@ -293,7 +275,6 @@ impl PitchPlan {
     };
 }
 
-/// MIDI note 69 is A 440, which is pitch 33 in PICO-8.
 fn sounding_pitch(key: u8) -> i16 {
     i16::from(key) - MIDI_KEY_OF_PITCH_0
 }
@@ -317,8 +298,6 @@ fn pitch_plan(voice: &Voice) -> PitchPlan {
     }
 }
 
-/// The transpose that brings these pitches inside 0 to 63: none if they already fit, then the
-/// nearest whole octave, and otherwise the nearest offset that fits.
 fn transpose_for(lowest: i16, highest: i16) -> i8 {
     let least = highest - HIGHEST_PITCH;
     let most = lowest;
@@ -337,7 +316,6 @@ fn transpose_for(lowest: i16, highest: i16) -> i8 {
     offset as i8
 }
 
-/// The pitch a Phrase holds for a sounding pitch, folded into the voice's range.
 fn phrase_pitch(pitch: i16, plan: &PitchPlan) -> u8 {
     let mut pitch = pitch;
     while pitch > plan.lowest_pitch + HIGHEST_PITCH {
@@ -346,7 +324,6 @@ fn phrase_pitch(pitch: i16, plan: &PitchPlan) -> u8 {
     (pitch - i16::from(plan.transpose)).clamp(0, HIGHEST_PITCH) as u8
 }
 
-/// A voice ready to be written into Phrases.
 struct Part<'a> {
     voice: &'a Voice,
     painting: Painting,
@@ -390,7 +367,6 @@ fn silent_phrase(slot: Slot) -> Phrase {
     phrase
 }
 
-/// The kept voices and the Tracks they fill.
 fn kept_voices<'a>(analysis: &'a Analysis, choices: &Choices) -> Vec<&'a Voice> {
     analysis
         .voices
@@ -400,7 +376,6 @@ fn kept_voices<'a>(analysis: &'a Analysis, choices: &Choices) -> Vec<&'a Voice> 
         .collect()
 }
 
-/// Shows how each Steps per beat would turn out for the voices kept.
 pub fn compare_grids(analysis: &Analysis, choices: &Choices) -> Vec<GridOption> {
     let kept = kept_voices(analysis, choices);
     super::STEPS_PER_BEAT
@@ -429,8 +404,7 @@ pub fn compare_grids(analysis: &Analysis, choices: &Choices) -> Vec<GridOption> 
         .collect()
 }
 
-/// Puts a value in a list unless an equal one is there, and says where it is.
-fn share<T: PartialEq>(list: &mut Vec<T>, value: T) -> usize {
+fn index_of_or_push<T: PartialEq>(list: &mut Vec<T>, value: T) -> usize {
     list.iter()
         .position(|held| *held == value)
         .unwrap_or_else(|| {
@@ -439,7 +413,6 @@ fn share<T: PartialEq>(list: &mut Vec<T>, value: T) -> usize {
         })
 }
 
-/// Builds the Project from the voices the user kept.
 pub fn build(analysis: &Analysis, choices: &Choices) -> Imported {
     let score = &analysis.score;
     let spb = choices.steps_per_beat;
@@ -502,7 +475,6 @@ pub fn build(analysis: &Analysis, choices: &Choices) -> Imported {
     Imported { project, warnings }
 }
 
-/// Writes one Song row's Chains, and returns the Chain each Track plays.
 fn song_row_cells(
     parts: &[Part],
     slots: &[Slot],
@@ -519,27 +491,25 @@ fn song_row_cells(
                 continue;
             }
             sounding = true;
-            let id = share(phrases, phrase);
+            let id = index_of_or_push(phrases, phrase);
             let mut entry = ChainEntry::new(PhraseId::new(id as u8));
             entry.set_transpose(i32::from(part.plan.transpose));
             *rows[track].entry_mut(k) = Some(entry);
         }
-        // A Chain row with no entries would take no time, so a rest keeps one silent Phrase.
         if !sounding && !parts.is_empty() {
-            let id = share(phrases, silent_phrase(*slot));
+            let id = index_of_or_push(phrases, silent_phrase(*slot));
             *rows[0].entry_mut(k) = Some(ChainEntry::new(PhraseId::new(id as u8)));
         }
     }
     let mut cells = [None; TRACKS];
     for (track, chain) in rows.into_iter().enumerate() {
         if chain != Chain::default() {
-            cells[track] = Some(share(chains, chain));
+            cells[track] = Some(index_of_or_push(chains, chain));
         }
     }
     cells
 }
 
-/// The place in the Song of a Step on a Track.
 fn song_place_of(slots: &[Slot], track: usize, step: usize) -> Option<SongPlace> {
     let index = slots
         .iter()

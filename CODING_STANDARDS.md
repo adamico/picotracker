@@ -2,12 +2,15 @@
 
 Review applies every rule here. CI enforces the mechanical rules (`.github/workflows/ci.yml`), so a review spends its attention on the judgement calls below.
 
-## Names carry the meaning
+## Code carries no comments
 
-Constants, statics, enums, enum variants and struct fields carry no comments: the name says what the item is. `scripts/check-item-comments.py` enforces this in CI.
+A name, a type or a test says what code does, and an ADR in `docs/adr/` says why. `scripts/check-no-comments.py` fails CI on any comment, so a review spends its attention on where the meaning went instead.
 
-- Flag a name that needs its deleted comment to make sense. Rename it until it reads on its own.
+- Flag a name that needs a comment to make sense. Rename it until it reads on its own.
 - Give a primitive its own small type when its name cannot say its range or unit, such as a Track numbered 1 to 8.
+- Flag a commented-looking block left as one long function: extract the block into a function named for what it does.
+- Flag a reason with no home: a deviation from the zepto8 port, a PICO-8 measurement or an owner's decision that the change relies on, with no ADR recording it.
+- Flag prose moved into strings: an `expect` message, a test name or a constant's text that reads as an explanation rather than a fact.
 
 ## Logic lives in the App core
 
@@ -24,7 +27,7 @@ Every key reaches the App core as a named `Action` from the keymap. Flag a key h
 
 ## Renames are complete
 
-One idea has one name. A rename covers every identifier, field, helper, test name, message and comment that uses the old word. Reread each touched comment as a sentence: a search-and-replace leaves phrases like "every cell in a cells".
+One idea has one name. A rename covers every identifier, field, helper, test name, message and doc that uses the old word. Reread each touched message as a sentence: a search-and-replace leaves phrases like "every cell in a cells".
 
 ## One home per fact
 

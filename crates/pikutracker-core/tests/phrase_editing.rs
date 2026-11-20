@@ -1,5 +1,3 @@
-//! Writing a Phrase through named actions, checked on the Project and the character grid.
-
 use pikutracker_core::app::{Action, App, Direction, KeyContext};
 use pikutracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use pikutracker_core::project::{Phrase, Step};
@@ -11,16 +9,15 @@ const LEFT: Action = Action::Move(Direction::Left);
 const RIGHT: Action = Action::Move(Direction::Right);
 const C: Action = Action::PianoKey(0);
 
-/// An app with the Phrase pane focused, after some actions.
 fn phrase_app(actions: &[Action]) -> App {
     let mut app = App::new();
-    // Chain 00 on the first Song row, holding Phrase 00.
-    for action in [
+    let chain_00_holding_phrase_00 = [
         Action::HexDigit(0),
         Action::FocusNext,
         Action::HexDigit(0),
         Action::FocusNext,
-    ] {
+    ];
+    for action in chain_00_holding_phrase_00 {
         app.apply(action);
     }
     for action in actions {
@@ -315,7 +312,6 @@ fn the_pc_tracker_keys_write_notes_in_the_pitch_column_and_digits_elsewhere() {
         }
     };
 
-    // In the pitch column, 2 is C# of the upper octave and c is E of the lower one.
     press(&mut app, '2');
     press(&mut app, 'c');
     assert_eq!(step(&app, 0).pitch(), 37);

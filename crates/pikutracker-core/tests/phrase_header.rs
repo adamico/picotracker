@@ -1,5 +1,3 @@
-//! Editing the Phrase header through named actions.
-
 use pikutracker_core::app::{Action, App, Direction};
 use pikutracker_core::project::Phrase;
 
@@ -23,13 +21,13 @@ const FIRST_STEP_LINE: usize = 5;
 
 fn phrase_app(actions: &[Action]) -> App {
     let mut app = App::new();
-    // Chain 00 on the first Song row, holding Phrase 00.
-    for action in [
+    let chain_00_holding_phrase_00 = [
         Action::HexDigit(0),
         Action::FocusNext,
         Action::HexDigit(0),
         Action::FocusNext,
-    ] {
+    ];
+    for action in chain_00_holding_phrase_00 {
         app.apply(action);
     }
     for action in actions {

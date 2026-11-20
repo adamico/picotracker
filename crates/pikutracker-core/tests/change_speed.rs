@@ -1,5 +1,3 @@
-//! Change Speed: typing a new Speed for the Phrase on show scales many Phrases by the same ratio.
-
 mod support;
 
 use pikutracker_core::app::{Action, App, Direction, KeyContext};
@@ -13,7 +11,6 @@ const RIGHT: Action = Action::Move(Direction::Right);
 const TAB: Action = Action::FocusNext;
 const SELECT: Action = Action::StartSelection;
 
-/// Opens Change Speed, types two hexadecimal digits and presses Enter.
 fn change_speed(app: &mut App, high: u8, low: u8) {
     apply(
         app,
@@ -39,8 +36,6 @@ fn set_speed(project: &mut Project, phrase: u8, speed: i32) {
     project.phrase_mut(PhraseId::new(phrase)).set_speed(speed);
 }
 
-/// Chain 00 is on Song row 0 and plays Phrase 00 at Speed 16 and Phrase 01 at Speed 10. Chain 01
-/// is on Song row 1 and plays Phrase 02 at Speed 20.
 fn two_rows() -> Project {
     let mut project = Project::new();
     project.set_song_cell(0, 0, Some(ChainId::new(0)));
@@ -99,7 +94,6 @@ fn speeds_round_to_the_nearest_whole_speed() {
     set_speed(&mut project, 2, 7);
     let mut app = App::with_project(project);
 
-    // 16 to 24 is a ratio of 3/2: 5 becomes 7.5 and 7 becomes 10.5, which both round up.
     change_speed(&mut app, 0x1, 0x8);
 
     assert_eq!(speed(&app, 0), 24);
@@ -220,7 +214,6 @@ fn the_report_counts_rounded_and_stopped_speeds_as_inexact() {
     set_speed(&mut project, 2, 200);
     let mut app = App::with_project(project);
 
-    // A ratio of 3/2: 16 scales exactly, 5 rounds, and 200 stops at 255.
     change_speed(&mut app, 0x1, 0x8);
 
     assert!(status_line(&app).contains("2 INEXACT"));
@@ -280,7 +273,6 @@ fn the_report_counts_phrases_that_crossed_speed_8_in_either_direction() {
     set_speed(&mut project, 2, 4);
     let mut app = App::with_project(project);
 
-    // A ratio of 3: 8 becomes 24 and crosses. 4 becomes 12 and crosses. 16 becomes 48 and stays.
     change_speed(&mut app, 0x3, 0x0);
     assert!(status_line(&app).contains("2 CROSSED SPEED 8"));
 
@@ -289,7 +281,6 @@ fn the_report_counts_phrases_that_crossed_speed_8_in_either_direction() {
     set_speed(&mut project, 2, 8);
     let mut app = App::with_project(project);
 
-    // A ratio of 1/2: 16 becomes 8 and crosses, 9 becomes 5 and crosses, and 8 stays at or below.
     change_speed(&mut app, 0x0, 0x8);
     assert!(status_line(&app).contains("2 CROSSED SPEED 8"));
 }

@@ -1,5 +1,3 @@
-//! The Chain pane: the entries of the Chain under the Song cursor, and the Chain row strip.
-
 use super::{
     EMPTY, FILL, HEADING, SELECTED, VALUE, draw_out_of_range_flag, draw_row_label,
     draw_styled_value, draw_title, id_text, nudged_id, stepped, typed_value,
@@ -33,7 +31,6 @@ const ENTRY_CELLS: [(EntryCell, usize, &str); 3] = [
     (EntryCell::Fill, 9, "----"),
 ];
 
-/// What the Chain pane shows.
 #[derive(Clone, Copy, Debug)]
 pub struct ChainView {
     pub song_row: usize,
@@ -41,7 +38,6 @@ pub struct ChainView {
     pub playing_entry: Option<usize>,
 }
 
-/// The Chain pane's cursor.
 #[derive(Debug, Default)]
 pub struct ChainPane {
     entry: usize,
@@ -50,7 +46,6 @@ pub struct ChainPane {
     typing_negative: bool,
 }
 
-/// Where the Chain pane's cursor is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChainCursorPlace {
     entry: usize,
@@ -58,7 +53,6 @@ pub struct ChainCursorPlace {
 }
 
 impl ChainPane {
-    /// Where the cursor is now.
     pub fn cursor_place(&self) -> ChainCursorPlace {
         ChainCursorPlace {
             entry: self.entry,
@@ -66,13 +60,11 @@ impl ChainPane {
         }
     }
 
-    /// Puts the cursor back where it was.
     pub fn return_to(&mut self, place: ChainCursorPlace) {
         self.entry = place.entry;
         self.column = place.column;
     }
 
-    /// Puts the cursor on a Chain entry.
     pub fn jump_to(&mut self, entry: usize) {
         self.entry = entry.min(CHAIN_ENTRIES - 1);
     }
@@ -83,7 +75,6 @@ impl ChainPane {
         self.entry = stepped(self.entry, rows, CHAIN_ENTRIES);
     }
 
-    /// The entry under the cursor.
     pub fn entry(&self) -> usize {
         self.entry
     }
@@ -92,22 +83,18 @@ impl ChainPane {
         ENTRY_CELLS[self.column].0
     }
 
-    /// Whether the cell under the cursor can be edited in an entry holding no Phrase.
     pub fn edits_empty_entries(&self) -> bool {
         self.cell() == EntryCell::Phrase
     }
 
-    /// Whether hexadecimal digits mean anything in the cell under the cursor.
     pub fn takes_digits(&self) -> bool {
         self.cell() != EntryCell::Fill
     }
 
-    /// Ends the value being typed, so that the next digit starts a new one.
     pub fn finish_typing(&mut self) {
         self.first_digit = None;
     }
 
-    /// Types a hexadecimal digit into the cell under the cursor.
     pub fn type_digit(&mut self, chain: &mut Chain, digit: u8) {
         let is_first_digit = self.first_digit.is_none();
         let value = typed_value(&mut self.first_digit, digit);
@@ -125,17 +112,14 @@ impl ChainPane {
         }
     }
 
-    /// Raises or lowers the cell under the cursor. Nudging a Fill mark flips it.
     pub fn nudge(&mut self, chain: &mut Chain, up: bool, coarse: bool) {
         nudge_cell(chain.entry_mut(self.entry), self.cell(), up, coarse);
     }
 
-    /// Clears the cell under the cursor. Clearing the Phrase empties the whole entry.
     pub fn clear(&mut self, chain: &mut Chain) {
         clear_cell(chain.entry_mut(self.entry), self.cell());
     }
 
-    /// The cell under the cursor: a column and a Chain entry.
     pub fn position(&self) -> CellPosition {
         CellPosition {
             column: self.column,
@@ -143,7 +127,6 @@ impl ChainPane {
         }
     }
 
-    /// Raises or lowers every cell in the range. Empty entries stay empty.
     pub fn nudge_cells(&self, chain: &mut Chain, cells: CellRange, up: bool, coarse: bool) {
         for entry in cells.rows() {
             let slot = chain.entry_mut(entry);
@@ -155,7 +138,6 @@ impl ChainPane {
         }
     }
 
-    /// Clears every cell in the range.
     pub fn clear_cells(&self, chain: &mut Chain, cells: CellRange) {
         for entry in cells.rows() {
             for column in cells.columns() {
@@ -164,13 +146,10 @@ impl ChainPane {
         }
     }
 
-    /// The entries the range of cells is on.
     pub fn copy(&self, chain: &Chain, cells: CellRange) -> Vec<Option<ChainEntry>> {
         cells.rows().map(|entry| chain.entry(entry)).collect()
     }
 
-    /// Overwrites the copied columns of the entries from the cursor down, and says how many rows
-    /// fell past the last entry.
     pub fn paste(
         &self,
         chain: &mut Chain,
@@ -184,7 +163,6 @@ impl ChainPane {
         rows.len() - fitting
     }
 
-    /// Marks the selected cells, leaving the cursor as it is.
     pub fn draw_selection(&self, grid: &mut Grid, area: Area, cells: CellRange) {
         for entry in cells.rows() {
             for column in cells.columns() {
@@ -197,14 +175,12 @@ impl ChainPane {
         }
     }
 
-    /// Flips the Fill mark of the entry under the cursor.
     pub fn toggle_fill(&mut self, chain: &mut Chain) {
         if let Some(entry) = chain.entry_mut(self.entry) {
             entry.set_fill(!entry.fill());
         }
     }
 
-    /// Moves the cursor to the entry the Playhead is on.
     pub fn follow(&mut self, entry: usize) {
         if self.entry != entry {
             self.entry = entry;
@@ -212,7 +188,6 @@ impl ChainPane {
         }
     }
 
-    /// Draws the pane for the Song row and Track under the Song cursor.
     pub fn draw(
         &self,
         grid: &mut Grid,
@@ -259,7 +234,6 @@ impl ChainPane {
     }
 }
 
-/// Raises or lowers one cell of an entry. Nudging a Fill mark flips it.
 fn nudge_cell(slot: &mut Option<ChainEntry>, cell: EntryCell, up: bool, coarse: bool) {
     match (cell, slot.as_mut()) {
         (EntryCell::Phrase, entry) => {
@@ -276,7 +250,6 @@ fn nudge_cell(slot: &mut Option<ChainEntry>, cell: EntryCell, up: bool, coarse: 
     }
 }
 
-/// Clears one cell of an entry. Clearing the Phrase empties the whole entry.
 fn clear_cell(slot: &mut Option<ChainEntry>, cell: EntryCell) {
     match (cell, slot.as_mut()) {
         (EntryCell::Phrase, _) => *slot = None,
@@ -286,7 +259,6 @@ fn clear_cell(slot: &mut Option<ChainEntry>, cell: EntryCell) {
     }
 }
 
-/// Overwrites the copied columns of one entry. An empty source empties those columns.
 fn paste_entry(
     slot: &mut Option<ChainEntry>,
     source: Option<ChainEntry>,
@@ -315,7 +287,6 @@ fn paste_entry(
     }
 }
 
-/// Puts a Phrase in an entry, keeping the transpose and Fill mark of one already there.
 fn set_phrase(slot: &mut Option<ChainEntry>, phrase: PhraseId) {
     match slot {
         Some(entry) => entry.set_phrase(phrase),
@@ -323,7 +294,6 @@ fn set_phrase(slot: &mut Option<ChainEntry>, phrase: PhraseId) {
     }
 }
 
-/// The text and style of one cell of a filled entry.
 fn cell_text(cell: EntryCell, entry: ChainEntry) -> (String, Style) {
     match cell {
         EntryCell::Phrase => (format!("{:02X}", entry.phrase().number()), VALUE),
@@ -337,7 +307,6 @@ fn cell_text(cell: EntryCell, entry: ChainEntry) -> (String, Style) {
     }
 }
 
-/// Draws the k-th entry of all 8 Tracks on this Song row, and how long each Chain row lasts.
 fn draw_chain_row_strip(
     grid: &mut Grid,
     area: Area,
@@ -377,7 +346,6 @@ fn draw_chain_row_strip(
     }
 }
 
-/// Draws one Track's entry in the strip, with an `F` after a Phrase marked Fill.
 fn draw_strip_entry(grid: &mut Grid, column: usize, row: usize, entry: Option<ChainEntry>) {
     let Some(entry) = entry else {
         grid.put(column, row, "--", EMPTY);

@@ -1,5 +1,3 @@
-//! The offline synth seam: sound data in, samples at 22,050 Hz out.
-
 use pikutracker_core::synth::{
     Instrument, Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, Waveform, packed_filters,
 };
@@ -20,7 +18,6 @@ fn note(pitch: i16) -> Note {
     }
 }
 
-/// A sound holding one pitch on all 32 notes.
 fn held(pitch: i16, speed: u8, filters: u8) -> Sound {
     Sound {
         notes: [note(pitch); 32],
@@ -41,7 +38,6 @@ fn rendered(sound: Sound, samples: usize) -> Vec<f32> {
     render(&mut voice, samples)
 }
 
-/// The frequency of a tone, counted from its rising zero crossings.
 fn frequency(samples: &[f32]) -> f32 {
     let rising: Vec<usize> = samples
         .windows(2)
@@ -166,8 +162,6 @@ fn reverb_1_echoes_after_two_ticks() {
     assert_ne!(dry[370..800], wet[370..800]);
 }
 
-/// zepto8 scales the 4-Tick echo by the REVERB 1 level, so REVERB 2 is silent there. fake-08's
-/// fix scales it by the REVERB 2 level.
 #[test]
 fn reverb_2_echoes_after_four_ticks() {
     let dry = rendered(held(A_440, 32, 0), 3_000);
@@ -239,13 +233,20 @@ fn a_fast_arpeggio_walks_the_four_notes_of_its_group() {
             ..note(pitch)
         };
     }
-    // At Speed 32 an arpeggio note lasts 4 Ticks.
-    let arpeggio_note = 4 * SAMPLES_PER_TICK as usize;
+    let arpeggio_note_at_speed_32 = 4 * SAMPLES_PER_TICK as usize;
 
-    let samples = rendered(sound, arpeggio_note * 2);
+    let samples = rendered(sound, arpeggio_note_at_speed_32 * 2);
 
-    assert_near(frequency(&samples[200..arpeggio_note]), 440.0, 12.0);
-    assert_near(frequency(&samples[arpeggio_note + 200..]), 880.0, 16.0);
+    assert_near(
+        frequency(&samples[200..arpeggio_note_at_speed_32]),
+        440.0,
+        12.0,
+    );
+    assert_near(
+        frequency(&samples[arpeggio_note_at_speed_32 + 200..]),
+        880.0,
+        16.0,
+    );
 }
 
 #[test]
@@ -265,12 +266,10 @@ fn a_note_on_an_sfx_instrument_plays_that_sound_at_the_note_pitch() {
     assert_near(frequency(&samples[1_000..]), 523.25, 3.0);
 }
 
-/// Half the wave high and half low, so that each cycle has one rising zero crossing.
 fn half_high_half_low() -> [i8; 64] {
     std::array::from_fn(|index| if index < 32 { 100 } else { -100 })
 }
 
-/// A sound whose notes all play the Custom Instrument numbered 8 at one pitch.
 fn held_on_instrument_8(pitch: i16) -> Sound {
     let mut sound = held(pitch, 32, 0);
     for note in &mut sound.notes {
@@ -317,8 +316,6 @@ fn bass_plays_a_waveform_instrument_one_octave_lower() {
 
 #[test]
 fn a_waveform_instrument_moves_between_its_samples_by_linear_interpolation() {
-    // At C-0 each of the 64 samples spans about 5 output samples, so the jump between the high
-    // and low halves is spread over them instead of taken at once.
     let c0 = 0;
     let waveform = Waveform {
         samples: half_high_half_low(),

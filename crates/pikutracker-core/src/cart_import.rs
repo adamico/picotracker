@@ -1,9 +1,3 @@
-//! Cart Import: turns a Cart and a chosen song into a Project and warnings.
-//!
-//! Each Pattern is rebuilt from what PICO-8 plays, not from the stored SFX (ADR 0006). The Cart's
-//! other SFX become loose Phrases, and SFX 0–7 that notes use as instruments become Custom
-//! Instruments (ADR 0004).
-
 mod instruments;
 mod rebuild;
 
@@ -22,14 +16,12 @@ use std::collections::BTreeSet;
 const LAST_SLOT: u8 = SLOTS as u8 - 1;
 const MAX_PHRASES: usize = 256;
 
-/// A Project rebuilt from a Cart, and everything about it that differs from the Cart.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportedCart {
     pub project: Project,
     pub warnings: Vec<ImportWarning>,
 }
 
-/// Something about an Import that the user should know.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportWarning {
     pub text: String,
@@ -52,15 +44,12 @@ impl ImportWarning {
     }
 }
 
-/// One song of a Cart: an inclusive range of Patterns, and the Song row its LOOP BACK jumps to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CartSong {
     pub patterns: (u8, u8),
     pub loop_row: Option<usize>,
 }
 
-/// Finds every song of a Cart. A song starts at Pattern 0 or after a STOP, a LOOP BACK or an empty
-/// Pattern, at the next Pattern that plays, and runs up to a STOP, a LOOP BACK or an empty Pattern.
 pub fn songs(cart: &Cart) -> Vec<CartSong> {
     let mut found = Vec::new();
     let mut slot = 0;
@@ -75,8 +64,6 @@ pub fn songs(cart: &Cart) -> Vec<CartSong> {
     found
 }
 
-/// The song that starts at this Pattern. LOOP BACK jumps to the nearest LOOP START at or before
-/// it, or to Pattern 0, and a jump outside the song means it does not loop.
 fn song_from(cart: &Cart, first: u8) -> CartSong {
     let mut last = first;
     while last < LAST_SLOT
@@ -89,11 +76,9 @@ fn song_from(cart: &Cart, first: u8) -> CartSong {
     let ending = cart.pattern(last);
     let loop_row = (ending.loop_back() && !ending.stop())
         .then(|| {
-            let target = (0..=last)
-                .rev()
-                .find(|&slot| cart.pattern(slot).loop_start())
-                .unwrap_or(0);
-            target.checked_sub(first).map(usize::from)
+            loop_back_target(cart, last)
+                .checked_sub(first)
+                .map(usize::from)
         })
         .flatten();
     CartSong {
@@ -102,7 +87,13 @@ fn song_from(cart: &Cart, first: u8) -> CartSong {
     }
 }
 
-/// Gives equal Phrases and equal Chains one id each.
+fn loop_back_target(cart: &Cart, loop_back: u8) -> u8 {
+    (0..=loop_back)
+        .rev()
+        .find(|&slot| cart.pattern(slot).loop_start())
+        .unwrap_or(0)
+}
+
 #[derive(Default)]
 struct SharedItems {
     phrases: Vec<Phrase>,
@@ -110,7 +101,6 @@ struct SharedItems {
 }
 
 impl SharedItems {
-    /// The id of this Phrase, unless the Project has no id left for it.
     fn phrase(&mut self, project: &mut Project, phrase: Phrase) -> Option<PhraseId> {
         let known = self.phrases.iter().position(|known| *known == phrase);
         let index = match known {
@@ -138,12 +128,10 @@ impl SharedItems {
     }
 }
 
-/// Rebuilds the first song of a Cart as a new Project whose Target Cart is at `cart_path`.
 pub fn import(cart: &Cart, cart_path: &str) -> ImportedCart {
     import_song(cart, cart_path, songs(cart).first().copied())
 }
 
-/// Rebuilds one song of a Cart, or none, as a new Project whose Target Cart is at `cart_path`.
 pub fn import_song(cart: &Cart, cart_path: &str, song: Option<CartSong>) -> ImportedCart {
     let mut project = Project::new();
     for channel in 0..EXPORT_CHANNELS {
@@ -181,14 +169,11 @@ pub fn import_song(cart: &Cart, cart_path: &str, song: Option<CartSong>) -> Impo
     ImportedCart { project, warnings }
 }
 
-/// The SFX a Cart keeps outside the chosen song: every non-empty one that the song does not claim
-/// and no note uses as an instrument.
 struct LooseSfx {
     phrases: Vec<(u8, Phrase)>,
 }
 
 impl LooseSfx {
-    /// Finds the loose SFX, adding the instruments their notes use.
     fn of(cart: &Cart, claim: &Claim, instruments: &mut BTreeSet<u8>) -> Self {
         let unclaimed = (0..=LAST_SLOT).filter(|slot| !claim.sfx.contains(slot));
         let candidates: Vec<(u8, Phrase)> = unclaimed
@@ -205,7 +190,6 @@ impl LooseSfx {
         Self { phrases }
     }
 
-    /// Writes each loose SFX into a Phrase that no Chain uses, and warns that it is there.
     fn keep(
         self,
         project: &mut Project,
@@ -240,13 +224,11 @@ impl LooseSfx {
     }
 }
 
-/// SFX slots as warnings list them, in hex.
 fn slot_list(slots: &[u8]) -> String {
     let names: Vec<String> = slots.iter().map(|slot| format!("{slot:02X}")).collect();
     names.join(" ")
 }
 
-/// Says which Step was lost where a Chain row ends inside it.
 fn lost_step_warning(
     pattern: u8,
     is_last_row: bool,
@@ -268,17 +250,14 @@ fn lost_step_warning(
     )
 }
 
-/// A Pattern as warnings name it, by its slot in hex.
 fn pattern_name(slot: u8) -> String {
     format!("PATTERN {slot:02X}")
 }
 
-/// A Track as warnings name it, numbered from 1.
 fn track_name(track: usize) -> String {
     format!("T{}", track + 1)
 }
 
-/// Writes a song into a Project, one Song row per Pattern, gathering what it claims.
 struct SongBuilder<'a> {
     cart: &'a Cart,
     project: &'a mut Project,
@@ -293,8 +272,6 @@ struct SongBuilder<'a> {
 }
 
 impl<'a> SongBuilder<'a> {
-    /// A builder that shares Phrases and Chains through `shared`, and gathers the SFX that notes
-    /// use as instruments into `instruments`.
     fn new(
         cart: &'a Cart,
         project: &'a mut Project,
@@ -316,7 +293,6 @@ impl<'a> SongBuilder<'a> {
         }
     }
 
-    /// Writes the song and says what it claims.
     fn build(mut self, song: CartSong) -> Claim {
         let (first, last) = song.patterns;
         for (row, slot) in (first..=last).enumerate() {
@@ -364,7 +340,6 @@ impl<'a> SongBuilder<'a> {
         }
     }
 
-    /// Warns once per SFX about what its own bytes say.
     fn warn_about_sfx(&mut self, played: u8, song_row: usize, track: usize) {
         let place = SongPlace {
             song_row,
@@ -390,7 +365,6 @@ impl<'a> SongBuilder<'a> {
         }
     }
 
-    /// The Chain of one channel of a Pattern, one entry per Chain row.
     fn chain_of(
         &mut self,
         slot: u8,
@@ -455,7 +429,6 @@ impl<'a> SongBuilder<'a> {
         chain
     }
 
-    /// Puts a channel's Phrase on a Chain row, and says which Phrase it is and how long.
     fn place_entry(
         &mut self,
         chain: &mut Chain,

@@ -1,5 +1,3 @@
-//! Mute and Solo: actions in, the Track headers and offline-rendered samples out.
-
 use pikutracker_core::app::{Action, App};
 use pikutracker_core::player::Player;
 use pikutracker_core::project::{ChainEntry, ChainId, PhraseId, Project};
@@ -37,8 +35,6 @@ fn place(project: &mut Project, row: usize, track: usize, chain: u8, phrase: Phr
     project.set_song_cell(row, track, Some(id));
 }
 
-/// Track 1 plays A-2 for two Steps; Track 2 plays A-3 for four, setting the Chain row's length.
-/// Song row 01 then plays A-2 on Track 1.
 fn two_tracks() -> Project {
     let mut project = Project::new();
     let low = write(&mut project, 1, A2, 2);
@@ -213,7 +209,6 @@ fn a_mute_during_playback_is_heard_without_changing_the_timing() {
 
     assert_near(step_frequency(&samples, 0), 880.0);
     assert_near(step_frequency(&samples, 2), 880.0);
-    // Song row 01 starts on time, with Track 1 still muted.
     assert!(step_peak(&samples, 3) < 0.01);
 }
 

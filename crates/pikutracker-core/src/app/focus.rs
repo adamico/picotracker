@@ -1,5 +1,3 @@
-//! Which pane has focus. Tab cycles four stops.
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Focus {
     #[default]

@@ -1,6 +1,3 @@
-//! Player: turns a Project and a play request into the Playhead and samples. The Window shell
-//! owns the audio stream that carries them to a device.
-
 use crate::project::{
     CHAIN_ENTRIES, ChainEntry, FIRST_CUSTOM_INSTRUMENT, Filters, InstrumentSound, MAX_STEPS,
     Phrase, PhraseId, Project, SfxInstrument, Step, TRACKS, WaveformInstrument,
@@ -45,7 +42,6 @@ pub enum AudioRequest {
     Stop,
 }
 
-/// The note being previewed.
 #[derive(Clone, Copy, Debug)]
 struct Preview {
     samples_left: u64,
@@ -55,8 +51,6 @@ struct Preview {
 const SATURATION_KNEE: f32 = 0.75;
 const SATURATION_SLOPE: f32 = 1.0 / 25.0;
 
-/// The mix as PICO-8 0.2.7 outputs it: unchanged up to the knee, and past it rising at only a
-/// twenty-fifth of the rate. Even 8 Tracks at full volume stay well inside the output range.
 fn saturated(mix: f32) -> f32 {
     let past_knee = mix.abs() - SATURATION_KNEE;
     if past_knee > 0.0 {
@@ -75,7 +69,6 @@ pub const SCOPE_RANGE: i8 = 100;
 const SAMPLES_PER_SCOPE_COLUMN: usize = 8;
 const SCOPE_SAMPLES: usize = SCOPE_COLUMNS * SAMPLES_PER_SCOPE_COLUMN;
 
-/// The latest samples of the mix being heard.
 #[derive(Clone, Copy, Debug)]
 struct ScopeTrace {
     samples: [f32; SCOPE_SAMPLES],
@@ -95,8 +88,7 @@ impl ScopeTrace {
         self.next = (self.next + 1) % SCOPE_SAMPLES;
     }
 
-    /// The loudest sample of each column, oldest first.
-    fn columns(&self) -> [i8; SCOPE_COLUMNS] {
+    fn loudest_per_column(&self) -> [i8; SCOPE_COLUMNS] {
         let mut columns = [0; SCOPE_COLUMNS];
         for (column, value) in columns.iter_mut().enumerate() {
             let start = self.next + column * SAMPLES_PER_SCOPE_COLUMN;
@@ -115,7 +107,6 @@ impl ScopeTrace {
     }
 }
 
-/// Which Tracks are muted and soloed. Neither changes any timing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TrackMix {
     muted: [bool; TRACKS],
@@ -123,27 +114,22 @@ pub struct TrackMix {
 }
 
 impl TrackMix {
-    /// Mutes a Track, counted from 0, or brings it back.
     pub fn toggle_mute(&mut self, track: usize) {
         self.muted[track] = !self.muted[track];
     }
 
-    /// Solos a Track, counted from 0, or takes the Solo away.
     pub fn toggle_solo(&mut self, track: usize) {
         self.soloed[track] = !self.soloed[track];
     }
 
-    /// Whether a Track is marked as muted.
     pub fn is_muted(&self, track: usize) -> bool {
         self.muted[track]
     }
 
-    /// Whether a Track is marked as soloed.
     pub fn is_soloed(&self, track: usize) -> bool {
         self.soloed[track]
     }
 
-    /// Whether a Track is heard: Solo overrides Mute.
     pub fn is_heard(&self, track: usize) -> bool {
         if self.soloed.contains(&true) {
             self.soloed[track]
@@ -153,7 +139,6 @@ impl TrackMix {
     }
 }
 
-/// The place being played, as the Player last reached it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Playhead {
     pub chain_row: Option<(usize, usize)>,
@@ -161,7 +146,6 @@ pub struct Playhead {
 }
 
 impl Playhead {
-    /// The Step being played in a Phrase, looking at this Track first.
     pub fn step_in(&self, phrase: PhraseId, track: usize) -> Option<usize> {
         let step_on = |place: &Option<(PhraseId, usize)>| {
             place.filter(|(id, _)| *id == phrase).map(|(_, step)| step)
@@ -170,7 +154,6 @@ impl Playhead {
     }
 }
 
-/// What the Player tells the App core about playback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlaybackReport {
     pub playhead: Option<Playhead>,
@@ -193,7 +176,6 @@ enum LaneState {
     Finished,
 }
 
-/// One Track's place in the current Chain row. Every Track keeps time, heard or not.
 #[derive(Clone, Copy, Debug, Default)]
 struct Lane {
     state: LaneState,
@@ -218,7 +200,6 @@ impl Lane {
         }
     }
 
-    /// Moves on from a finished Step, reading the entry as it stands now.
     fn finish_step(&mut self, entry: Option<ChainEntry>, project: &Project) {
         let Some(entry) = entry else {
             self.state = LaneState::Idle;
@@ -239,12 +220,10 @@ impl Lane {
     }
 }
 
-/// How long one Step of a Phrase lasts.
 fn step_samples(phrase: &Phrase) -> u64 {
     u64::from(phrase.speed()) * u64::from(SAMPLES_PER_TICK)
 }
 
-/// The place in a Project that is playing, advanced one Step at a time.
 #[derive(Clone, Debug)]
 struct Playback {
     project: Arc<Project>,
@@ -256,8 +235,6 @@ struct Playback {
 }
 
 impl Playback {
-    /// The Chain row that plays after this one, if the Song has not ended. A Song row emptied
-    /// while it played acts like reaching an empty row.
     fn next_chain_row(&self) -> Option<(usize, usize)> {
         let project = &self.project;
         let later_in_row = first_chain_row(project, self.row, self.k + 1);
@@ -282,7 +259,6 @@ impl Playback {
         }
     }
 
-    /// The entry that keeps time on a Track, as the Project stands now.
     fn entry(&self, track: usize) -> Option<ChainEntry> {
         match self.route {
             Route::Phrase { phrase, transpose } => (track == 0).then(|| {
@@ -295,7 +271,6 @@ impl Playback {
         }
     }
 
-    /// Whether a Track is heard on this route.
     fn sounds(&self, track: usize) -> bool {
         match self.route {
             Route::Song => true,
@@ -304,13 +279,11 @@ impl Playback {
         }
     }
 
-    /// The sound of a Track's entry, if the Track is heard.
     fn sound(&self, track: usize) -> Option<Sound> {
         let entry = self.entry(track).filter(|_| self.sounds(track))?;
         Some(entry_sound(self.project.phrase(entry.phrase()), entry))
     }
 
-    /// The place being played.
     fn playhead(&self) -> Playhead {
         let mut tracks = [None; TRACKS];
         for (track, place) in tracks.iter_mut().enumerate() {
@@ -326,8 +299,6 @@ impl Playback {
         Playhead { chain_row, tracks }
     }
 
-    /// Whether every entry that sets the Chain row's length has played out: the entries not marked
-    /// Fill, or the longest entry when all are marked Fill.
     fn chain_row_is_over(&self) -> bool {
         if matches!(self.route, Route::Phrase { .. }) {
             return false;
@@ -347,12 +318,10 @@ impl Playback {
     }
 }
 
-/// The first Chain row at or after `from` on a Song row that lasts any time.
 fn first_chain_row(project: &Project, row: usize, from: usize) -> Option<usize> {
     (from..CHAIN_ENTRIES).find(|&k| project.chain_row_ticks(row, k) > 0)
 }
 
-/// Renders what the App core asks for, one sample at a time.
 #[derive(Clone, Debug)]
 pub struct Player {
     voices: Vec<Voice>,
@@ -379,12 +348,10 @@ impl Default for Player {
 }
 
 impl Player {
-    /// A silent Player.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Carries out one request.
     pub fn handle(&mut self, request: AudioRequest) {
         match request {
             AudioRequest::PlayPhrase {
@@ -435,17 +402,14 @@ impl Player {
         }
     }
 
-    /// The number of the latest play that ended by itself, counting every play request from 1.
-    /// It is 0 until one has.
     pub fn finished_play(&self) -> u64 {
         self.finished_play
     }
 
-    /// Where playback has got to, for the App core to show.
     pub fn report(&self) -> PlaybackReport {
         PlaybackReport {
             playhead: self.playback.as_ref().map(Playback::playhead),
-            scope: self.scope.columns(),
+            scope: self.scope.loudest_per_column(),
             finished_play: self.finished_play,
         }
     }
@@ -459,7 +423,6 @@ impl Player {
         }
     }
 
-    /// Holds C-2 on a Custom Instrument on the first voice until playback stops.
     fn audition(&mut self, project: &Project, instrument: u8) {
         self.cut();
         self.plays += 1;
@@ -483,7 +446,6 @@ impl Player {
         );
     }
 
-    /// Gives every voice the Custom Instruments of a Project.
     fn hear_instruments_of(&mut self, project: &Project) {
         let instruments = Arc::new(instruments(project));
         for voice in &mut self.voices {
@@ -491,7 +453,6 @@ impl Player {
         }
     }
 
-    /// Holds one Step on the first voice, repeating it until the preview ends.
     fn start_preview(&mut self, phrase: &Phrase, step: usize, transpose: i8) {
         let mut held = sound(phrase, transpose, 0, 1);
         held.notes[0] = held.notes[step];
@@ -502,7 +463,6 @@ impl Player {
         });
     }
 
-    /// Ends a released preview once it has sounded for a whole Step.
     fn advance_preview(&mut self) {
         let Some(preview) = self.preview.as_mut() else {
             return;
@@ -551,7 +511,6 @@ impl Player {
         self.enter_chain_row(playback, from_step);
     }
 
-    /// Starts every Track on a Chain row. A Track with no entry lets its sound die away.
     fn enter_chain_row(&mut self, mut playback: Playback, from_step: usize) {
         for (track, voice) in self.voices.iter_mut().enumerate() {
             let lane = Lane::starting(playback.entry(track), &playback.project, from_step);
@@ -561,8 +520,6 @@ impl Player {
         self.playback = Some(playback);
     }
 
-    /// Goes on to the next Chain row. With none to go to, a looping Chain waits for an edit and
-    /// anything else ends the play.
     fn leave_chain_row(&mut self) {
         let Some(mut playback) = self.playback.take() else {
             return;
@@ -585,8 +542,6 @@ impl Player {
         }
     }
 
-    /// Moves every Track that has finished a Step on to its next one, reading the Project as it
-    /// stands now. A Step already sounding is never touched.
     fn advance(&mut self) {
         let Some(playback) = self.playback.as_mut() else {
             return;
@@ -616,7 +571,6 @@ impl Player {
         }
     }
 
-    /// Gives each Track that has just moved the Step it moved to, or silence if its entry is over.
     fn start_next_steps(&mut self, moved: [bool; TRACKS]) {
         let Some(playback) = self.playback.as_ref() else {
             return;
@@ -633,8 +587,6 @@ impl Player {
         }
     }
 
-    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level, then
-    /// saturated as PICO-8 saturates a loud mix.
     pub fn next_sample(&mut self) -> f32 {
         self.advance();
         self.advance_preview();
@@ -644,7 +596,6 @@ impl Player {
             .is_some_and(|playback| playback.route == Route::Song);
         let mut mix = 0.0;
         for (track, voice) in self.voices.iter_mut().enumerate() {
-            // A silenced voice keeps running, so that bringing it back finds it in time.
             let sample = voice.next_sample();
             if !respects_mix || self.track_mix.is_heard(track) {
                 mix += sample;
@@ -655,19 +606,15 @@ impl Player {
         output
     }
 
-    /// Renders a run of samples at 22,050 Hz.
     pub fn render(&mut self, samples: usize) -> Vec<f32> {
         (0..samples).map(|_| self.next_sample()).collect()
     }
 }
 
-/// The sound of a Chain entry. It loops over LEN, because the Player decides when each Step and
-/// the entry itself end.
 fn entry_sound(phrase: &Phrase, entry: ChainEntry) -> Sound {
     sound(phrase, entry.transpose(), 0, phrase.length() as u8)
 }
 
-/// The sound of a Phrase, with each Step at its true pitch after the transpose.
 fn sound(phrase: &Phrase, transpose: i8, loop_start: u8, loop_end: u8) -> Sound {
     let mut notes = [Note::default(); MAX_STEPS];
     for (index, note) in notes.iter_mut().enumerate() {
@@ -699,7 +646,6 @@ fn packed(filters: Filters) -> u8 {
     )
 }
 
-/// What the synth plays for each of a Project's Custom Instruments.
 fn instruments(project: &Project) -> Instruments {
     project
         .custom_instruments()
@@ -713,8 +659,6 @@ fn instruments(project: &Project) -> Instruments {
         .collect()
 }
 
-/// The sound of an SFX Instrument. Its Steps keep their instrument digits as Built-in
-/// Instruments, and the loop plays only when it starts before it ends.
 fn sfx_instrument_sound(sfx: &SfxInstrument) -> Sound {
     let mut notes = [Note::default(); MAX_STEPS];
     for (note, step) in notes.iter_mut().zip(&sfx.steps) {
@@ -752,7 +696,6 @@ fn waveform(wave: &WaveformInstrument) -> Waveform {
     }
 }
 
-/// Converts samples at 22,050 Hz to the device's rate by linear interpolation.
 #[derive(Clone, Copy, Debug)]
 pub struct Resampler {
     step: f64,
@@ -762,7 +705,6 @@ pub struct Resampler {
 }
 
 impl Resampler {
-    /// A resampler for a device running at this many frames per second.
     pub fn new(device_rate: u32) -> Self {
         Self {
             step: f64::from(SAMPLE_RATE) / f64::from(device_rate),
@@ -772,7 +714,6 @@ impl Resampler {
         }
     }
 
-    /// The next frame at the device's rate, pulling samples from the source as needed.
     pub fn next_frame(&mut self, mut source: impl FnMut() -> f32) -> f32 {
         self.position += self.step;
         while self.position >= 1.0 {
