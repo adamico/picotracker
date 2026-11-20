@@ -7,8 +7,9 @@
 //! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
 //! instead of the port: the pitch of each note in whole phase units, the phase a voice starts from
 //! and keeps, the crossfade between notes, the phase of saw, square and pulse, the level of the
-//! whole output, the saw, noise and Waveform Instruments, BUZZ and DETUNE, the steps of vibrato,
-//! and silence on a silent note of an SFX Instrument.
+//! whole output, the saw, noise and Waveform Instruments, BUZZ and DETUNE, the steps of vibrato
+//! and slide, the retrigger of an SFX Instrument under drop, and silence on a silent note of an
+//! SFX Instrument.
 //!
 //! zepto8, `src/synth.cpp`:
 //!
@@ -161,6 +162,13 @@ impl Default for Sound {
     }
 }
 
+impl Sound {
+    /// The LEN a sound ends at: its loop start, when it has no loop end.
+    fn len(&self) -> Option<u8> {
+        (self.loop_end == 0 && self.loop_start > 0).then_some(self.loop_start)
+    }
+}
+
 /// A Custom Instrument made of one looping wave of signed samples. Its filters are packed like
 /// byte 64 of a PICO-8 SFX, and NOIZ and BUZZ have no effect on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -197,6 +205,19 @@ fn pitch_increment(pitch: i16) -> f32 {
         phase_units >> (-octaves_up).min(MAX_OCTAVE_SHIFT)
     };
     phase_units as f32 / PHASE_UNITS_PER_CYCLE
+}
+
+/// The phase step of a pitch between two whole pitches. Measured on PICO-8, a slide moves through
+/// pitches in a straight line, and between two whole pitches PICO-8 takes the whole number of phase
+/// units nearest the straight line between their steps.
+fn between_pitches_increment(pitch: f32) -> f32 {
+    let whole = pitch.floor() as i16;
+    let units = mix(
+        pitch_increment(whole),
+        pitch_increment(whole + 1),
+        pitch - f32::from(whole),
+    ) * PHASE_UNITS_PER_CYCLE;
+    units.round() / PHASE_UNITS_PER_CYCLE
 }
 
 /// How far through their cycles a voice's waves are. The phaser and DETUNE mix in a second wave
@@ -302,6 +323,7 @@ struct SynthParam {
     custom: bool,
     filters: u8,
     key: i16,
+    pitch: f32,
     increment: f32,
     volume: f32,
     phi: Phase,
@@ -497,6 +519,8 @@ pub struct Voice {
     reverb_index: usize,
     latched_dampen: u8,
     low_pass_output: f32,
+    resting_filters: u8,
+    rest_samples_left: Option<u64>,
     tick_sample: u32,
     rng: Rng,
 }
@@ -526,6 +550,8 @@ impl Voice {
             reverb_index: 0,
             latched_dampen: 0,
             low_pass_output: 0.0,
+            resting_filters: 0,
+            rest_samples_left: None,
             tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
@@ -558,6 +584,7 @@ impl Voice {
 
     /// Starts a sound from one of its notes.
     pub fn play(&mut self, sound: Sound, from_note: usize) {
+        self.resting_filters = 0;
         self.latched_dampen = dampen_level(sound.filters);
         self.tick_sample = 0;
         self.sound = sound;
@@ -584,12 +611,39 @@ impl Voice {
     /// Moves on to one note of a sound as the next Step of what is already playing, so that a
     /// slide carries over from the note just played and nothing retriggers.
     pub fn continue_at(&mut self, sound: Sound, note: usize) {
-        let played = self.sound.notes[(self.state.offset as usize).min(NOTES - 1)];
+        // A voice that has just crossed into its next note already holds the one it played.
+        if self.state.offset.fract() != 0.0 {
+            let played = self.sound.notes[(self.state.offset as usize).min(NOTES - 1)];
+            self.state.previous_key = played.pitch;
+            self.state.previous_volume = f32::from(played.volume) / 7.0;
+        }
         self.sound = sound;
         self.state.playing = true;
         self.state.offset = note.min(NOTES - 1) as f64;
-        self.state.previous_key = played.pitch;
-        self.state.previous_volume = f32::from(played.volume) / 7.0;
+    }
+
+    /// Falls silent the way a PICO-8 channel does when its SFX ends at LEN inside a Pattern: as
+    /// playing a silent sound, except that the echo of the sound it ends rings on.
+    pub fn rest(&mut self) {
+        let filters = self.sound.filters;
+        self.play(Sound::default(), 0);
+        self.resting_filters = filters;
+        self.rest_samples_left = None;
+    }
+
+    /// After a sound's last audible note, its echo rings on through the silent notes up to its LEN,
+    /// or to its last note without one, and is then cut.
+    fn ring_through_trailing_silence(&mut self) {
+        let length = self
+            .sound
+            .len()
+            .map_or(NOTES as f64, |len| f64::from(len).min(NOTES as f64));
+        let samples_per_note = f64::from(SAMPLES_PER_TICK) * f64::from(self.sound.speed.max(1));
+        let left = ((length - self.state.time) * samples_per_note)
+            .round()
+            .max(0.0);
+        self.resting_filters = self.sound.filters;
+        self.rest_samples_left = Some(left as u64);
     }
 
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
@@ -618,18 +672,46 @@ impl Voice {
 
         let base_offset = self.state.offset;
         let plays_a_note = self.state.playing;
-        update_sound(&self.sound, &mut self.state, &mut new_synth, 1.0);
+        update_sound(&self.sound, &mut self.state, &mut new_synth, 0.0, 1.0);
+        if plays_a_note && !self.state.playing {
+            self.ring_through_trailing_silence();
+        }
         // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
-        // next note starts there.
+        // next note starts there. Under REVERB the wave instead runs on through it at its pitch.
         if plays_a_note && new_synth.volume == 0.0 {
-            new_synth.phi = Phase::START;
+            if reverb_level(self.sound.filters) > 0 {
+                let silent = self.sound.notes[(base_offset as usize).min(NOTES - 1)];
+                new_synth.phi = advanced(
+                    new_synth.phi,
+                    pitch_increment(silent.pitch),
+                    silent.instrument,
+                    self.sound.filters,
+                );
+            } else {
+                new_synth.phi = Phase::START;
+            }
         }
 
         let plays_a_custom_note = new_synth.custom;
+        // PICO-8 retriggers an SFX Instrument when the pitch changes or after a silent note. Drop
+        // inverts the pitch rule: the same pitch retriggers at the start of its note, and a new
+        // pitch carries on. Measured on PICO-8, a slide carries on to its new pitch.
+        let effect = self.sound.notes[(base_offset as usize).min(NOTES - 1)].effect;
+        let starts_a_note = base_offset.fract() == 0.0;
+        let same_key = new_synth.key == self.last_main_key;
         let mut restart_instrument = new_synth.instrument != self.last_main_instrument
-            || new_synth.key != self.last_main_key;
+            || self.last_main_key == NO_KEY
+            || match effect {
+                FX_DROP => same_key && starts_a_note,
+                FX_SLIDE => false,
+                _ => !same_key,
+            };
         self.last_main_instrument = new_synth.instrument;
-        self.last_main_key = new_synth.key;
+        self.last_main_key = if new_synth.volume > 0.0 {
+            new_synth.key
+        } else {
+            NO_KEY
+        };
 
         if new_synth.volume > 0.0 {
             if plays_a_custom_note {
@@ -669,7 +751,12 @@ impl Voice {
                             _ => &silent,
                         };
                         new_synth.phi = last_synth.phi;
-                        let increment_factor = new_synth.increment / pitch_increment(MIDDLE_KEY);
+                        // Measured on PICO-8: the pitch the played note is at, partway through a
+                        // slide included, adds to the instrument's own pitches before they become
+                        // phase steps, and the played note's vibrato scales what they give.
+                        let pitch_shift = new_synth.pitch - f32::from(MIDDLE_KEY);
+                        let increment_factor =
+                            new_synth.increment / between_pitches_increment(new_synth.pitch);
                         let main_volume = new_synth.volume;
                         // A silent note of the SFX Instrument silences the voice.
                         new_synth.volume = 0.0;
@@ -677,6 +764,7 @@ impl Voice {
                             sound,
                             &mut self.instrument_state,
                             &mut new_synth,
+                            pitch_shift,
                             increment_factor,
                         );
                         new_synth.volume *= main_volume;
@@ -684,6 +772,25 @@ impl Voice {
                 }
             }
             value = synth_sample(&mut new_synth, &mut self.rng);
+        }
+
+        // Measured on PICO-8: the echo rings through silent notes, through those after a sound's
+        // last audible note up to its LEN or last note, and on after an SFX ends at LEN inside a
+        // Pattern. A sound played on its own cuts it there.
+        if !self.state.playing {
+            match &mut self.rest_samples_left {
+                Some(0) => self.resting_filters = 0,
+                Some(left) => *left -= 1,
+                None => {}
+            }
+        }
+        // A silent note carries the echo's filters, so that a crossfade from it keeps the echo.
+        if new_synth.volume == 0.0 {
+            new_synth.filters = if self.state.playing {
+                self.sound.filters
+            } else {
+                self.resting_filters
+            };
         }
 
         // Crossfade over abrupt changes, so that they do not click.
@@ -766,11 +873,13 @@ impl Voice {
     }
 }
 
-/// Advances a sound by one sample and writes what it plays into `synth`.
+/// Advances a sound by one sample and writes what it plays into `synth`, with its pitches moved up
+/// by `pitch_shift` and its phase steps scaled by `increment_factor`.
 fn update_sound(
     sound: &Sound,
     state: &mut SoundState,
     synth: &mut SynthParam,
+    pitch_shift: f32,
     increment_factor: f32,
 ) {
     if !state.playing {
@@ -797,9 +906,9 @@ fn update_sound(
 
     let mut has_end = false;
     let mut end_time = NOTES as f64;
-    if sound.loop_end == 0 && sound.loop_start > 0 {
+    if let Some(len) = sound.len() {
         has_end = true;
-        end_time = end_time.min(loop_start);
+        end_time = end_time.min(f64::from(len));
     }
     if loop_range <= 0.0 {
         has_end = true;
@@ -816,7 +925,6 @@ fn update_sound(
         let next_note_index = next_offset.floor() as usize;
         let note = sound.notes[note_index];
         let mut volume = f32::from(note.volume) / 7.0;
-        let mut increment = pitch_increment(note.pitch) * increment_factor;
         // PICO-8 moves an effect on once per Tick: by the note's last Tick it has gone
         // (speed - 1) / speed of the way.
         let ticks_played = (offset * f64::from(speed) + TICK_FLOOR_TOLERANCE).floor();
@@ -826,24 +934,12 @@ fn update_sound(
         let progress = ((ticks_played % f64::from(speed)) / f64::from(speed)) as f32;
 
         if volume > 0.0 {
-            match note.effect {
-                FX_SLIDE => {
-                    increment = mix(pitch_increment(state.previous_key), increment, progress);
-                    if state.previous_volume > 0.0 {
-                        volume = mix(state.previous_volume, volume, progress);
-                    }
-                }
-                FX_VIBRATO => {
-                    // A triangle in pitch held for two Ticks at a time: up from the note's pitch,
-                    // down through it and back, over eight steps.
-                    let ticks = offset * f64::from(speed);
-                    let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
-                    let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
-                    increment *= (t * VIBRATO_SEMITONES / 12.0).exp2();
-                }
-                FX_DROP => increment *= 1.0 - progress,
-                FX_FADE_IN => volume *= progress,
-                FX_FADE_OUT => volume *= 1.0 - progress,
+            let pitch = match note.effect {
+                FX_SLIDE => mix(
+                    f32::from(state.previous_key),
+                    f32::from(note.pitch),
+                    progress,
+                ),
                 FX_ARP_FAST | FX_ARP_SLOW => {
                     // Each pitch of the arpeggio lasts whole Ticks: 2 up to speed 8 and 4 above,
                     // twice as long for the slow arpeggio.
@@ -855,11 +951,30 @@ fn update_sound(
                     };
                     let pitch_index = ticks_played as usize / ticks_per_pitch;
                     let arpeggio_note = (note_index & !3) | (pitch_index & 3);
-                    increment = pitch_increment(sound.notes[arpeggio_note].pitch);
+                    f32::from(sound.notes[arpeggio_note].pitch)
                 }
+                _ => f32::from(note.pitch),
+            } + pitch_shift;
+            let mut increment = between_pitches_increment(pitch) * increment_factor;
+            match note.effect {
+                FX_SLIDE if state.previous_volume > 0.0 => {
+                    volume = mix(state.previous_volume, volume, progress);
+                }
+                FX_VIBRATO => {
+                    // A triangle in pitch held for two Ticks at a time: up from the note's pitch,
+                    // down through it and back, over eight steps.
+                    let ticks = offset * f64::from(speed);
+                    let step = (ticks / VIBRATO_TICKS_PER_STEP).floor() % VIBRATO_STEPS;
+                    let t = 1.0 - (((step + 2.0) % VIBRATO_STEPS) as f32 / 2.0 - 2.0).abs();
+                    increment *= (t * VIBRATO_SEMITONES / 12.0).exp2();
+                }
+                FX_DROP if !note.custom => increment *= 1.0 - progress,
+                FX_FADE_IN => volume *= progress,
+                FX_FADE_OUT => volume *= 1.0 - progress,
                 _ => {}
             }
             synth.key = note.pitch;
+            synth.pitch = pitch;
             synth.increment = increment;
             synth.instrument = note.instrument;
             synth.custom = note.custom;
