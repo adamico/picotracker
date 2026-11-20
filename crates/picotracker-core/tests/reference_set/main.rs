@@ -28,13 +28,14 @@ const CENTS_PER_PITCH: f32 = 100.0;
 const VIBRATO_TICKS: std::ops::Range<u32> = 80..120;
 const NOISE_CASE: &str = "coverage_sfx14";
 const PLAIN_NOISE_TICKS: [std::ops::Range<usize>; 2] = [1..40, 241..320];
-const VIBRATO_CASES: [&str; 6] = [
+const VIBRATO_CASES: [&str; 7] = [
     "coverage_sfx08",
     "coverage_sfx09",
     "coverage_sfx10",
     "coverage_sfx11",
     "coverage_sfx12",
     "coverage_sfx13",
+    "coverage_sfx15",
 ];
 
 /// The limits from the spec for matching a recording of real PICO-8. Loosening any of them needs
@@ -63,6 +64,7 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
     "coverage_sfx11",
     "coverage_sfx12",
     "coverage_sfx13",
+    "coverage_sfx15",
     "coverage_sfx14",
     "coverage_sfx15",
     "coverage_sfx21",
@@ -94,6 +96,7 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx11",
     "coverage_sfx12",
     "coverage_sfx13",
+    "coverage_sfx15",
     "coverage_sfx14",
     "coverage_sfx15",
     "coverage_sfx16",
@@ -295,8 +298,6 @@ fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Opt
 
 /// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch. The
 /// whole coverage cases still wait on #39's slide, so this checks their vibrato Steps on their own.
-/// The phaser is left out: its beat moves its measured pitch by several cents even without
-/// vibrato.
 #[test]
 fn vibrato_matches_real_pico8_within_the_pitch_limit() {
     let off: Vec<String> = cases::all()

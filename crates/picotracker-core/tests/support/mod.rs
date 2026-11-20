@@ -256,7 +256,7 @@ pub fn render_sounds(sounds: &[(Sound, &[usize])]) -> Vec<f32> {
         let step_samples = usize::from(sound.speed.max(1)) * SAMPLES_PER_TICK as usize;
         for (step, note) in notes.iter().enumerate() {
             if step == 0 {
-                voice.play_pattern(*sound, *note);
+                voice.play_restarting_if_silent(*sound, *note);
             } else {
                 voice.continue_at(*sound, *note);
             }
