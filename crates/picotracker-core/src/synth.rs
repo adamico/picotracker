@@ -511,6 +511,7 @@ pub struct Voice {
     reverb_index: usize,
     latched_dampen: u8,
     low_pass_output: f32,
+    resting_filters: u8,
     tick_sample: u32,
     rng: Rng,
 }
@@ -540,6 +541,7 @@ impl Voice {
             reverb_index: 0,
             latched_dampen: 0,
             low_pass_output: 0.0,
+            resting_filters: 0,
             tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
@@ -572,6 +574,7 @@ impl Voice {
 
     /// Starts a sound from one of its notes.
     pub fn play(&mut self, sound: Sound, from_note: usize) {
+        self.resting_filters = 0;
         self.latched_dampen = dampen_level(sound.filters);
         self.tick_sample = 0;
         self.sound = sound;
@@ -607,6 +610,14 @@ impl Voice {
         self.sound = sound;
         self.state.playing = true;
         self.state.offset = note.min(NOTES - 1) as f64;
+    }
+
+    /// Falls silent the way a PICO-8 channel does when its SFX ends at LEN inside a Pattern: as
+    /// playing a silent sound, except that the echo of the sound it ends rings on.
+    pub fn rest(&mut self) {
+        let filters = self.sound.filters;
+        self.play(Sound::default(), 0);
+        self.resting_filters = filters;
     }
 
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
@@ -737,7 +748,16 @@ impl Voice {
         }
         self.last_synth = new_synth;
 
-        let reverb = reverb_level(new_synth.filters);
+        // Measured on PICO-8: the echo rings through silent notes and after a sound ends at LEN
+        // inside a Pattern, and is cut when a sound played on its own ends.
+        let echo_filters = if new_synth.volume > 0.0 {
+            new_synth.filters
+        } else if self.state.playing {
+            self.sound.filters
+        } else {
+            self.resting_filters
+        };
+        let reverb = reverb_level(echo_filters);
         let level = |on: bool| if on { 1.0_f32 } else { 0.0 };
         let mut reverb_1 = level(reverb == 1);
         let mut reverb_2 = level(reverb == 2);
@@ -836,11 +856,12 @@ fn update_sound(
 
     let mut has_end = false;
     let mut end_time = NOTES as f64;
-    if sound.loop_end == 0 && sound.loop_start > 0 {
+    let has_len = sound.loop_end == 0 && sound.loop_start > 0;
+    if has_len {
+        // Measured on PICO-8: a sound with a LEN plays its silent notes up to it.
         has_end = true;
         end_time = end_time.min(loop_start);
-    }
-    if loop_range <= 0.0 {
+    } else if loop_range <= 0.0 {
         has_end = true;
         let last_note = sound
             .notes

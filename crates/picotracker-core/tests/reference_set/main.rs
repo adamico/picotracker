@@ -64,9 +64,6 @@ const AWAITING_SYNTH_FIXES_39: &[&str] = &[
     "coverage_sfx25",
     "coverage_music1",
     "coverage_music4",
-    "reverb_1_rings_through_silent_steps",
-    "reverb_2_rings_through_silent_steps",
-    "reverb_2_rings_after_len_inside_a_pattern",
     "arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
@@ -88,9 +85,6 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx21",
     "coverage_sfx22",
     "coverage_sfx25",
-    "reverb_1_rings_through_silent_steps",
-    "reverb_2_rings_after_len_inside_a_pattern",
-    "reverb_2_rings_through_silent_steps",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
 
