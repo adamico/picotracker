@@ -57,7 +57,7 @@ const SPEC_LIMITS: Limits = Limits {
     noiz_buzz_and_detune_1_level_db: 3.0,
 };
 
-const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &["coverage_music0", "coverage_music1"];
+const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &["coverage_music1"];
 
 fn cart_path(case: &Case) -> PathBuf {
     Path::new(FOLDER)
