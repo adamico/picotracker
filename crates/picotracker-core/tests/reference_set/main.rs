@@ -57,12 +57,9 @@ const SPEC_LIMITS: Limits = Limits {
     noiz_buzz_and_detune_1_level_db: 3.0,
 };
 
-const AWAITING_IMPORTED_INSTRUMENTS_44: &[&str] = &["coverage_music4"];
-
 const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_music0",
     "coverage_music1",
-    "coverage_music4",
     "coverage_sfx15",
     "coverage_sfx14",
     "coverage_sfx16",
@@ -146,10 +143,8 @@ fn tolerance(cart: &Cart) -> Tolerance {
     }
 }
 
-const AWAITED_WORK: [(&str, &[&str]); 2] = [
-    ("#44 Imported Instruments", AWAITING_IMPORTED_INSTRUMENTS_44),
-    ("#54 synth differences", AWAITING_SYNTH_DIFFERENCES_54),
-];
+const AWAITED_WORK: [(&str, &[&str]); 1] =
+    [("#54 synth differences", AWAITING_SYNTH_DIFFERENCES_54)];
 
 /// The work a case still waits on before it can match PICO-8: every piece of work whose list
 /// names it. A case that no list names must match.
