@@ -23,7 +23,7 @@ pub use launching::{Launch, StateContents};
 pub use messages::{LogItem, Report, Severity};
 
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
-use crate::project::CHAIN_ENTRIES;
+use crate::project::{CHAIN_ENTRIES, FIRST_CUSTOM_INSTRUMENT};
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
 use crate::screen::grid::Grid;
 use crate::settings::AppState;
@@ -32,14 +32,17 @@ use change_speed::SpeedEntry;
 use files::{Question, Waiting};
 use focus::Focus;
 use history::{CursorPlace, History, Merge};
+use importing::PickingSong;
 use messages::Notice;
 use panes::chain::{ChainPane, ChainView};
 use panes::file_list::{FileList, Purpose};
+use panes::instrument::InstrumentView;
 use panes::log::LogPane;
 use panes::midi_dialog::MidiDialog;
 use panes::overview::OverviewPane;
 use panes::phrase::{PhrasePane, PhraseView};
 use panes::song::SongPane;
+use panes::song_picker::SONG_PICKER_KEYS;
 use selection::CellPosition;
 use status_line::StatusLine;
 use std::path::PathBuf;
@@ -53,6 +56,7 @@ const NOTHING_TO_UNDO: &str = "NOTHING TO UNDO";
 const NOTHING_TO_REDO: &str = "NOTHING TO REDO";
 const FOLLOW_ON: &str = "FOLLOW ON";
 const FOLLOW_OFF: &str = "FOLLOW OFF";
+const BUILT_IN_INSTRUMENT: &str = "BUILT-IN INSTRUMENTS HAVE NO SETTINGS";
 const OPEN_LIST_KEYS: &str = "UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 const SAVE_LIST_KEYS: &str = "TYPE A NAME  UP/DOWN PICK  ENTER CHOOSE  ESC CANCEL";
 
@@ -92,6 +96,8 @@ pub struct App {
     focus_before_log: Focus,
     file_list: Option<FileList>,
     midi_dialog: Option<Box<MidiDialog>>,
+    picking_song: Option<Box<PickingSong>>,
+    instrument_view: Option<InstrumentView>,
     waiting: Option<Waiting>,
     file_requests: Vec<FileRequest>,
     audio_requests: Vec<AudioRequest>,
@@ -145,6 +151,8 @@ impl App {
             focus_before_log: Focus::default(),
             file_list: None,
             midi_dialog: None,
+            picking_song: None,
+            instrument_view: None,
             waiting: None,
             file_requests: Vec::new(),
             audio_requests: Vec::new(),
@@ -156,9 +164,17 @@ impl App {
         &self.project
     }
 
+    /// The Project the panes show: the highlighted song while the song picker is open.
+    fn shown_project(&self) -> &Project {
+        self.picking_song
+            .as_ref()
+            .map_or(&self.project, |picking| picking.picker.project())
+    }
+
     /// The Chain under the Song cursor, which the Chain pane shows.
     pub fn chain_under_cursor(&self) -> Option<ChainId> {
-        self.project.song_cell(self.song.row(), self.song.track())
+        self.shown_project()
+            .song_cell(self.song.row(), self.song.track())
     }
 
     /// The Phrase under the Chain cursor, which the Phrase pane shows.
@@ -168,13 +184,13 @@ impl App {
 
     fn entry_under_cursor(&self) -> Option<ChainEntry> {
         let chain = self.chain_under_cursor()?;
-        self.project.chain(chain).entry(self.chain.entry())
+        self.shown_project().chain(chain).entry(self.chain.entry())
     }
 
     /// The Phrase the Phrase pane draws: a blank one when no Phrase is under the Chain cursor.
     fn shown_phrase(&self) -> Phrase {
         self.phrase_under_cursor()
-            .map_or_else(Phrase::default, |id| *self.project.phrase(id))
+            .map_or_else(Phrase::default, |id| *self.shown_project().phrase(id))
     }
 
     /// What the keys that type characters do at the cursor.
@@ -188,11 +204,17 @@ impl App {
         if self.midi_dialog.is_some() {
             return KeyContext::MidiImport;
         }
+        if self.picking_song.is_some() {
+            return KeyContext::SongPicker;
+        }
         if let Some(list) = &self.file_list {
             return match list.purpose() {
                 Purpose::Open | Purpose::Import => KeyContext::Navigation,
                 Purpose::SaveAs => KeyContext::FileName,
             };
+        }
+        if let Some(view) = &self.instrument_view {
+            return view.key_context(&self.project);
         }
         match self.focus {
             Focus::Song => KeyContext::ReferenceValue,
@@ -261,7 +283,9 @@ impl App {
             return;
         }
         self.previewing = true;
+        let project = self.project_for_player();
         self.audio_requests.push(AudioRequest::PreviewStep {
+            project,
             phrase,
             step: index,
             transpose: self.entry_under_cursor().map_or(0, ChainEntry::transpose),
@@ -384,6 +408,9 @@ impl App {
             self.song.finish_typing();
             self.chain.finish_typing();
             self.phrase.finish_typing();
+            if let Some(view) = self.instrument_view.as_mut() {
+                view.finish_typing();
+            }
         }
         if action == Action::Quit {
             self.quit();
@@ -391,6 +418,10 @@ impl App {
         }
         if self.midi_dialog.is_some() {
             self.use_midi_dialog(action);
+            return;
+        }
+        if self.picking_song.is_some() {
+            self.use_song_picker(action);
             return;
         }
         if self.speed_entry.is_some() {
@@ -408,6 +439,11 @@ impl App {
         }
         if self.file_list.is_some() {
             self.use_file_list(action);
+            return;
+        }
+        if self.instrument_view.is_some() {
+            self.use_instrument_view(action);
+            self.settle_after_edit();
             return;
         }
         let before_edit = self.step_before_edit(action);
@@ -516,8 +552,16 @@ impl App {
         }
     }
 
-    /// Enter in the Log jumps to the picked item's location.
+    /// Enter on a Step's Instrument column opens the Instrument view, and Enter in the Log jumps to
+    /// the picked item's location.
     fn confirm(&mut self) {
+        if self.focus == Focus::Phrase && self.phrase_under_cursor().is_some() {
+            let shown = self.shown_phrase();
+            if let Some(instrument) = self.phrase.instrument_under_cursor(&shown) {
+                self.open_instrument_view(instrument);
+            }
+            return;
+        }
         if !self.log_has_focus() {
             return;
         }
@@ -538,6 +582,45 @@ impl App {
             self.close_log();
         } else if self.focus == Focus::RightSlot {
             self.set_focus(Focus::Phrase);
+        }
+    }
+
+    fn open_instrument_view(&mut self, instrument: u8) {
+        if instrument < FIRST_CUSTOM_INSTRUMENT {
+            self.remark = Some(BUILT_IN_INSTRUMENT);
+            return;
+        }
+        self.selection_start = None;
+        self.instrument_view = Some(InstrumentView::new(instrument));
+    }
+
+    /// What an action does while the Instrument view is open. Esc closes it, ending an audition.
+    fn use_instrument_view(&mut self, action: Action) {
+        let Some(view) = self.instrument_view.as_mut() else {
+            return;
+        };
+        match action {
+            Action::Cancel => {
+                self.instrument_view = None;
+                if self.playing {
+                    self.play_or_stop();
+                }
+            }
+            Action::PlayFocusedPane if self.playing => self.play_or_stop(),
+            Action::PlayFocusedPane => {
+                let instrument = view.id();
+                let project = self.project_for_player();
+                self.start_playing(AudioRequest::AuditionInstrument {
+                    project,
+                    instrument,
+                });
+            }
+            Action::Undo => self.undo(),
+            Action::Redo => self.redo(),
+            Action::Save => self.save(),
+            Action::OctaveUp => self.phrase.change_octave(1),
+            Action::OctaveDown => self.phrase.change_octave(-1),
+            _ => view.apply(action, &mut self.project, self.phrase.octave()),
         }
     }
 
@@ -706,14 +789,26 @@ impl App {
             status_line::draw(&mut grid, &StatusLine::Hints(dialog.hints()));
             return grid;
         }
+        if let Some(view) = self
+            .instrument_view
+            .as_ref()
+            .filter(|_| self.file_list.is_none())
+        {
+            view.draw(&mut grid, &self.project);
+            let project = self.project_name();
+            status_line::draw(&mut grid, &self.status_line(&project));
+            return grid;
+        }
         let chain_row = self.playhead.and_then(|playhead| playhead.chain_row);
-        // The file list takes the keys while it is open, so no pane shows a cursor.
-        let focus = self.file_list.is_none().then_some(self.focus);
+        // The file list and the song picker take the keys while open, so no pane shows a cursor.
+        let takes_keys = self.file_list.is_some() || self.picking_song.is_some();
+        let focus = (!takes_keys).then_some(self.focus);
+        let project = self.shown_project();
         self.song.draw(
             &mut grid,
             layout::SONG,
             focus == Some(Focus::Song),
-            &self.project,
+            project,
             &self.track_mix,
             chain_row.map(|(row, _)| row),
         );
@@ -721,7 +816,7 @@ impl App {
             &mut grid,
             layout::CHAIN,
             focus == Some(Focus::Chain),
-            &self.project,
+            project,
             ChainView {
                 song_row: self.song.row(),
                 track: self.song.track(),
@@ -747,7 +842,9 @@ impl App {
         );
         self.draw_selection(&mut grid);
         let right_slot_focused = focus == Some(Focus::RightSlot);
-        if let Some(list) = &self.file_list {
+        if let Some(picking) = &self.picking_song {
+            picking.picker.draw(&mut grid, layout::RIGHT_SLOT);
+        } else if let Some(list) = &self.file_list {
             list.draw(&mut grid, layout::RIGHT_SLOT);
         } else if self.log_open {
             self.log
@@ -784,6 +881,9 @@ impl App {
         }
         if let Some(notice) = notice {
             return StatusLine::Notice(notice);
+        }
+        if self.picking_song.is_some() {
+            return StatusLine::Hints(SONG_PICKER_KEYS);
         }
         match self.file_list.as_ref().map(FileList::purpose) {
             Some(Purpose::Open | Purpose::Import) => StatusLine::Hints(OPEN_LIST_KEYS),

@@ -170,7 +170,6 @@ fn step_values_stop_at_their_limits() {
         C,
         UP,
         RIGHT,
-        Action::HexDigit(0xF),
         RIGHT,
         Action::HexDigit(9),
         RIGHT,
@@ -178,7 +177,6 @@ fn step_values_stop_at_their_limits() {
     ]);
 
     let edited = step(&app, 0);
-    assert_eq!(edited.instrument(), 7);
     assert_eq!(edited.volume(), 7);
     assert_eq!(edited.effect(), 7);
 }

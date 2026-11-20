@@ -1,8 +1,14 @@
 //! Player: turns a Project and a play request into the Playhead and samples. The Window shell
 //! owns the audio stream that carries them to a device.
 
-use crate::project::{CHAIN_ENTRIES, ChainEntry, MAX_STEPS, Phrase, PhraseId, Project, TRACKS};
-use crate::synth::{Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
+use crate::project::{
+    CHAIN_ENTRIES, ChainEntry, FIRST_CUSTOM_INSTRUMENT, Filters, InstrumentSound, MAX_STEPS,
+    Phrase, PhraseId, Project, SfxInstrument, Step, TRACKS, WaveformInstrument,
+};
+use crate::synth::{
+    Instrument, Instruments, Note, SAMPLE_RATE, SAMPLES_PER_TICK, Sound, Voice, Waveform,
+    packed_filters,
+};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,11 +32,16 @@ pub enum AudioRequest {
     UpdateProject(Arc<Project>),
     SetTrackMix(TrackMix),
     PreviewStep {
+        project: Arc<Project>,
         phrase: Phrase,
         step: usize,
         transpose: i8,
     },
     EndPreview,
+    AuditionInstrument {
+        project: Arc<Project>,
+        instrument: u8,
+    },
     Stop,
 }
 
@@ -41,33 +52,23 @@ struct Preview {
     released: bool,
 }
 
-/// Holds the mix inside the output range. The gain drops at once to just what the loudest sample
-/// needs, so a mix that would not clip passes through unchanged, and then recovers.
-#[derive(Clone, Copy, Debug)]
-struct Limiter {
-    gain: f32,
-}
+const SATURATION_KNEE: f32 = 0.75;
+const SATURATION_SLOPE: f32 = 1.0 / 25.0;
 
-impl Limiter {
-    const RELEASE_PER_SAMPLE: f32 = 1.0 / (0.05 * SAMPLE_RATE as f32);
-    const FULL_GAIN: f32 = 0.9999;
-
-    const fn new() -> Self {
-        Self { gain: 1.0 }
-    }
-
-    fn run(&mut self, mix: f32) -> f32 {
-        if mix.abs() * self.gain > 1.0 {
-            self.gain = 1.0 / mix.abs();
-        }
-        let limited = (mix * self.gain).clamp(-1.0, 1.0);
-        self.gain += (1.0 - self.gain) * Self::RELEASE_PER_SAMPLE;
-        if self.gain > Self::FULL_GAIN {
-            self.gain = 1.0;
-        }
-        limited
+/// The mix as PICO-8 0.2.7 outputs it: unchanged up to the knee, and past it rising at only a
+/// twenty-fifth of the rate. Even 8 Tracks at full volume stay well inside the output range.
+fn saturated(mix: f32) -> f32 {
+    let past_knee = mix.abs() - SATURATION_KNEE;
+    if past_knee > 0.0 {
+        mix.signum() * (SATURATION_KNEE + past_knee * SATURATION_SLOPE)
+    } else {
+        mix
     }
 }
+
+const AUDITION_PITCH: u8 = 24;
+const AUDITION_VOLUME: u8 = 5;
+const AUDITION_SPEED: u8 = 255;
 
 pub const SCOPE_COLUMNS: usize = 23;
 pub const SCOPE_RANGE: i8 = 100;
@@ -358,7 +359,6 @@ pub struct Player {
     playback: Option<Playback>,
     track_mix: TrackMix,
     preview: Option<Preview>,
-    limiter: Limiter,
     scope: ScopeTrace,
     plays: u64,
     finished_play: u64,
@@ -371,7 +371,6 @@ impl Default for Player {
             playback: None,
             track_mix: TrackMix::default(),
             preview: None,
-            limiter: Limiter::new(),
             scope: ScopeTrace::new(),
             plays: 0,
             finished_play: 0,
@@ -414,15 +413,24 @@ impl Player {
             AudioRequest::UpdateProject(project) => self.update_project(project),
             AudioRequest::SetTrackMix(track_mix) => self.track_mix = track_mix,
             AudioRequest::PreviewStep {
+                project,
                 phrase,
                 step,
                 transpose,
-            } => self.start_preview(&phrase, step, transpose),
+            } => {
+                self.cut();
+                self.hear_instruments_of(&project);
+                self.start_preview(&phrase, step, transpose);
+            }
             AudioRequest::EndPreview => {
                 if let Some(preview) = self.preview.as_mut() {
                     preview.released = true;
                 }
             }
+            AudioRequest::AuditionInstrument {
+                project,
+                instrument,
+            } => self.audition(&project, instrument),
             AudioRequest::Stop => self.cut(),
         }
     }
@@ -445,16 +453,46 @@ impl Player {
     fn cut(&mut self) {
         self.playback = None;
         self.preview = None;
-        self.limiter = Limiter::new();
         self.scope = ScopeTrace::new();
         for voice in &mut self.voices {
             voice.stop();
         }
     }
 
+    /// Holds C-2 on a Custom Instrument on the first voice until playback stops.
+    fn audition(&mut self, project: &Project, instrument: u8) {
+        self.cut();
+        self.plays += 1;
+        self.hear_instruments_of(project);
+        let note = Note {
+            pitch: i16::from(AUDITION_PITCH),
+            instrument,
+            custom: true,
+            volume: AUDITION_VOLUME,
+            effect: 0,
+        };
+        self.voices[0].play(
+            Sound {
+                notes: [note; MAX_STEPS],
+                speed: AUDITION_SPEED,
+                filters: 0,
+                loop_start: 0,
+                loop_end: MAX_STEPS as u8,
+            },
+            0,
+        );
+    }
+
+    /// Gives every voice the Custom Instruments of a Project.
+    fn hear_instruments_of(&mut self, project: &Project) {
+        let instruments = Arc::new(instruments(project));
+        for voice in &mut self.voices {
+            voice.set_instruments(Arc::clone(&instruments));
+        }
+    }
+
     /// Holds one Step on the first voice, repeating it until the preview ends.
     fn start_preview(&mut self, phrase: &Phrase, step: usize, transpose: i8) {
-        self.cut();
         let mut held = sound(phrase, transpose, 0, 1);
         held.notes[0] = held.notes[step];
         self.voices[0].play(held, 0);
@@ -477,6 +515,7 @@ impl Player {
     }
 
     fn update_project(&mut self, project: Arc<Project>) {
+        self.hear_instruments_of(&project);
         let Some(playback) = self.playback.as_mut() else {
             return;
         };
@@ -495,6 +534,7 @@ impl Player {
         from_step: usize,
     ) {
         self.cut();
+        self.hear_instruments_of(&project);
         self.plays += 1;
         let Some(k) = k else {
             self.finished_play = self.plays;
@@ -516,7 +556,7 @@ impl Player {
         for (track, voice) in self.voices.iter_mut().enumerate() {
             let lane = Lane::starting(playback.entry(track), &playback.project, from_step);
             playback.lanes[track] = lane;
-            voice.play(playback.sound(track).unwrap_or_default(), lane.step);
+            voice.play_restarting_if_silent(playback.sound(track).unwrap_or_default(), lane.step);
         }
         self.playback = Some(playback);
     }
@@ -588,13 +628,13 @@ impl Player {
                 .filter(|_| lane.state == LaneState::Playing);
             match sound {
                 Some(sound) => self.voices[track].continue_at(sound, lane.step),
-                None => self.voices[track].play(Sound::default(), 0),
+                None => self.voices[track].rest(),
             }
         }
     }
 
-    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level, limited only
-    /// when the mix would clip.
+    /// The next sample at 22,050 Hz: the Tracks mixed at PICO-8's per-channel level, then
+    /// saturated as PICO-8 saturates a loud mix.
     pub fn next_sample(&mut self) -> f32 {
         self.advance();
         self.advance_preview();
@@ -610,9 +650,9 @@ impl Player {
                 mix += sample;
             }
         }
-        let limited = self.limiter.run(mix);
-        self.scope.push(limited);
-        limited
+        let output = saturated(mix);
+        self.scope.push(output);
+        output
     }
 
     /// Renders a run of samples at 22,050 Hz.
@@ -635,24 +675,80 @@ fn sound(phrase: &Phrase, transpose: i8, loop_start: u8, loop_end: u8) -> Sound 
         *note = Note {
             pitch: i16::from(step.pitch()) + i16::from(transpose),
             instrument: step.instrument(),
-            custom: false,
+            custom: step.instrument() >= FIRST_CUSTOM_INSTRUMENT,
             volume: step.volume(),
             effect: step.effect(),
         };
     }
-    let filters = phrase.filters();
     Sound {
         notes,
         speed: phrase.speed(),
-        filters: packed_filters(
-            filters.noiz(),
-            filters.buzz(),
-            filters.detune(),
-            filters.reverb(),
-            filters.dampen(),
-        ),
+        filters: packed(phrase.filters()),
         loop_start,
         loop_end,
+    }
+}
+
+fn packed(filters: Filters) -> u8 {
+    packed_filters(
+        filters.noiz(),
+        filters.buzz(),
+        filters.detune(),
+        filters.reverb(),
+        filters.dampen(),
+    )
+}
+
+/// What the synth plays for each of a Project's Custom Instruments.
+fn instruments(project: &Project) -> Instruments {
+    project
+        .custom_instruments()
+        .map(|(id, instrument)| {
+            let played = match &instrument.sound {
+                InstrumentSound::Sfx(sfx) => Instrument::Sfx(sfx_instrument_sound(sfx)),
+                InstrumentSound::Waveform(wave) => Instrument::Waveform(waveform(wave)),
+            };
+            (id, played)
+        })
+        .collect()
+}
+
+/// The sound of an SFX Instrument. Its Steps keep their instrument digits as Built-in
+/// Instruments, and the loop plays only when it starts before it ends.
+fn sfx_instrument_sound(sfx: &SfxInstrument) -> Sound {
+    let mut notes = [Note::default(); MAX_STEPS];
+    for (note, step) in notes.iter_mut().zip(&sfx.steps) {
+        *note = built_in_note(*step);
+    }
+    let (loop_start, loop_end) = if sfx.loop_start < sfx.loop_end {
+        (sfx.loop_start, sfx.loop_end)
+    } else {
+        (0, 0)
+    };
+    Sound {
+        notes,
+        speed: sfx.speed,
+        filters: packed(sfx.filters),
+        loop_start,
+        loop_end,
+    }
+}
+
+fn built_in_note(step: Step) -> Note {
+    Note {
+        pitch: i16::from(step.pitch()),
+        instrument: step.instrument(),
+        custom: false,
+        volume: step.volume(),
+        effect: step.effect(),
+    }
+}
+
+fn waveform(wave: &WaveformInstrument) -> Waveform {
+    Waveform {
+        samples: wave.samples,
+        bass: wave.bass,
+        filters: packed_filters(false, false, wave.detune, wave.reverb, wave.dampen),
     }
 }
 

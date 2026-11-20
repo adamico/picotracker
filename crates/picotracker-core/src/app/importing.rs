@@ -2,20 +2,32 @@
 //! what could not be kept.
 
 use super::files::{folder_of, shown_name};
+use super::focus::Focus;
+use super::history::CursorPlace;
 use super::messages::{LogItem, Report, Severity};
 use super::panes::midi_dialog::{MidiDialog, Outcome};
+use super::panes::song_picker::SongPicker;
 use super::{Action, App};
 use crate::cart::Cart;
-use crate::cart_import;
+use crate::cart_import::{self, ImportedCart};
 use crate::midi_import;
+use crate::player::AudioRequest;
 use crate::project::SongPlace;
 use crate::wording::counted;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ImportKind {
     Cart,
     Midi,
+}
+
+/// The song picker, and where the cursor was before it opened, to go back to.
+#[derive(Debug)]
+pub(super) struct PickingSong {
+    pub(super) picker: SongPicker,
+    pub(super) cursor_before: CursorPlace,
 }
 
 /// Decides how a file is Imported, from its name. Files of no kind are not listed for Import.
@@ -37,6 +49,11 @@ fn warning_item(text: String, place: Option<SongPlace>) -> LogItem {
         Some(place) => item.at(place),
         None => item,
     }
+}
+
+/// What an Import of one song of a Cart reports it Imported, such as `SONG 2 OF DEMO.P8`.
+fn song_source(number: usize, cart_name: &str) -> String {
+    format!("SONG {number} OF {cart_name}")
 }
 
 /// The result of an Import: its warnings, if any, go to the Log.
@@ -95,7 +112,8 @@ impl App {
         }
     }
 
-    /// Opens a Cart's first song as a new Project, which has no file until it is saved.
+    /// Opens a Cart's song as a new Project, which has no file until it is saved. A Cart with
+    /// several songs opens the song picker first.
     fn import_cart(&mut self, path: PathBuf, file_name: &str, contents: &[u8]) {
         let name = shown_name(&path);
         let cart = match Cart::read(contents) {
@@ -105,20 +123,77 @@ impl App {
                 return;
             }
         };
-        let imported = cart_import::import(&cart, file_name);
-        let has_song = imported
-            .project
-            .target_cart()
-            .is_some_and(|target| target.claim.patterns.is_some());
-        let source = if has_song {
-            format!("SONG 1 OF {name}")
-        } else {
-            name
+        let songs = cart_import::songs(&cart);
+        let folder = folder_of(&path);
+        if songs.len() > 1 {
+            let picker = SongPicker::new(name, folder, &cart, file_name, songs);
+            self.open_song_picker(picker);
+            return;
+        }
+        let song = songs.first().copied();
+        let source = match song {
+            Some(_) => song_source(1, &name),
+            None => name,
         };
-        self.directory = folder_of(&path);
+        let imported = cart_import::import_song(&cart, file_name, song);
+        self.finish_cart_import(folder, &source, imported);
+    }
+
+    fn finish_cart_import(&mut self, folder: PathBuf, source: &str, imported: ImportedCart) {
+        self.directory = folder;
         self.replace_project(imported.project, None);
         let warnings = imported.warnings.into_iter();
         let items = warnings.map(|w| warning_item(w.text, w.place)).collect();
-        self.report(import_report(&source, items));
+        self.report(import_report(source, items));
+    }
+
+    /// Opens the song picker with the panes at the top of the highlighted song.
+    fn open_song_picker(&mut self, picker: SongPicker) {
+        let cursor_before = self.cursor_place();
+        self.selection_start = None;
+        self.song = Default::default();
+        self.chain = Default::default();
+        self.phrase.return_to_top();
+        self.focus = Focus::Song;
+        self.played_pane = Focus::Song;
+        self.picking_song = Some(Box::new(PickingSong {
+            picker,
+            cursor_before,
+        }));
+    }
+
+    /// The song picker takes the keys while it is open. P listens to the highlighted song, Enter
+    /// Imports it and Esc goes back to the open Project.
+    pub(super) fn use_song_picker(&mut self, action: Action) {
+        let Some(picking) = self.picking_song.as_mut() else {
+            return;
+        };
+        match action {
+            Action::Move(direction) => picking.picker.move_cursor(direction),
+            Action::PlayFocusedPane if self.playing => self.play_or_stop(),
+            Action::PlayFocusedPane => {
+                let project = Arc::new(picking.picker.project().clone());
+                self.start_playing(AudioRequest::PlaySong {
+                    project,
+                    from_row: 0,
+                });
+            }
+            Action::Confirm => {
+                if let Some(picking) = self.picking_song.take() {
+                    let (name, folder, number, imported) = picking.picker.finish();
+                    let source = song_source(number, &name);
+                    self.finish_cart_import(folder, &source, imported);
+                }
+            }
+            Action::Cancel => {
+                if self.playing {
+                    self.play_or_stop();
+                }
+                if let Some(picking) = self.picking_song.take() {
+                    self.return_to(picking.cursor_before);
+                }
+            }
+            _ => {}
+        }
     }
 }
