@@ -1,3 +1,9 @@
 .claude/worktrees/
 target/
 dist/
+*.p8
+*.p8.png
+*.ptrk
+!crates/**/tests/**/*.p8
+!crates/**/tests/**/*.p8.png
+!crates/**/tests/**/*.ptrk
