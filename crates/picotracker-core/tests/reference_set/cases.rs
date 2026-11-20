@@ -286,6 +286,7 @@ pub fn all() -> Vec<Case> {
     cases.extend(synth_fixes());
     cases.extend(waveform_instruments());
     cases.extend(last_measured_behaviours());
+    cases.extend(custom_instruments_inside_a_dampened_sfx());
     cases.extend(every_pitch());
     cases
 }
@@ -751,6 +752,25 @@ fn last_measured_behaviours() -> Vec<Case> {
             "looping_channels_play_32_times_the_slowest_speed",
             &[looping_tilted(16), looping_tilted(4)],
             512,
+        ),
+    ]
+}
+
+/// Custom Instruments with less DAMPEN than the SFX that plays them, as #54 measured them.
+fn custom_instruments_inside_a_dampened_sfx() -> Vec<Case> {
+    let played = |speed| sfx(&[on_sfx_instrument(C2, 0, 7, 0)], speed, 1, 0, dampen(2));
+    let sfx_instrument = sfx(&repeated(note(C2, SAW, 5, 0), 32), 16, 0, 32, dampen(1));
+    vec![
+        CartBuilder::new()
+            .instrument(
+                0,
+                waveform_instrument(stepped_waveform(), WAVEFORM_INSTRUMENT_SPEED, true, 0),
+            )
+            .sfx_case("waveform_instrument_inside_a_dampened_sfx", played(64), 84),
+        CartBuilder::new().instrument(0, sfx_instrument).sfx_case(
+            "sfx_instrument_ending_inside_a_dampened_sfx",
+            played(4),
+            12,
         ),
     ]
 }
