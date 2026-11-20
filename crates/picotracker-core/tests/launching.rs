@@ -5,11 +5,11 @@
 mod support;
 
 use picotracker_core::app::{
-    Action, App, DirectoryEntry, FileRequest, FileResponse, Launch, StateContents,
+    Action, App, DirectoryEntry, FileRequest, FileResponse, Launch, SettingsContents,
 };
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
-use picotracker_core::settings::{StateRead, read_state};
+use picotracker_core::settings::{SettingsRead, read_state};
 use std::path::PathBuf;
 use support::{state_ron, status_line};
 
@@ -17,14 +17,16 @@ const STATE_FILE: &str = "/state/picotracker/state.ron";
 const HOME: &str = "/home/user";
 
 fn launch(state: Option<String>) -> App {
-    launch_with(state.map_or(StateContents::Missing, |text| {
-        StateContents::Bytes(text.into_bytes())
+    launch_with(state.map_or(SettingsContents::Missing, |text| {
+        SettingsContents::Bytes(text.into_bytes())
     }))
 }
 
-fn launch_with(state: StateContents) -> App {
+fn launch_with(state: SettingsContents) -> App {
     let mut app = App::new();
     app.launch(Launch {
+        config_file: None,
+        config: SettingsContents::Missing,
         state_file: Some(PathBuf::from(STATE_FILE)),
         state,
         directory: PathBuf::from(HOME),
@@ -58,7 +60,7 @@ fn state_written(requests: &[FileRequest]) -> Option<Vec<PathBuf>> {
             if path.as_path() == std::path::Path::new(STATE_FILE) =>
         {
             match read_state(contents) {
-                StateRead::Loaded(state) => Some(state.recent_projects().to_vec()),
+                SettingsRead::Loaded(state) => Some(state.recent_projects().to_vec()),
                 other => panic!("the app wrote an unreadable state: {other:?}"),
             }
         }
@@ -272,7 +274,7 @@ fn an_app_that_was_not_launched_with_a_state_file_never_writes_one() {
 
 #[test]
 fn a_state_file_that_is_not_text_is_damaged_and_renamed() {
-    let mut app = launch_with(StateContents::Bytes(vec![0xFF, 0xFE, b'(']));
+    let mut app = launch_with(SettingsContents::Bytes(vec![0xFF, 0xFE, b'(']));
 
     assert_eq!(
         app.take_file_requests(),
@@ -286,7 +288,7 @@ fn a_state_file_that_is_not_text_is_damaged_and_renamed() {
 
 #[test]
 fn a_state_file_that_cannot_be_read_is_never_overwritten() {
-    let mut app = launch_with(StateContents::Unreadable {
+    let mut app = launch_with(SettingsContents::Unreadable {
         reason: "Permission denied".to_owned(),
     });
 
@@ -334,8 +336,10 @@ fn a_renamed_damaged_state_file_is_replaced_by_the_next_save() {
 fn with_no_place_for_a_state_file_the_app_still_starts_in_the_launch_folder() {
     let mut app = App::new();
     app.launch(Launch {
+        config_file: None,
+        config: SettingsContents::Missing,
         state_file: None,
-        state: StateContents::Missing,
+        state: SettingsContents::Missing,
         directory: PathBuf::from(HOME),
     });
 

@@ -10,13 +10,28 @@
     // The version of this file's format. Leave it as it is.
     version: 1,
 
-    // The key preset: PcTracker (the default) or M8Style.
+    // The key preset: PcTracker (the default) or M8Style. In M8Style, Z is EDIT and X is
+    // OPTION: Z with the arrows edits, Shift with the arrows changes the focused pane, and
+    // X with a letter toggles a view.
     preset: PcTracker,
 
     // Only the keys you want to change. Anything not listed keeps the preset's key, so
     // later versions can add new default keys without losing your changes.
     //
-    // Remove the // in front of a line to use it, then change the key.
+    // A key is written in one of three ways:
+    //
+    //     "Ctrl+Shift+S"    a key pressed with Ctrl, Shift or Alt held
+    //     "Z+X"             a hold-chord: hold Z, then press X
+    //     "Double-tap Z"    the same key pressed twice quickly
+    //
+    // A key that starts a hold-chord acts when it is let go, unless the chord was played.
+    // Other names include Up, Down, Left, Right, Tab, Space, Enter, Esc, Backspace,
+    // Insert, Delete and F1 to F12. Further actions include MoveUp, FocusNext, Confirm,
+    // Cancel, Clear, Mute1 to Mute8, Solo1 to Solo8, NudgeUp, NudgeDownCoarse, OctaveUp,
+    // ToggleFill and ToggleSongLoopRow.
+    //
+    // Remove the // in front of a line to use it, then change the key. The keys shown
+    // are the PcTracker preset's.
     keys: {
         // Project
         // "NewProject": "Ctrl+N",
@@ -25,6 +40,7 @@
         // "SaveAs": "Ctrl+Shift+S",
         // "Import": "Ctrl+I",
         // "Export": "Ctrl+E",
+        // "Quit": "Ctrl+Q",
 
         // Editing
         // "NewUnused": "Ctrl+Shift+N",
@@ -50,5 +66,8 @@
         // "PlaySongFromCursor": "Shift+Space",
         // "ClearMutesAndSolos": "F9",
         // "ToggleFollow": "F10",
+
+        // MIDI Import dialog
+        // "ResetMidiTable": "Shift+R",
     },
 )

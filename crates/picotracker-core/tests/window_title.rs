@@ -2,7 +2,7 @@
 
 mod support;
 
-use picotracker_core::app::{Action, App, FileResponse, Launch, StateContents};
+use picotracker_core::app::{Action, App, FileResponse, Launch, SettingsContents};
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
 use std::path::PathBuf;
@@ -11,8 +11,10 @@ use support::state_ron;
 /// Opens a Project the way launch reopens the last one.
 fn open(app: &mut App, path: &str) {
     app.launch(Launch {
+        config_file: None,
+        config: SettingsContents::Missing,
         state_file: Some(PathBuf::from("/state/state.ron")),
-        state: StateContents::Bytes(state_ron(&[path]).into_bytes()),
+        state: SettingsContents::Bytes(state_ron(&[path]).into_bytes()),
         directory: PathBuf::from("/"),
     });
     app.take_file_requests();

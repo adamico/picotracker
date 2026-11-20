@@ -84,7 +84,8 @@ impl App {
         let name = shown_name(path);
         match midi_import::analyse(contents) {
             Ok(analysis) => {
-                let dialog = MidiDialog::new(name, folder_of(path), analysis);
+                let table = self.midi_table.clone();
+                let dialog = MidiDialog::new(name, folder_of(path), analysis, table);
                 self.midi_dialog = Some(Box::new(dialog));
             }
             Err(error) => self.report(Report::failure(format!("CANNOT IMPORT {name}: {error}"))),
@@ -101,7 +102,8 @@ impl App {
             Outcome::Cancel => self.midi_dialog = None,
             Outcome::Import => {
                 if let Some(dialog) = self.midi_dialog.take() {
-                    let (name, folder, imported) = dialog.finish();
+                    let (name, folder, imported, table) = dialog.finish();
+                    self.midi_table = table;
                     self.directory = folder;
                     self.replace_project(imported.project, None);
                     let warnings = imported.warnings.into_iter();

@@ -3,7 +3,7 @@
 mod support;
 
 use picotracker_core::app::{
-    Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, Launch, StateContents,
+    Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, Launch, SettingsContents,
 };
 use picotracker_core::project::Project;
 use picotracker_core::project_file;
@@ -32,8 +32,10 @@ fn right_slot(app: &App, line: usize) -> String {
 fn launch_remembering(paths: &[&str]) -> App {
     let mut app = App::new();
     app.launch(Launch {
+        config_file: None,
+        config: SettingsContents::Missing,
         state_file: Some(PathBuf::from(STATE_FILE)),
-        state: StateContents::Bytes(state_ron(paths).into_bytes()),
+        state: SettingsContents::Bytes(state_ron(paths).into_bytes()),
         directory: PathBuf::from(HOME),
     });
     app.take_file_requests();
@@ -143,8 +145,10 @@ fn after_moving_to_another_folder_the_cursor_is_on_its_first_row() {
 fn the_open_project_is_not_listed_as_recent() {
     let mut app = App::new();
     app.launch(Launch {
+        config_file: None,
+        config: SettingsContents::Missing,
         state_file: Some(PathBuf::from(STATE_FILE)),
-        state: StateContents::Bytes(state_ron(&["/music/b.ptrk", "/old/a.ptrk"]).into_bytes()),
+        state: SettingsContents::Bytes(state_ron(&["/music/b.ptrk", "/old/a.ptrk"]).into_bytes()),
         directory: PathBuf::from(HOME),
     });
     app.take_file_requests();

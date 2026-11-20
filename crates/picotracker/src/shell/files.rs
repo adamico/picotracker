@@ -1,7 +1,7 @@
 //! Carries out the App core's file requests on the real file system.
 
 use directories::ProjectDirs;
-use picotracker_core::app::{DirectoryEntry, FileRequest, FileResponse, StateContents};
+use picotracker_core::app::{DirectoryEntry, FileRequest, FileResponse, SettingsContents};
 use std::ffi::OsString;
 use std::fs;
 use std::io;
@@ -31,16 +31,23 @@ pub fn carry_out(request: FileRequest) -> FileResponse {
     }
 }
 
-/// Reads `state.ron`. Only a missing file counts as no file: any other error leaves the file to
-/// the App core to keep safe.
-pub fn read_state(path: &Path) -> StateContents {
+/// Reads `config.ron` or `state.ron`. Only a missing file counts as no file: any other error
+/// leaves the file to the App core to keep safe.
+pub fn read_settings(path: &Path) -> SettingsContents {
     match fs::read(path) {
-        Ok(bytes) => StateContents::Bytes(bytes),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => StateContents::Missing,
-        Err(error) => StateContents::Unreadable {
+        Ok(bytes) => SettingsContents::Bytes(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => SettingsContents::Missing,
+        Err(error) => SettingsContents::Unreadable {
             reason: error.to_string(),
         },
     }
+}
+
+/// Where `config.ron` lives: `$XDG_CONFIG_HOME/picotracker` on Linux, falling back as the
+/// `directories` crate does.
+pub fn config_file() -> Option<PathBuf> {
+    let folders = ProjectDirs::from("", "", "picotracker")?;
+    Some(folders.config_dir().join("config.ron"))
 }
 
 /// Where `state.ron` lives: `$XDG_STATE_HOME/picotracker` on Linux, falling back as the

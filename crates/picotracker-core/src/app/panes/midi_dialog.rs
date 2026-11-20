@@ -3,7 +3,8 @@
 use super::{EMPTY, HEADING, VALUE, stepped};
 use crate::app::{Action, Direction};
 use crate::midi_import::{
-    self, Analysis, Choices, DRUM_ROWS, GridOption, Imported, STEPS_PER_BEAT, family_name,
+    self, Analysis, Choices, DRUM_ROWS, GridOption, Imported, MidiTable, STEPS_PER_BEAT,
+    family_name,
 };
 use crate::project::TRACKS;
 use crate::screen::grid::{Grid, Style};
@@ -98,8 +99,12 @@ pub struct MidiDialog {
 }
 
 impl MidiDialog {
-    pub fn new(file_name: String, folder: PathBuf, analysis: Analysis) -> Self {
-        let choices = Choices::defaults_for(&analysis);
+    /// Opens on the file's analysis, starting from the app's default MIDI table.
+    pub fn new(file_name: String, folder: PathBuf, analysis: Analysis, table: MidiTable) -> Self {
+        let choices = Choices {
+            table,
+            ..Choices::defaults_for(&analysis)
+        };
         let grids = midi_import::compare_grids(&analysis, &choices);
         let programs = analysis.programs();
         Self {
@@ -119,12 +124,12 @@ impl MidiDialog {
         }
     }
 
-    /// The file's name, its folder and the finished Import.
-    pub fn finish(self) -> (String, PathBuf, Imported) {
+    /// The file's name, its folder, the finished Import and the MIDI table it used.
+    pub fn finish(self) -> (String, PathBuf, Imported, MidiTable) {
         let imported = self
             .preview
             .unwrap_or_else(|| midi_import::build(&self.analysis, &self.choices));
-        (self.file_name, self.folder, imported)
+        (self.file_name, self.folder, imported, self.choices.table)
     }
 
     /// The keys of the current page.

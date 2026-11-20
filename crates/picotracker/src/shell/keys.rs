@@ -6,7 +6,7 @@ use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 
 /// The key press for a `winit` key event, if the Keymap knows the key.
 pub fn key_press(event: &KeyEvent, modifiers: ModifiersState) -> Option<KeyPress> {
-    let key = key(&event.logical_key)?;
+    let key = key(event)?;
     let modifiers = Modifiers {
         ctrl: modifiers.control_key(),
         shift: modifiers.shift_key(),
@@ -19,8 +19,9 @@ pub fn key_press(event: &KeyEvent, modifiers: ModifiersState) -> Option<KeyPress
     })
 }
 
-fn key(key: &WinitKey) -> Option<Key> {
-    match key {
+/// The Keymap's key for a `winit` key event, if it knows the key.
+pub fn key(event: &KeyEvent) -> Option<Key> {
+    match &event.logical_key {
         WinitKey::Named(named) => named_key(*named),
         WinitKey::Character(text) => match text.chars().next()? {
             ' ' => Some(Key::Space),
@@ -53,6 +54,8 @@ fn named_key(key: NamedKey) -> Option<Key> {
         NamedKey::F8 => Key::F(8),
         NamedKey::F9 => Key::F(9),
         NamedKey::F10 => Key::F(10),
+        NamedKey::F11 => Key::F(11),
+        NamedKey::F12 => Key::F(12),
         _ => return None,
     })
 }

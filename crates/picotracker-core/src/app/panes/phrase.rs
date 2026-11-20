@@ -9,12 +9,12 @@ use crate::app::selection::{CellPosition, CellRange};
 use crate::app::{Direction, KeyContext};
 use crate::project::{FIRST_CUSTOM_INSTRUMENT, MAX_STEPS, NOTE_NAMES, Phrase, PhraseId, Step};
 use crate::screen::grid::Grid;
+use crate::settings::{DEFAULT_OCTAVE, MAX_OCTAVE};
 use std::ops::RangeInclusive;
 
 const HEADER_ROWS: usize = 5;
 const FIRST_HEADER_ROW: usize = 1;
 
-const MAX_OCTAVE: u8 = 4;
 const SEMITONES_PER_OCTAVE: i32 = 12;
 const COARSE_SPEED: i32 = 16;
 const COARSE_LENGTH: i32 = 4;
@@ -86,7 +86,7 @@ impl Default for PhrasePane {
             step: 0,
             column: 0,
             header_row: None,
-            octave: 2,
+            octave: DEFAULT_OCTAVE,
             instrument: 2,
             volume: 5,
             first_digit: None,
@@ -229,6 +229,11 @@ impl PhrasePane {
     /// The octave that piano keys play in.
     pub fn octave(&self) -> u8 {
         self.octave
+    }
+
+    /// Sets the octave that piano keys play in, stopping at the highest.
+    pub fn set_octave(&mut self, octave: u8) {
+        self.octave = octave.min(MAX_OCTAVE);
     }
 
     /// Changes the octave that piano keys play in, stopping at 0 and 4.

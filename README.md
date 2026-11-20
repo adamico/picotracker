@@ -18,7 +18,9 @@ ALSA (`libasound`) is the one runtime requirement. There is no installer and no 
 
 ## Settings
 
-picotracker runs with no settings file. To rebind keys, copy `config.example.ron` to `$XDG_CONFIG_HOME/picotracker/config.ron` and edit the copy.
+picotracker runs with no settings file. To switch to the M8-style key preset or rebind keys, copy `config.example.ron` to `$XDG_CONFIG_HOME/picotracker/config.ron` and edit the copy. picotracker reads it at launch and never writes it.
+
+picotracker remembers Follow, the keyboard octave, MIDI table edits and the 10 most recent Projects in `$XDG_STATE_HOME/picotracker/state.ron`. A damaged settings file is renamed with a `.bad` suffix, and picotracker starts on defaults and says so.
 
 ## Reference manuals
 

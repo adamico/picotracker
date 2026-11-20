@@ -21,10 +21,12 @@ mod status_line;
 
 pub use action::{Action, Direction, KeyContext};
 pub use files::{DirectoryEntry, FileRequest, FileResponse};
-pub use launching::{Launch, StateContents};
+pub use launching::{Launch, SettingsContents};
 pub use messages::{LogItem, Report, Severity};
 
 use crate::export;
+use crate::keymap::{Key, KeyPress, Keyboard};
+use crate::midi_import::MidiTable;
 use crate::player::{AudioRequest, PlaybackReport, Playhead, SCOPE_COLUMNS, TrackMix};
 use crate::project::{CHAIN_ENTRIES, FIRST_CUSTOM_INSTRUMENT};
 use crate::project::{Chain, ChainEntry, ChainId, Phrase, PhraseId, Project, Step};
@@ -77,6 +79,9 @@ pub struct App {
     quitting: bool,
     app_state: AppState,
     state_file: Option<PathBuf>,
+    config_set_aside: Option<PathBuf>,
+    keyboard: Keyboard,
+    midi_table: MidiTable,
     focus: Focus,
     song: SongPane,
     chain: ChainPane,
@@ -140,6 +145,9 @@ impl App {
             quitting: false,
             app_state: AppState::default(),
             state_file: None,
+            config_set_aside: None,
+            keyboard: Keyboard::default(),
+            midi_table: MidiTable::default(),
             focus: Focus::default(),
             song: SongPane::default(),
             chain: ChainPane::default(),
@@ -265,6 +273,21 @@ impl App {
         changed
     }
 
+    /// The action a key going down triggers through the Keymap, if any. `at` is the time of the
+    /// press from any fixed start, which double-taps need. The caller applies the action.
+    pub fn key_down(&mut self, press: KeyPress, at: Duration) -> Option<Action> {
+        let context = self.key_context();
+        let selecting = self.selection_start.is_some();
+        self.keyboard.key_down(press, context, selecting, at)
+    }
+
+    /// Tells the app that a key has gone up, which ends a note preview. Returns the action the key
+    /// held back for a chord that never came, if any, for the caller to apply.
+    pub fn key_up(&mut self, key: Key) -> Option<Action> {
+        self.key_released();
+        self.keyboard.key_up(key)
+    }
+
     /// Tells the app that the held key has gone up, which ends a note preview.
     pub fn key_released(&mut self) {
         if self.previewing {
@@ -378,6 +401,7 @@ impl App {
         self.perform(action);
         self.history
             .finish(&self.project, self.cursor_place(), merge);
+        self.save_changed_state();
     }
 
     /// Where the cursor is in every pane.

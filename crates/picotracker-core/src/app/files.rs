@@ -226,6 +226,9 @@ impl App {
     }
 
     fn file_failed(&mut self, path: &Path, reason: &str) {
+        if self.config_not_set_aside(path, reason) {
+            return;
+        }
         let reason = reason.to_uppercase();
         let name = shown_name(path);
         let summary = match self.waiting.take() {

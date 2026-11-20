@@ -166,6 +166,38 @@ impl MidiTable {
         *self != Self::default()
     }
 
+    /// Sets a program's Instrument, if both are in range.
+    pub fn set_program(&mut self, program: u8, instrument: u8) -> Option<()> {
+        let slot = self.programs.get_mut(usize::from(program))?;
+        *slot = (instrument < INSTRUMENTS).then_some(instrument)?;
+        Some(())
+    }
+
+    /// Sets what a drum kit row plays, if the row and every value are in range.
+    pub fn set_hit(&mut self, row: usize, instrument: u8, note: u8, effect: u8) -> Option<()> {
+        let in_range = instrument < INSTRUMENTS && note <= MAX_PITCH && effect < EFFECTS;
+        let hit = self.kit.get_mut(row).filter(|_| in_range)?;
+        *hit = DrumHit {
+            instrument,
+            note,
+            effect,
+            ..*hit
+        };
+        Some(())
+    }
+
+    /// The programs that differ from the factory table.
+    pub fn edited_programs(&self) -> impl Iterator<Item = u8> + '_ {
+        (0..=u8::MAX)
+            .take(PROGRAMS)
+            .filter(|&program| self.program_is_edited(program))
+    }
+
+    /// The drum kit rows that differ from the factory kit.
+    pub fn edited_hits(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..DRUM_ROWS).filter(|&row| self.hit_is_edited(row))
+    }
+
     /// Puts a program back to the factory table.
     pub fn reset_program(&mut self, program: u8) {
         let index = usize::from(program) % PROGRAMS;

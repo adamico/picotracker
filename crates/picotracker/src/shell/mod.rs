@@ -8,8 +8,7 @@ mod files;
 mod keys;
 
 use audio::AudioOutput;
-use picotracker_core::app::{Action, App, Launch, StateContents};
-use picotracker_core::keymap::Keymap;
+use picotracker_core::app::{Action, App, Launch, SettingsContents};
 use picotracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use picotracker_core::screen::viewport::integer_scale;
 use pixels::{Pixels, SurfaceTexture};
@@ -87,7 +86,7 @@ fn initial_size(event_loop: &ActiveEventLoop) -> PhysicalSize<u32> {
 
 struct Shell {
     app: App,
-    keymap: Keymap,
+    started: Instant,
     modifiers: ModifiersState,
     surface: Option<Surface>,
     audio: Option<AudioOutput>,
@@ -99,7 +98,7 @@ impl Default for Shell {
     fn default() -> Self {
         Self {
             app: App::new(),
-            keymap: Keymap::pc_tracker(),
+            started: Instant::now(),
             modifiers: ModifiersState::empty(),
             surface: None,
             audio: AudioOutput::start()
@@ -112,14 +111,21 @@ impl Default for Shell {
 }
 
 impl Shell {
-    /// Gives the app what `state.ron` holds and starts in the folder the app was launched from.
+    /// Gives the app what `config.ron` and `state.ron` hold and starts in the folder the app was
+    /// launched from.
     fn launch(&mut self) {
         let directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let config_file = files::config_file();
+        let config = config_file
+            .as_deref()
+            .map_or(SettingsContents::Missing, files::read_settings);
         let state_file = files::state_file();
         let state = state_file
             .as_deref()
-            .map_or(StateContents::Missing, files::read_state);
+            .map_or(SettingsContents::Missing, files::read_settings);
         self.app.launch(Launch {
+            config_file,
+            config,
             state_file,
             state,
             directory,
@@ -229,16 +235,25 @@ impl ApplicationHandler for Shell {
             }
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                let context = self.app.key_context();
+                let at = self.started.elapsed();
                 let action = keys::key_press(&event, self.modifiers)
-                    .and_then(|press| self.keymap.action_in(press, context));
+                    .and_then(|press| self.app.key_down(press, at));
                 if let Some(action) = action {
                     self.apply(event_loop, action);
                 }
             }
-            WindowEvent::KeyboardInput { .. } => {
-                self.app.key_released();
+            WindowEvent::KeyboardInput { event, .. } => {
+                let action = match keys::key(&event) {
+                    Some(key) => self.app.key_up(key),
+                    None => {
+                        self.app.key_released();
+                        None
+                    }
+                };
                 self.send_audio_requests();
+                if let Some(action) = action {
+                    self.apply(event_loop, action);
+                }
             }
             _ => {}
         }
