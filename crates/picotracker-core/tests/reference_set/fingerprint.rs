@@ -26,13 +26,15 @@ pub struct Fingerprint {
 }
 
 /// How closely our synth must match a fingerprint. Each span of Ticks in `level_averaged_tick_spans`
-/// is held to the level limit on its average level, and every other Tick on its own level.
+/// is held to the level limit on its average level, and every other Tick on its own level. A pitch
+/// window holding any Tick in `pitch_skipped_ticks` is not compared.
 #[derive(Clone, Debug)]
 pub struct Tolerance {
     pub duration_percent: f32,
     pub pitch_cents: f32,
     pub level_db: f32,
     pub level_averaged_tick_spans: Vec<Range<usize>>,
+    pub pitch_skipped_ticks: Vec<usize>,
 }
 
 /// The samples from the first audible one, `ticks` Ticks long, padded with silence.
@@ -195,6 +197,13 @@ pub fn differences(samples: &[f32], reference: &Fingerprint, tolerance: &Toleran
         .iter()
         .zip(pitch_windows(&window))
         .enumerate()
+        .filter(|(index, _)| {
+            let ticks = index * PITCH_WINDOW_TICKS..(index + 1) * PITCH_WINDOW_TICKS;
+            !tolerance
+                .pitch_skipped_ticks
+                .iter()
+                .any(|tick| ticks.contains(tick))
+        })
         .filter_map(|(index, (expected, samples))| {
             let expected = (*expected)?;
             let actual = pitch_and_clarity(samples).map(|(pitch, _)| pitch);
