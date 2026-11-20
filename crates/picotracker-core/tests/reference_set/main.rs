@@ -57,8 +57,6 @@ const SPEC_LIMITS: Limits = Limits {
     noiz_buzz_and_detune_1_level_db: 3.0,
 };
 
-const AWAITING_SYNTH_FIXES_39: &[&str] = &["coverage_sfx21", "coverage_sfx22", "coverage_music4"];
-
 const AWAITING_IMPORTED_INSTRUMENTS_44: &[&str] = &["coverage_music4"];
 
 const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
@@ -72,8 +70,6 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_sfx18",
     "coverage_sfx19",
     "coverage_sfx20",
-    "coverage_sfx21",
-    "coverage_sfx22",
 ];
 
 fn cart_path(case: &Case) -> PathBuf {
@@ -150,8 +146,7 @@ fn tolerance(cart: &Cart) -> Tolerance {
     }
 }
 
-const AWAITED_WORK: [(&str, &[&str]); 3] = [
-    ("#39 synth fixes", AWAITING_SYNTH_FIXES_39),
+const AWAITED_WORK: [(&str, &[&str]); 2] = [
     ("#44 Imported Instruments", AWAITING_IMPORTED_INSTRUMENTS_44),
     ("#54 synth differences", AWAITING_SYNTH_DIFFERENCES_54),
 ];

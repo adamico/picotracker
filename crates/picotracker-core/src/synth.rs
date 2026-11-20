@@ -677,9 +677,19 @@ impl Voice {
             self.ring_through_trailing_silence();
         }
         // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
-        // next note starts there.
+        // next note starts there. Under REVERB the wave instead runs on through it at its pitch.
         if plays_a_note && new_synth.volume == 0.0 {
-            new_synth.phi = Phase::START;
+            if reverb_level(self.sound.filters) > 0 {
+                let silent = self.sound.notes[(base_offset as usize).min(NOTES - 1)];
+                new_synth.phi = advanced(
+                    new_synth.phi,
+                    pitch_increment(silent.pitch),
+                    silent.instrument,
+                    self.sound.filters,
+                );
+            } else {
+                new_synth.phi = Phase::START;
+            }
         }
 
         let plays_a_custom_note = new_synth.custom;
@@ -764,6 +774,25 @@ impl Voice {
             value = synth_sample(&mut new_synth, &mut self.rng);
         }
 
+        // Measured on PICO-8: the echo rings through silent notes, through those after a sound's
+        // last audible note up to its LEN or last note, and on after an SFX ends at LEN inside a
+        // Pattern. A sound played on its own cuts it there.
+        if !self.state.playing {
+            match &mut self.rest_samples_left {
+                Some(0) => self.resting_filters = 0,
+                Some(left) => *left -= 1,
+                None => {}
+            }
+        }
+        // A silent note carries the echo's filters, so that a crossfade from it keeps the echo.
+        if new_synth.volume == 0.0 {
+            new_synth.filters = if self.state.playing {
+                self.sound.filters
+            } else {
+                self.resting_filters
+            };
+        }
+
         // Crossfade over abrupt changes, so that they do not click.
         let increment_threshold = new_synth.increment.min(last_synth.increment) * 0.01;
         if new_synth.volume != last_synth.volume
@@ -778,24 +807,7 @@ impl Voice {
         }
         self.last_synth = new_synth;
 
-        // Measured on PICO-8: the echo rings through silent notes, through those after a sound's
-        // last audible note up to its LEN or last note, and on after an SFX ends at LEN inside a
-        // Pattern. A sound played on its own cuts it there.
-        if !self.state.playing {
-            match &mut self.rest_samples_left {
-                Some(0) => self.resting_filters = 0,
-                Some(left) => *left -= 1,
-                None => {}
-            }
-        }
-        let echo_filters = if new_synth.volume > 0.0 {
-            new_synth.filters
-        } else if self.state.playing {
-            self.sound.filters
-        } else {
-            self.resting_filters
-        };
-        let reverb = reverb_level(echo_filters);
+        let reverb = reverb_level(new_synth.filters);
         let level = |on: bool| if on { 1.0_f32 } else { 0.0 };
         let mut reverb_1 = level(reverb == 1);
         let mut reverb_2 = level(reverb == 2);
