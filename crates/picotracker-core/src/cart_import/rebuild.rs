@@ -1,14 +1,13 @@
 //! PICO-8's Pattern timing: works out how long a Pattern plays and rebuilds the Steps each channel
 //! plays in that time (ADR 0006).
 
-use crate::cart::{Cart, CartNote, Pattern, SFX_NOTES, Sfx};
+use crate::cart::{Cart, CartNote, Pattern, SFX_NOTES, Sfx, WAVEFORM_INSTRUMENT_BIT};
 use crate::project::{
     ARPEGGIO_GROUP, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, Filters, MAX_STEPS, Phrase, Step,
     arpeggio_group_start,
 };
 use std::collections::BTreeSet;
 
-const BIT_7: u8 = 0x80;
 const NOIZ_BIT: u8 = 0x02;
 const BUZZ_BIT: u8 = 0x04;
 const DETUNE_DIVISOR: u8 = 8;
@@ -78,7 +77,7 @@ impl Playback {
 
 /// Whether bit 7 of byte 66 is set, which also means a LEN or loop start of 128 or more.
 pub(super) const fn has_bit_7(sfx: Sfx<'_>) -> bool {
-    sfx.loop_start() & BIT_7 != 0
+    sfx.loop_start() & WAVEFORM_INSTRUMENT_BIT != 0
 }
 
 /// How many Ticks each note of an SFX lasts. SPD 0 plays as Speed 1.

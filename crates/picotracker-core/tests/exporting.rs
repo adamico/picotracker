@@ -8,7 +8,7 @@ use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest,
 use picotracker_core::cart::Cart;
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::player::AudioRequest;
-use picotracker_core::project::{Claim, Project, TargetCart};
+use picotracker_core::project::{ChainEntry, ChainId, Claim, PhraseId, Project, Step, TargetCart};
 use picotracker_core::project_file;
 use std::path::{Path, PathBuf};
 use support::status_line;
@@ -537,4 +537,37 @@ fn the_target_cart_path_is_relative_to_the_project_file() {
             path: Path::new(".").join("carts/game.p8")
         }]
     );
+}
+
+#[test]
+fn export_warnings_are_counted_on_the_status_line_and_listed_in_the_log() {
+    let mut project = Project::new();
+    let phrase = project.phrase_mut(PhraseId::new(0));
+    *phrase.step_mut(0) = Step::new(24, 0, 3, 0).unwrap();
+    project.phrase_mut(PhraseId::new(1)).set_length(32);
+    *project.chain_mut(ChainId::new(0)).entry_mut(0) = Some(ChainEntry::new(PhraseId::new(0)));
+    *project.chain_mut(ChainId::new(1)).entry_mut(0) = Some(ChainEntry::new(PhraseId::new(1)));
+    for track in 0..4 {
+        project.set_song_cell(0, track, Some(ChainId::new(0)));
+        project.set_export_track(track, Some(track as u8 + 1));
+    }
+    project.set_song_cell(0, 5, Some(ChainId::new(1)));
+    project.set_target_cart(Some(TargetCart {
+        path: CART_NAME.to_owned(),
+        claim: Claim {
+            sfx: vec![8],
+            patterns: Some((0, 0)),
+        },
+        claimed_bytes_hash: None,
+    }));
+    let mut app = App::with_project(project);
+
+    export_ok(&mut app, format!("{HEADER}__lua__\n").into_bytes());
+
+    assert_eq!(
+        status_line(&app),
+        "! EXPORTED TO GAME.P8: 1 SFX, 1 PATTERNS. T1-T4 WITH 1 WARNING  ^L LOG"
+    );
+    let dump = app.grid().text_dump();
+    assert!(dump.contains("LENGTH FROM T6,"), "{dump}");
 }

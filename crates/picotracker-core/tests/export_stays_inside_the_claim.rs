@@ -7,7 +7,10 @@
 
 use picotracker_core::cart::Cart;
 use picotracker_core::export::export;
-use picotracker_core::project::{Chain, ChainEntry, ChainId, Claim, PhraseId, Project, Step};
+use picotracker_core::project::{
+    Chain, ChainEntry, ChainId, Claim, CustomInstrument, FIRST_CUSTOM_INSTRUMENT, InstrumentSound,
+    PhraseId, Project, SfxInstrument, Step, WaveformInstrument,
+};
 use sha1::{Digest, Sha1};
 use std::collections::BTreeSet;
 
@@ -61,9 +64,30 @@ impl Rng {
     }
 }
 
-/// A random simple Project, and how many SFX and Patterns it can need at most.
-fn random_project(rng: &mut Rng) -> (Project, usize, usize) {
+/// How many slots a Project can need at most.
+struct Needs {
+    sfx: usize,
+    instruments: usize,
+    patterns: usize,
+}
+
+/// A random Project, with Fill marks and up to 3 Custom Instruments, and the slots it can need.
+fn random_project(rng: &mut Rng) -> (Project, Needs) {
     let mut project = Project::new();
+    let instruments = rng.below(4);
+    for id in 0..instruments {
+        let sound = if rng.chance(50) {
+            InstrumentSound::Waveform(WaveformInstrument {
+                samples: std::array::from_fn(|_| rng.byte() as i8),
+                bass: rng.chance(50),
+                ..WaveformInstrument::default()
+            })
+        } else {
+            InstrumentSound::Sfx(SfxInstrument::default())
+        };
+        let instrument = CustomInstrument { name: None, sound };
+        project.set_custom_instrument(FIRST_CUSTOM_INSTRUMENT + id as u8, Some(instrument));
+    }
     let tracks = rng.shuffled((1..=8).collect());
     let track_count = rng.between(1, 4);
     let channels = rng.shuffled(vec![0, 1, 2, 3]);
@@ -90,7 +114,7 @@ fn random_project(rng: &mut Rng) -> (Project, usize, usize) {
                 for step in 0..32 {
                     *phrase.step_mut(step) = Step::new(
                         rng.between(12, 50) as u8,
-                        rng.below(8) as u8,
+                        rng.below(8 + instruments) as u8,
                         rng.below(8) as u8,
                         rng.below(8) as u8,
                     )
@@ -98,6 +122,7 @@ fn random_project(rng: &mut Rng) -> (Project, usize, usize) {
                 }
                 let mut entry = ChainEntry::new(id);
                 entry.set_transpose(rng.between(0, 24) as i32 - 12);
+                entry.set_fill(rng.chance(25));
                 *chain.entry_mut(k) = Some(entry);
             }
             let id = ChainId::new(next_chain);
@@ -108,17 +133,29 @@ fn random_project(rng: &mut Rng) -> (Project, usize, usize) {
     }
     let loop_row = rng.chance(50).then(|| rng.below(song_rows));
     project.set_song_loop_row(loop_row);
-    (project, usize::from(next_phrase), patterns)
+    let needs = Needs {
+        sfx: usize::from(next_phrase) + instruments,
+        instruments,
+        patterns,
+    };
+    (project, needs)
 }
 
-/// A random Claim with room for what a Project needs.
-fn random_claim(rng: &mut Rng, sfx: usize, patterns: usize) -> Claim {
-    let slots = rng.shuffled((0..64).collect());
-    let count = rng.between(sfx, 64);
-    let first = rng.between(0, 64 - patterns);
-    let last = rng.between(first + patterns - 1, 63);
+/// A random Claim with room for what a Project needs, Custom Instruments in SFX 0–7 included.
+fn random_claim(rng: &mut Rng, needs: &Needs) -> Claim {
+    let low = rng.shuffled((0..8).collect());
+    let (instrument_slots, other_low) = low.split_at(needs.instruments);
+    let mut others = other_low.to_vec();
+    others.extend(8..64);
+    let others = rng.shuffled(others);
+    let count = rng.between(needs.sfx, 64) - needs.instruments;
+    let mut sfx = instrument_slots.to_vec();
+    sfx.extend(&others[..count]);
+    let sfx = rng.shuffled(sfx);
+    let first = rng.between(0, 64 - needs.patterns);
+    let last = rng.between(first + needs.patterns - 1, 63);
     Claim {
-        sfx: slots[..count].to_vec(),
+        sfx,
         patterns: Some((first as u8, last as u8)),
     }
 }
@@ -388,8 +425,8 @@ fn a_p8_export_changes_no_byte_outside_the_claim() {
     for case in 0..TEXT_CASES {
         let mut rng = Rng::new(case + 1);
         let before = random_p8(&mut rng);
-        let (project, sfx, patterns) = random_project(&mut rng);
-        let claim = random_claim(&mut rng, sfx, patterns);
+        let (project, needs) = random_project(&mut rng);
+        let claim = random_claim(&mut rng, &needs);
 
         let exported = export(&project, &claim, &before)
             .unwrap_or_else(|failures| panic!("case {case}: {failures:?}"));
@@ -457,8 +494,8 @@ fn a_png_export_changes_no_pixel_outside_the_claim_and_the_sha1() {
         let mut rng = Rng::new(case + 1);
         let pixels = random_pixels(&mut rng);
         let before = encode(&pixels);
-        let (project, sfx, patterns) = random_project(&mut rng);
-        let claim = random_claim(&mut rng, sfx, patterns);
+        let (project, needs) = random_project(&mut rng);
+        let claim = random_claim(&mut rng, &needs);
 
         let exported = export(&project, &claim, &before)
             .unwrap_or_else(|failures| panic!("case {case}: {failures:?}"));

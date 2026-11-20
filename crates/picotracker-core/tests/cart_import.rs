@@ -5,15 +5,12 @@ mod support;
 
 use picotracker_core::cart::Cart;
 use picotracker_core::cart_import::{import, import_song, songs};
-use picotracker_core::player::{AudioRequest, Player};
 use picotracker_core::project::{
     ChainId, CustomInstrument, InstrumentSound, Phrase, PhraseId, Project, SfxInstrument, Step,
     TRACKS, WaveformInstrument,
 };
 use picotracker_core::project_file;
-use picotracker_core::synth::{Instrument, Note, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
-use std::sync::Arc;
-use support::{TestCart, TestPattern, TestSfx};
+use support::{TestCart, TestPattern, TestSfx, music_samples, render_music, render_song};
 
 const CART_NAME: &str = "demo.p8";
 
@@ -317,94 +314,11 @@ fn a_shorter_channel_right_of_the_longest_is_simple() {
     assert_eq!(warnings, Vec::<String>::new());
 }
 
-/// The sound a channel plays for an SFX of a generated Cart.
-fn cart_sound(sfx: &TestSfx) -> Sound {
-    let mut notes = [Note::default(); 32];
-    for (note, written) in notes.iter_mut().zip(&sfx.notes) {
-        *note = Note {
-            pitch: i16::from(written.pitch),
-            instrument: written.instrument,
-            custom: written.custom,
-            volume: written.volume,
-            effect: written.effect,
-        };
-    }
-    let byte = sfx.editor_and_filters;
-    Sound {
-        notes,
-        speed: sfx.speed,
-        filters: packed_filters(
-            byte & 2 != 0,
-            byte & 4 != 0,
-            (byte / 8) % 3,
-            (byte / 24) % 3,
-            (byte / 72) % 3,
-        ),
-        loop_start: 0,
-        loop_end: 32,
-    }
-}
-
-/// What notes marked as SFX Instruments play from an SFX of a generated Cart: the SFX with its own
-/// loop.
-fn instrument_sound(sfx: &TestSfx) -> Instrument {
-    Instrument::Sfx(Sound {
-        loop_start: sfx.loop_start,
-        loop_end: sfx.loop_end,
-        ..cart_sound(sfx)
-    })
-}
-
-/// Plays a Cart's Patterns straight through the synth, stepping each channel's notes the way
-/// PICO-8 does, without going through a Project.
+/// What PICO-8's `music()` plays for a generated Cart from its first Pattern until it stops,
+/// through our synth.
 fn render_cart(cart: &TestCart) -> Vec<f32> {
-    let mut voices = vec![Voice::new(); 4];
-    for voice in &mut voices {
-        for (slot, sfx) in cart.sfx.iter().enumerate().take(8) {
-            voice.set_instrument(slot as u8, instrument_sound(sfx));
-        }
-    }
-    let mut samples = Vec::new();
-    for pattern in &cart.patterns {
-        let sounds = pattern
-            .channels
-            .map(|channel| channel.map(|slot| cart_sound(&cart.sfx[usize::from(slot)])));
-        let length = sounds
-            .iter()
-            .flatten()
-            .next()
-            .map_or(0, |sound| 32 * usize::from(sound.speed));
-        for (voice, sound) in voices.iter_mut().zip(&sounds) {
-            voice.play_restarting_if_silent(sound.unwrap_or_default(), 0);
-        }
-        for tick in 0..length {
-            for _ in 0..SAMPLES_PER_TICK {
-                samples.push(voices.iter_mut().map(Voice::next_sample).sum());
-            }
-            for (voice, sound) in voices.iter_mut().zip(&sounds) {
-                let Some(sound) = sound else { continue };
-                let speed = usize::from(sound.speed);
-                let next_tick = tick + 1;
-                if next_tick < length && next_tick % speed == 0 {
-                    if next_tick / speed < 32 {
-                        voice.continue_at(*sound, next_tick / speed);
-                    } else {
-                        voice.play(Sound::default(), 0);
-                    }
-                }
-            }
-        }
-    }
-    samples
-}
-
-fn render_project(project: Project, samples: usize) -> Vec<f32> {
-    let mut player = Player::new();
-    player.handle(AudioRequest::PlaySong {
-        project: Arc::new(project),
-        from_row: 0,
-    });
-    player.render(samples)
+    let cart = Cart::read(&cart.p8()).unwrap();
+    render_music(&cart, 0, music_samples(&cart, 0))
 }
 
 #[test]
@@ -434,7 +348,7 @@ fn an_import_with_no_warnings_renders_the_same_samples_as_the_cart() {
     assert_eq!(warnings, Vec::<String>::new());
 
     let expected = render_cart(&cart);
-    let rendered = render_project(project, expected.len());
+    let rendered = render_song(project, expected.len());
 
     assert!(expected.iter().any(|sample| sample.abs() > 0.01));
     let first_difference = expected
@@ -727,7 +641,7 @@ fn an_import_with_sfx_instruments_renders_the_same_samples_as_the_cart() {
     assert_eq!(warnings, Vec::<String>::new());
 
     let expected = render_cart(&cart);
-    let rendered = render_project(project, expected.len());
+    let rendered = render_song(project, expected.len());
 
     assert!(expected.iter().any(|sample| sample.abs() > 0.01));
     let first_difference = expected

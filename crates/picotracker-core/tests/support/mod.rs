@@ -4,9 +4,11 @@
 
 use picotracker_core::app::{Action, App};
 use picotracker_core::cart::Cart;
-use picotracker_core::player::{AudioRequest, Player};
+use picotracker_core::player::{AudioRequest, Player, TrackMix};
 use picotracker_core::project::Project;
-use picotracker_core::synth::{Note, SAMPLES_PER_TICK, Sound, Voice, packed_filters};
+use picotracker_core::synth::{
+    Instrument, Note, SAMPLES_PER_TICK, Sound, Voice, Waveform, packed_filters,
+};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -276,6 +278,21 @@ pub fn render_song(project: Project, samples: usize) -> Vec<f32> {
     player.render(samples)
 }
 
+/// The Song of a Project through the Player, from its first row, with only its Export Tracks heard.
+pub fn render_export_tracks(project: Project, samples: usize) -> Vec<f32> {
+    let mut mix = TrackMix::default();
+    for track in project.export_track_indices().into_iter().flatten() {
+        mix.toggle_solo(track);
+    }
+    let mut player = Player::new();
+    player.handle(AudioRequest::SetTrackMix(mix));
+    player.handle(AudioRequest::PlaySong {
+        project: Arc::new(project),
+        from_row: 0,
+    });
+    player.render(samples)
+}
+
 /// Fails on the first sample that differs, so that a failure says where the sound changed.
 pub fn assert_same_samples(rendered: &[f32], expected: &[f32]) {
     assert_eq!(rendered.len(), expected.len());
@@ -317,4 +334,227 @@ pub fn state_ron(recent_projects: &[&str]) -> String {
         .map(|path| format!("\"{path}\""))
         .collect();
     format!("(version: 1, recent_projects: [{}])", paths.join(", "))
+}
+
+const SFX_NOTES: usize = 32;
+const EDITOR_MODE_BIT: u8 = 0x01;
+const WAVEFORM_INSTRUMENT_BIT: u8 = 0x80;
+const BASS_BIT: u8 = 0x01;
+const INSTRUMENT_SLOTS: u8 = 8;
+const SLOT_COUNT: u8 = 64;
+
+/// One SFX of a Cart exactly as its bytes hold it, loop bytes included.
+pub fn stored_sound(cart: &Cart, slot: u8) -> Sound {
+    let sfx = cart.sfx(slot);
+    Sound {
+        notes: std::array::from_fn(|index| {
+            let stored = sfx.note(index);
+            Note {
+                pitch: i16::from(stored.pitch),
+                instrument: stored.instrument,
+                custom: stored.custom,
+                volume: stored.volume,
+                effect: stored.effect,
+            }
+        }),
+        speed: sfx.speed(),
+        filters: sfx.filters() & !EDITOR_MODE_BIT,
+        loop_start: sfx.loop_start(),
+        loop_end: sfx.loop_end(),
+    }
+}
+
+/// What a note marked `custom` plays from one SFX 0–7: a Waveform Instrument when bit 7 of byte 66
+/// is set, with Bass in bit 0 of byte 65, or else the SFX itself.
+pub fn stored_instrument(cart: &Cart, slot: u8) -> Instrument {
+    let sfx = cart.sfx(slot);
+    if sfx.loop_start() & WAVEFORM_INSTRUMENT_BIT == 0 {
+        return Instrument::Sfx(stored_sound(cart, slot));
+    }
+    let bytes = cart.sfx_bytes(slot);
+    Instrument::Waveform(Waveform {
+        samples: std::array::from_fn(|index| bytes[index] as i8),
+        bass: sfx.speed() & BASS_BIT != 0,
+        filters: sfx.filters() & !EDITOR_MODE_BIT,
+    })
+}
+
+const SATURATION_KNEE: f32 = 0.75;
+const SATURATION_SLOPE: f32 = 1.0 / 25.0;
+
+/// The 4 channels mixed as PICO-8 0.2.7 outputs them (ADR 0011): unchanged up to 0.75 of full
+/// scale, and past it rising at a twenty-fifth of the rate.
+fn pico8_mix(voices: &mut [Voice]) -> f32 {
+    let mix: f32 = voices.iter_mut().map(Voice::next_sample).sum();
+    let past_knee = mix.abs() - SATURATION_KNEE;
+    if past_knee > 0.0 {
+        mix.signum() * (SATURATION_KNEE + past_knee * SATURATION_SLOPE)
+    } else {
+        mix
+    }
+}
+
+/// One channel of a Pattern as PICO-8's music plays it.
+struct MusicChannel {
+    sound: Sound,
+    note: usize,
+    ended: bool,
+}
+
+impl MusicChannel {
+    /// What the voice plays: the SFX looping over all its notes, so that the channel, not the
+    /// voice, decides when it ends. A voice that ends a sound by itself cuts its echo, as `sfx()`
+    /// does, while a channel that ends inside a Pattern lets it ring on.
+    fn voice_sound(&self) -> Sound {
+        if self.loops() {
+            self.sound
+        } else {
+            Sound {
+                loop_start: 0,
+                loop_end: SFX_NOTES as u8,
+                ..self.sound
+            }
+        }
+    }
+
+    fn loops(&self) -> bool {
+        self.sound.loop_end > self.sound.loop_start
+    }
+
+    /// The notes it plays before ending: its LEN, or all 32.
+    fn length(&self) -> usize {
+        match (self.sound.loop_start, self.sound.loop_end) {
+            (start, 0) if start > 0 => usize::from(start),
+            _ => SFX_NOTES,
+        }
+    }
+}
+
+/// How long PICO-8 plays a Pattern, in Ticks: as long as its left-most channel that does not loop,
+/// or 32 notes at the slowest Speed when every channel loops.
+fn pattern_ticks(channels: &[Option<MusicChannel>]) -> usize {
+    let playing = || channels.iter().flatten();
+    playing().find(|channel| !channel.loops()).map_or_else(
+        || {
+            playing()
+                .map(|channel| SFX_NOTES * usize::from(channel.sound.speed))
+                .max()
+                .unwrap_or(0)
+        },
+        |channel| channel.length() * usize::from(channel.sound.speed),
+    )
+}
+
+/// The Pattern that `music()` plays after one, if the music goes on.
+fn next_pattern(cart: &Cart, slot: u8) -> Option<u8> {
+    let pattern = cart.pattern(slot);
+    if pattern.stop() || slot + 1 == SLOT_COUNT {
+        None
+    } else if pattern.loop_back() {
+        let loop_start = (0..=slot)
+            .rev()
+            .find(|&slot| cart.pattern(slot).loop_start());
+        Some(loop_start.unwrap_or(0))
+    } else {
+        Some(slot + 1)
+    }
+}
+
+/// The Channels of a Pattern, or none if it plays nothing, which ends the music.
+fn music_channels(cart: &Cart, slot: u8) -> Option<Vec<Option<MusicChannel>>> {
+    let pattern = cart.pattern(slot);
+    let channels: Vec<Option<MusicChannel>> = (0..4)
+        .map(|channel| {
+            pattern.channel(channel).map(|sfx| MusicChannel {
+                sound: stored_sound(cart, sfx),
+                note: 0,
+                ended: false,
+            })
+        })
+        .collect();
+    channels.iter().any(Option::is_some).then_some(channels)
+}
+
+/// How many samples `music()` plays from one Pattern before it stops, for music that does.
+pub fn music_samples(cart: &Cart, first_pattern: u8) -> usize {
+    let mut ticks = 0;
+    let mut next = Some(first_pattern);
+    while let Some(slot) = next {
+        let Some(channels) = music_channels(cart, slot) else {
+            break;
+        };
+        ticks += pattern_ticks(&channels);
+        next = next_pattern(cart, slot);
+    }
+    ticks * SAMPLES_PER_TICK as usize
+}
+
+/// Plays a Cart's Patterns from one of them the way PICO-8's `music()` does, through our synth:
+/// each channel steps through its SFX's notes and loop, the left-most channel that does not loop
+/// ends the Pattern, and the flags choose the next one. A Pattern that plays nothing ends the
+/// music. Once the music stops, the voices fall
+/// silent and keep running.
+pub fn render_music(cart: &Cart, first_pattern: u8, samples: usize) -> Vec<f32> {
+    let mut voices = vec![Voice::new(); 4];
+    for voice in &mut voices {
+        for slot in 0..INSTRUMENT_SLOTS {
+            voice.set_instrument(slot, stored_instrument(cart, slot));
+        }
+    }
+    let mut output = Vec::with_capacity(samples);
+    let mut next = Some(first_pattern);
+    while output.len() < samples {
+        let Some(mut channels) = next.and_then(|slot| music_channels(cart, slot)) else {
+            for voice in &mut voices {
+                voice.play(Sound::default(), 0);
+            }
+            while output.len() < samples {
+                output.push(pico8_mix(&mut voices));
+            }
+            break;
+        };
+        for (voice, channel) in voices.iter_mut().zip(&channels) {
+            let sound = channel
+                .as_ref()
+                .map_or_else(Sound::default, |channel| channel.sound);
+            voice.play_restarting_if_silent(sound, 0);
+        }
+        let ticks = pattern_ticks(&channels);
+        for tick in 1..=ticks {
+            for _ in 0..SAMPLES_PER_TICK {
+                output.push(pico8_mix(&mut voices));
+            }
+            if tick == ticks {
+                break;
+            }
+            for (voice, channel) in voices.iter_mut().zip(&mut channels) {
+                let Some(channel) = channel.as_mut().filter(|channel| !channel.ended) else {
+                    continue;
+                };
+                if tick % usize::from(channel.sound.speed) != 0 {
+                    continue;
+                }
+                channel.note += 1;
+                if channel.loops() && channel.note >= usize::from(channel.sound.loop_end) {
+                    channel.note = usize::from(channel.sound.loop_start);
+                }
+                if !channel.loops() && channel.note >= channel.length() {
+                    channel.ended = true;
+                    voice.rest();
+                } else if channel.note >= SFX_NOTES {
+                    // A loop past the last note, such as 32 to 33, plays silence in the SFX.
+                    let silence = Sound {
+                        notes: [Note::default(); SFX_NOTES],
+                        ..channel.sound
+                    };
+                    voice.continue_at(silence, 0);
+                } else {
+                    voice.continue_at(channel.voice_sound(), channel.note);
+                }
+            }
+        }
+        next = next.and_then(|slot| next_pattern(cart, slot));
+    }
+    output.truncate(samples);
+    output
 }

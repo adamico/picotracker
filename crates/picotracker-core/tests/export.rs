@@ -5,8 +5,11 @@
 mod support;
 
 use picotracker_core::cart::Cart;
-use picotracker_core::export::{ExportFailure, export};
-use picotracker_core::project::{Chain, ChainEntry, ChainId, Claim, PhraseId, Project, Step};
+use picotracker_core::export::{ExportFailure, ExportWarning, export};
+use picotracker_core::project::{
+    Chain, ChainEntry, ChainId, Claim, CustomInstrument, Filters, InstrumentSound, PhraseId,
+    Project, SfxInstrument, Step, WaveformInstrument,
+};
 use support::{HEADER, assert_same_samples, render_notes, render_song, sound_of};
 
 const EMPTY_PATTERN: [u8; 4] = [0x41, 0x42, 0x43, 0x44];
@@ -221,6 +224,23 @@ fn missing_export_tracks_do_not_hide_a_claim_that_is_too_small() {
 }
 
 #[test]
+fn a_song_looping_to_its_first_row_still_writes_loop_start() {
+    let mut project = one_row_project();
+    place(&mut project, 1, 0, 0, 0);
+    project.set_song_loop_row(Some(0));
+    let mut original = blank_cart();
+    original.extend(b"__music__\n07 08424344\n07 08424344\n");
+
+    let exported = export(&project, &claim(&[8], (0, 1)), &original).unwrap();
+
+    // PICO-8 would loop back to Pattern 0 without the flag, but the Claim may start elsewhere.
+    // Flags left in the claimed Patterns are cleared.
+    let cart = Cart::read(&exported.cart_bytes).unwrap();
+    assert_eq!(cart.pattern_bytes(0), [8 | 0x80, 0x42, 0x43, 0x44]);
+    assert_eq!(cart.pattern_bytes(1), [8, 0x42 | 0x80, 0x43, 0x44]);
+}
+
+#[test]
 fn a_song_loop_row_past_a_gap_is_compiled_as_the_player_plays_it() {
     let mut project = one_row_project();
     write_phrase(&mut project, 1, 8, 9);
@@ -368,38 +388,62 @@ fn a_cart_that_cannot_be_read_fails_the_export() {
 }
 
 #[test]
-fn a_fill_entry_waits_for_the_full_compile_rules() {
+fn a_fill_entry_loops_from_0_to_its_phrases_length() {
     let mut project = one_row_project();
+    write_phrase(&mut project, 1, 32, 20);
+    place(&mut project, 0, 1, 1, 1);
+    project.set_export_track(1, Some(2));
     let chain = project.chain_mut(ChainId::new(0));
     chain.entry_mut(0).as_mut().unwrap().set_fill(true);
 
-    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 0)));
 
-    assert_eq!(
-        failures,
-        [ExportFailure::NotSimple {
-            song_row: 0,
-            chain_row: 0,
-        }]
-    );
+    assert_eq!(cart.sfx_bytes(8)[66..], [0, 16]);
+    assert_eq!(cart.sfx_bytes(9)[66..], [0, 0]);
 }
 
 #[test]
-fn a_shorter_phrase_on_the_left_waits_for_the_full_compile_rules() {
+fn in_an_all_fill_chain_row_the_longest_entry_plays_once_with_len() {
+    let mut project = one_row_project();
+    write_phrase(&mut project, 1, 8, 20);
+    place(&mut project, 0, 1, 1, 1);
+    project.set_export_track(1, Some(2));
+    for chain in [0, 1] {
+        let chain = project.chain_mut(ChainId::new(chain));
+        chain.entry_mut(0).as_mut().unwrap().set_fill(true);
+    }
+
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 0)));
+
+    // Track 2's 8 Steps loop beside Track 1's 16, which play once and end the Pattern.
+    assert_eq!(cart.sfx_bytes(8)[66..], [16, 0]);
+    assert_eq!(cart.sfx_bytes(9)[66..], [0, 8]);
+}
+
+#[test]
+fn a_shorter_phrase_on_the_left_loops_on_the_step_after_its_length() {
     let mut project = one_row_project();
     write_phrase(&mut project, 1, 32, 20);
     place(&mut project, 0, 1, 1, 1);
     project.set_export_track(1, Some(2));
 
-    let failures = export(&project, &claim(&[8, 9], (0, 0)), &blank_cart()).unwrap_err();
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 0)));
 
-    assert_eq!(
-        failures,
-        [ExportFailure::NotSimple {
-            song_row: 0,
-            chain_row: 0,
-        }]
-    );
+    assert_eq!(cart.sfx_bytes(8)[66..], [16, 17]);
+    assert_eq!(cart.sfx_bytes(9)[66..], [0, 0]);
+}
+
+#[test]
+fn a_shorter_32_step_phrase_on_the_left_loops_past_its_last_step() {
+    let mut project = one_row_project();
+    project.phrase_mut(PhraseId::new(0)).set_length(32);
+    write_phrase(&mut project, 1, 32, 30);
+    place(&mut project, 0, 1, 1, 1);
+    project.set_export_track(1, Some(2));
+
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 0)));
+
+    assert_eq!(cart.sfx_bytes(8)[66..], [32, 33]);
 }
 
 #[test]
@@ -415,18 +459,56 @@ fn a_shorter_phrase_on_the_right_is_simple() {
 }
 
 #[test]
-fn a_chain_row_timed_by_an_unexported_track_waits_for_the_full_compile_rules() {
+fn a_chain_row_timed_by_an_unexported_track_is_padded_with_a_silent_sfx() {
     let mut project = one_row_project();
     write_phrase(&mut project, 1, 32, 20);
     place(&mut project, 0, 5, 1, 1);
 
-    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+    let exported = export(&project, &claim(&[8, 9], (0, 0)), &blank_cart()).unwrap();
+
+    let cart = Cart::read(&exported.cart_bytes).unwrap();
+    assert_eq!(exported.warnings, []);
+    // The padding lasts Track 6's 32 Steps at Speed 20: 640 Ticks, held as 4 notes at Speed 160.
+    assert_eq!(cart.pattern_bytes(0), [8, 9, 0x43 | 0x80, 0x44]);
+    assert_eq!(cart.sfx_bytes(9)[..64], [0; 64]);
+    assert_eq!(cart.sfx_bytes(9)[64..], [0x01, 160, 4, 0]);
+    assert_eq!(cart.sfx_bytes(8)[66..], [16, 17]);
+}
+
+#[test]
+fn a_chain_row_with_no_exported_entries_becomes_one_silent_sfx() {
+    let mut project = one_row_project();
+    write_phrase(&mut project, 1, 16, 20);
+    let mut chain = Chain::default();
+    *chain.entry_mut(1) = Some(ChainEntry::new(PhraseId::new(1)));
+    *project.chain_mut(ChainId::new(1)) = chain;
+    project.set_song_cell(0, 5, Some(ChainId::new(1)));
+
+    let cart = exported_cart(&project, &claim(&[8, 9], (0, 1)));
+
+    // Chain row 1 plays only on Track 6: 320 Ticks, held as 2 notes at Speed 160.
+    assert_eq!(cart.pattern_bytes(1), [9, 0x42, 0x43 | 0x80, 0x44]);
+    assert_eq!(cart.sfx_bytes(9)[64..], [0x01, 160, 2, 0]);
+}
+
+#[test]
+fn a_chain_row_timed_by_an_unexported_track_with_no_free_channel_warns() {
+    let mut project = one_row_project();
+    for track in 1..4 {
+        place(&mut project, 0, track, 0, 0);
+        project.set_export_track(track, Some(track as u8 + 1));
+    }
+    write_phrase(&mut project, 1, 32, 20);
+    place(&mut project, 0, 5, 1, 1);
+
+    let exported = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap();
 
     assert_eq!(
-        failures,
-        [ExportFailure::NotSimple {
+        exported.warnings,
+        [ExportWarning::UnexportedTrackSetsLength {
             song_row: 0,
             chain_row: 0,
+            track: 5,
         }]
     );
 }
@@ -492,18 +574,138 @@ fn a_pitch_an_arpeggio_reads_past_the_top_of_the_range_is_named() {
     );
 }
 
-#[test]
-fn a_custom_instrument_waits_for_the_full_compile_rules() {
+/// One Song row whose Phrase plays Custom Instrument 0A on Step 2.
+fn custom_instrument_project(sound: InstrumentSound) -> Project {
     let mut project = one_row_project();
-    *project.phrase_mut(PhraseId::new(0)).step_mut(2) = Step::new(12, 8, 5, 0).unwrap();
+    *project.phrase_mut(PhraseId::new(0)).step_mut(2) = Step::new(12, 0x0A, 5, 0).unwrap();
+    let instrument = CustomInstrument { name: None, sound };
+    project.set_custom_instrument(0x0A, Some(instrument));
+    project
+}
 
-    let failures = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap_err();
+fn sfx_instrument() -> InstrumentSound {
+    let mut filters = Filters::default();
+    filters.set_reverb(1);
+    InstrumentSound::Sfx(SfxInstrument {
+        steps: vec![
+            Step::new(36, 2, 5, 0).unwrap(),
+            Step::new(40, 1, 4, 3).unwrap(),
+        ],
+        speed: 4,
+        filters,
+        loop_start: 0,
+        loop_end: 2,
+    })
+}
+
+#[test]
+fn a_custom_instrument_takes_the_lowest_free_claimed_slot_in_0_to_7() {
+    let project = custom_instrument_project(sfx_instrument());
+
+    let cart = exported_cart(&project, &claim(&[20, 5, 3, 8], (0, 0)));
+
+    // 36 | 2 << 6 | 5 << 9 = 0x0AA4, and 40 | 1 << 6 | 4 << 9 | 3 << 12 = 0x3868.
+    let instrument = cart.sfx_bytes(3);
+    assert_eq!(instrument[..4], [0xA4, 0x0A, 0x68, 0x38]);
+    assert_eq!(instrument[4..64], [0; 60]);
+    assert_eq!(instrument[64..], [1 + 24, 4, 0, 2]);
+    assert_eq!(cart.pattern(0).channel(0), Some(5));
+}
+
+#[test]
+fn steps_playing_a_custom_instrument_name_its_slot() {
+    let project = custom_instrument_project(sfx_instrument());
+
+    let cart = exported_cart(&project, &claim(&[20, 5, 3, 8], (0, 0)));
+
+    let note = cart.sfx(5).note(2);
+    assert_eq!((note.instrument, note.custom), (3, true));
+    assert!(!cart.sfx(5).note(0).custom);
+}
+
+#[test]
+fn custom_instruments_take_slots_in_order_of_their_number() {
+    let mut project = custom_instrument_project(sfx_instrument());
+    *project.phrase_mut(PhraseId::new(0)).step_mut(3) = Step::new(12, 0x09, 5, 0).unwrap();
+    project.set_custom_instrument(0x09, Some(CustomInstrument::default()));
+
+    let cart = exported_cart(&project, &claim(&[1, 6, 8], (0, 0)));
+
+    assert_eq!(cart.sfx(8).note(3).instrument, 1);
+    assert_eq!(cart.sfx(8).note(2).instrument, 6);
+    assert_eq!(cart.sfx_bytes(6)[64..], [1 + 24, 4, 0, 2]);
+}
+
+#[test]
+fn a_waveform_instrument_writes_its_samples_and_the_fixed_header() {
+    let mut samples = [0; 64];
+    samples[0] = -1;
+    samples[1] = 100;
+    let project = custom_instrument_project(InstrumentSound::Waveform(WaveformInstrument {
+        samples,
+        bass: true,
+        detune: 2,
+        reverb: 0,
+        dampen: 1,
+    }));
+
+    let cart = exported_cart(&project, &claim(&[0, 8], (0, 0)));
+
+    let instrument = cart.sfx_bytes(0);
+    assert_eq!(instrument[..3], [0xFF, 100, 0]);
+    // The editor-mode bit, 2 x 8 DETUNE and 1 x 72 DAMPEN, then 16 + Bass, 0x80 and 0x00.
+    assert_eq!(instrument[64..], [1 + 16 + 72, 17, 0x80, 0]);
+}
+
+#[test]
+fn a_custom_instrument_the_project_does_not_define_plays_an_empty_slot() {
+    let mut project = custom_instrument_project(sfx_instrument());
+    project.set_custom_instrument(0x0A, None);
+
+    let cart = exported_cart(&project, &claim(&[2, 8], (0, 0)));
+
+    let mut blank = [0; 68];
+    blank[65] = 16;
+    assert_eq!(cart.sfx_bytes(2), &blank);
+    assert_eq!(cart.sfx(8).note(2).instrument, 2);
+}
+
+#[test]
+fn a_silent_step_needs_no_slot_for_its_custom_instrument() {
+    let mut project = one_row_project();
+    *project.phrase_mut(PhraseId::new(0)).step_mut(2) = Step::new(12, 0x0A, 0, 0).unwrap();
+
+    let exported = export(&project, &claim(&[8], (0, 0)), &blank_cart()).unwrap();
+
+    assert_eq!(exported.sfx_count, 1);
+}
+
+#[test]
+fn too_few_claimed_slots_in_0_to_7_fail_the_export() {
+    let project = custom_instrument_project(sfx_instrument());
+
+    let failures = export(&project, &claim(&[8, 9], (0, 0)), &blank_cart()).unwrap_err();
 
     assert_eq!(
         failures,
-        [ExportFailure::NotSimple {
-            song_row: 0,
-            chain_row: 0,
+        [ExportFailure::TooFewInstrumentSlots {
+            needed: 1,
+            claimed: 0
+        }]
+    );
+}
+
+#[test]
+fn instruments_count_towards_the_sfx_a_claim_must_hold() {
+    let project = custom_instrument_project(sfx_instrument());
+
+    let failures = export(&project, &claim(&[3], (0, 0)), &blank_cart()).unwrap_err();
+
+    assert_eq!(
+        failures,
+        [ExportFailure::TooFewSfx {
+            needed: 2,
+            claimed: 1
         }]
     );
 }

@@ -4,7 +4,7 @@
 use super::App;
 use super::files::{Waiting, shown_name};
 use super::messages::{LogItem, Report, Severity};
-use crate::export::{self, ExportFailure, Exported};
+use crate::export::{self, ExportFailure, ExportWarning, Exported};
 use crate::project::{EXPORT_CHANNELS, SongPlace};
 use crate::wording::counted;
 use std::path::{Path, PathBuf};
@@ -15,7 +15,7 @@ const NO_TARGET_CART: &str = "EXPORT FAILED: NO TARGET CART";
 #[derive(Debug)]
 pub(super) struct FinishedExport {
     claimed_bytes_hash: String,
-    summary: String,
+    report: Report,
 }
 
 /// The Export Tracks as messages show them: `T1-T4` for a run, or else `T1 T3`.
@@ -48,15 +48,6 @@ fn failure_location(failure: ExportFailure) -> Option<SongPlace> {
             chain_row,
             step,
         }),
-        ExportFailure::NotSimple {
-            song_row,
-            chain_row,
-        } => Some(SongPlace {
-            song_row,
-            track: 0,
-            chain_row,
-            step: 0,
-        }),
         _ => None,
     }
 }
@@ -67,6 +58,33 @@ fn failure_item(failure: ExportFailure) -> LogItem {
         Some(location) => item.at(location),
         None => item,
     }
+}
+
+/// An Export warning as a Log item, which jumps to the place it is about.
+fn warning_item(warning: ExportWarning) -> LogItem {
+    let item = LogItem::new(Severity::Warning, warning.to_string());
+    match warning {
+        ExportWarning::UnexportedTrackSetsLength {
+            song_row,
+            chain_row,
+            track,
+        } => item.at(SongPlace {
+            song_row,
+            track,
+            chain_row,
+            step: 0,
+        }),
+    }
+}
+
+/// The result of an Export that wrote the Cart: its warnings, if any, go to the Log.
+fn written_report(summary: String, warnings: &[ExportWarning]) -> Report {
+    if warnings.is_empty() {
+        return Report::info(summary);
+    }
+    let count = counted(warnings.len(), "WARNING");
+    let items = warnings.iter().copied().map(warning_item).collect();
+    Report::warning(format!("{summary} WITH {count}")).with_items(items)
 }
 
 /// The result of an Export that failed: every problem goes to the Log.
@@ -127,12 +145,13 @@ impl App {
             exported.pattern_count,
             tracks_text(self.project.export_tracks()),
         );
+        let report = written_report(summary, &exported.warnings);
         self.request_write_bytes(path.clone(), exported.cart_bytes);
         self.waiting = Some(Waiting::ExportWriting(
             path,
             FinishedExport {
                 claimed_bytes_hash: exported.claimed_bytes_hash,
-                summary,
+                report,
             },
         ));
     }
@@ -145,6 +164,6 @@ impl App {
             target.claimed_bytes_hash = Some(finished.claimed_bytes_hash);
             self.project.set_target_cart(Some(target));
         }
-        self.report(Report::info(finished.summary));
+        self.report(finished.report);
     }
 }

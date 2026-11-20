@@ -23,7 +23,10 @@ const MUSIC_END: usize = SFX_AT + SLOTS * SFX_BYTES;
 pub(crate) const FILTERS_BYTE: usize = 64;
 pub(crate) const SPEED_BYTE: usize = 65;
 pub(crate) const LOOP_START_BYTE: usize = 66;
-const LOOP_END_BYTE: usize = 67;
+pub(crate) const LOOP_END_BYTE: usize = 67;
+
+pub(crate) const EDITOR_MODE_BIT: u8 = 0x01;
+pub(crate) const WAVEFORM_INSTRUMENT_BIT: u8 = 0x80;
 
 const CHANNELS: usize = 4;
 const CHANNEL_DISABLED: u8 = 0x40;
