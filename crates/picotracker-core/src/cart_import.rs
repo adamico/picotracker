@@ -9,12 +9,14 @@ mod rebuild;
 
 use crate::cart::{Cart, SLOTS};
 use crate::project::{
-    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, Phrase, PhraseId,
-    Project, SongPlace, TargetCart,
+    Chain, ChainEntry, ChainId, Claim, EXPORT_CHANNELS, Phrase, PhraseId, Project, SongPlace,
+    TargetCart,
 };
 use crate::wording::counted;
 use instruments::imported_instrument;
-use rebuild::{RebuiltChannel, RebuiltPattern, has_bit_7, loose_phrase, rebuild_pattern};
+use rebuild::{
+    RebuiltChannel, RebuiltPattern, has_bit_7, instrument_of_slot, loose_phrase, rebuild_pattern,
+};
 use std::collections::BTreeSet;
 
 const LAST_SLOT: u8 = SLOTS as u8 - 1;
@@ -154,24 +156,19 @@ pub fn import_song(cart: &Cart, cart_path: &str, song: Option<CartSong>) -> Impo
     let mut shared = SharedItems::default();
     let mut instruments = BTreeSet::new();
     if let Some(song) = song {
-        let builder = SongBuilder {
+        let builder = SongBuilder::new(
             cart,
-            project: &mut project,
-            warnings: &mut warnings,
-            shared: &mut shared,
-            instruments: &mut instruments,
-            played: BTreeSet::new(),
-            spd_0_warned: BTreeSet::new(),
-            bit_7_warned: BTreeSet::new(),
-            chain_rows: 0,
-            out_of_phrases: false,
-        };
+            &mut project,
+            &mut warnings,
+            &mut shared,
+            &mut instruments,
+        );
         claim = builder.build(song);
     }
     let loose = LooseSfx::of(cart, &claim, &mut instruments);
     loose.keep(&mut project, &mut shared, &mut warnings);
     for slot in instruments {
-        let id = FIRST_CUSTOM_INSTRUMENT + slot;
+        let id = instrument_of_slot(slot);
         project.set_custom_instrument(id, Some(imported_instrument(cart, slot)));
     }
 
@@ -295,7 +292,30 @@ struct SongBuilder<'a> {
     out_of_phrases: bool,
 }
 
-impl SongBuilder<'_> {
+impl<'a> SongBuilder<'a> {
+    /// A builder that shares Phrases and Chains through `shared`, and gathers the SFX that notes
+    /// use as instruments into `instruments`.
+    fn new(
+        cart: &'a Cart,
+        project: &'a mut Project,
+        warnings: &'a mut Vec<ImportWarning>,
+        shared: &'a mut SharedItems,
+        instruments: &'a mut BTreeSet<u8>,
+    ) -> Self {
+        Self {
+            cart,
+            project,
+            warnings,
+            shared,
+            instruments,
+            played: BTreeSet::new(),
+            spd_0_warned: BTreeSet::new(),
+            bit_7_warned: BTreeSet::new(),
+            chain_rows: 0,
+            out_of_phrases: false,
+        }
+    }
+
     /// Writes the song and says what it claims.
     fn build(mut self, song: CartSong) -> Claim {
         let (first, last) = song.patterns;

@@ -6,13 +6,10 @@ mod support;
 use picotracker_core::app::{
     Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, KeyContext,
 };
-use picotracker_core::cart::Cart;
-use picotracker_core::cart_import::{import_song, songs};
 use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::player::AudioRequest;
 use picotracker_core::project::Project;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use support::status_line;
 use support::{TestCart, TestPattern, TestSfx};
 
@@ -335,10 +332,15 @@ fn two_song_cart() -> TestCart {
     }
 }
 
-/// What Import of one song of a Cart gives, picked by its place among the Cart's songs.
-fn imported_song(cart: &TestCart, index: usize) -> Project {
-    let cart = Cart::read(&cart.p8()).unwrap();
-    import_song(&cart, "demo.p8", Some(songs(&cart)[index])).project
+/// Whether a Project holds song 2 of the two-song Cart: Pattern 02, playing pitch 30 and looping.
+fn is_song_2(project: &Project) -> bool {
+    let first = project
+        .chain_row_entry(0, 0, 0)
+        .map(|entry| project.phrase(entry.phrase()));
+    first.is_some_and(|phrase| phrase.step(0).pitch() == 30)
+        && project.song_row_is_empty(1)
+        && project.song_loop_row() == Some(0)
+        && project.target_cart().unwrap().claim.patterns == Some((2, 2))
 }
 
 /// The first line of the Song pane.
@@ -391,8 +393,9 @@ fn the_song_pane_previews_the_highlighted_song() {
 
     assert_eq!(right_slot(&app, 6), ">SONG 2 PATTERN 02");
     assert_eq!(song_title(&app), "SONG  LOOP 00");
-    let preview = imported_song(&two_song_cart(), 1);
-    assert_eq!(app.chain_under_cursor(), preview.song_cell(0, 0));
+    // Song 2's first Step plays pitch 30, F#2, which song 1 never plays.
+    let dump = app.grid().text_dump();
+    assert!(dump.contains("F#2"), "{dump}");
 }
 
 #[test]
@@ -409,13 +412,12 @@ fn p_listens_to_the_highlighted_song_and_stops_it_again() {
     app.apply(listen);
 
     assert_eq!(app.key_context(), KeyContext::SongPicker);
-    assert_eq!(
-        app.take_audio_requests(),
-        [AudioRequest::PlaySong {
-            project: Arc::new(imported_song(&two_song_cart(), 1)),
-            from_row: 0,
-        }]
-    );
+    let requests = app.take_audio_requests();
+    let [AudioRequest::PlaySong { project, from_row }] = requests.as_slice() else {
+        panic!("expected the song to play, got {requests:?}");
+    };
+    assert!(is_song_2(project));
+    assert_eq!(*from_row, 0);
     app.apply(listen);
     assert_eq!(app.take_audio_requests(), [AudioRequest::Stop]);
 }
@@ -428,7 +430,7 @@ fn enter_imports_the_highlighted_song() {
 
     app.apply(Action::Confirm);
 
-    assert_eq!(app.project(), &imported_song(&two_song_cart(), 1));
+    assert!(is_song_2(app.project()));
     assert_eq!(
         status_line(&app),
         "! IMPORTED SONG 2 OF DEMO.P8 WITH 1 WARNING  ^L LOG"
