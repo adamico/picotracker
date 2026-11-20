@@ -1,9 +1,10 @@
 //! PICO-8's Pattern timing: works out how long a Pattern plays and rebuilds the Steps each channel
 //! plays in that time (ADR 0006).
 
-use crate::cart::{Cart, Pattern, SFX_NOTES, Sfx};
+use crate::cart::{Cart, CartNote, Pattern, SFX_NOTES, Sfx};
 use crate::project::{
-    ARPEGGIO_GROUP, EXPORT_CHANNELS, Filters, MAX_STEPS, Phrase, Step, arpeggio_group_start,
+    ARPEGGIO_GROUP, EXPORT_CHANNELS, FIRST_CUSTOM_INSTRUMENT, Filters, MAX_STEPS, Phrase, Step,
+    arpeggio_group_start,
 };
 use std::collections::BTreeSet;
 
@@ -81,12 +82,12 @@ pub(super) const fn has_bit_7(sfx: Sfx<'_>) -> bool {
 }
 
 /// How many Ticks each note of an SFX lasts. SPD 0 plays as Speed 1.
-fn speed_of(sfx: Sfx<'_>) -> u32 {
+pub(super) fn speed_of(sfx: Sfx<'_>) -> u32 {
     u32::from(sfx.speed().max(1))
 }
 
 /// How many notes an SFX plays when it sets the Pattern's length: its LEN, or else all of them.
-fn notes_when_setting_length(sfx: Sfx<'_>) -> u32 {
+pub(super) fn notes_when_setting_length(sfx: Sfx<'_>) -> u32 {
     if sfx.loop_end() == 0 && sfx.loop_start() > 0 {
         u32::from(sfx.loop_start())
     } else {
@@ -94,7 +95,7 @@ fn notes_when_setting_length(sfx: Sfx<'_>) -> u32 {
     }
 }
 
-fn filters_of(sfx: Sfx<'_>) -> Filters {
+pub(super) fn filters_of(sfx: Sfx<'_>) -> Filters {
     let byte = sfx.filters();
     let level = |divisor: u8| i32::from(byte / divisor % FILTER_LEVELS);
     let mut filters = Filters::default();
@@ -145,6 +146,18 @@ fn carry_arpeggio_pitches(
     changed
 }
 
+/// The Step that plays a note. A note on SFX n used as an instrument plays Custom Instrument
+/// 8 + n.
+fn step_of(note: CartNote) -> Step {
+    let instrument = if note.custom {
+        FIRST_CUSTOM_INSTRUMENT + note.instrument
+    } else {
+        note.instrument
+    };
+    // The Cart codec hands out values that are always inside a Step's limits.
+    Step::new(note.pitch, instrument, note.volume, note.effect).unwrap_or_default()
+}
+
 /// The entry that plays these stored notes, with silence for `None`.
 fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool) -> RebuiltEntry {
     let mut phrase = Phrase::default();
@@ -155,9 +168,7 @@ fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool
         length = index + 1;
         let Some(played) = played else { continue };
         let note = sfx.note(played);
-        // The Cart codec hands out values that are always inside a Step's limits.
-        *phrase.step_mut(index) =
-            Step::new(note.pitch, note.instrument, note.volume, note.effect).unwrap_or_default();
+        *phrase.step_mut(index) = step_of(note);
         if note.custom && note.volume > 0 {
             instruments.insert(note.instrument);
         }
@@ -172,6 +183,14 @@ fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool
         instruments,
         arpeggio_changed,
     }
+}
+
+/// The Phrase that holds a loose SFX's notes up to its LEN, or all 32 of them, with its loop
+/// dropped, and the instruments its audible notes use. A silent SFX gives none.
+pub(super) fn loose_phrase(sfx: Sfx<'_>) -> Option<(Phrase, BTreeSet<u8>)> {
+    let length = (notes_when_setting_length(sfx) as usize).min(SFX_NOTES);
+    let entry = entry_of(sfx, (0..length).map(Some), false);
+    (!entry.phrase.is_silent()).then_some((entry.phrase, entry.instruments))
 }
 
 /// A Phrase marked Fill over these stored notes.
