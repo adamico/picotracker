@@ -162,6 +162,13 @@ impl Default for Sound {
     }
 }
 
+impl Sound {
+    /// The LEN a sound ends at: its loop start, when it has no loop end.
+    fn len(&self) -> Option<u8> {
+        (self.loop_end == 0 && self.loop_start > 0).then_some(self.loop_start)
+    }
+}
+
 /// A Custom Instrument made of one looping wave of signed samples. Its filters are packed like
 /// byte 64 of a PICO-8 SFX, and NOIZ and BUZZ have no effect on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -512,6 +519,7 @@ pub struct Voice {
     latched_dampen: u8,
     low_pass_output: f32,
     resting_filters: u8,
+    rest_samples_left: Option<u64>,
     tick_sample: u32,
     rng: Rng,
 }
@@ -542,6 +550,7 @@ impl Voice {
             latched_dampen: 0,
             low_pass_output: 0.0,
             resting_filters: 0,
+            rest_samples_left: None,
             tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
@@ -618,6 +627,22 @@ impl Voice {
         let filters = self.sound.filters;
         self.play(Sound::default(), 0);
         self.resting_filters = filters;
+        self.rest_samples_left = None;
+    }
+
+    /// After a sound's last audible note, its echo rings on through the silent notes up to its LEN,
+    /// or to its last note without one, and is then cut.
+    fn ring_through_trailing_silence(&mut self) {
+        let length = self
+            .sound
+            .len()
+            .map_or(NOTES as f64, |len| f64::from(len).min(NOTES as f64));
+        let samples_per_note = f64::from(SAMPLES_PER_TICK) * f64::from(self.sound.speed.max(1));
+        let left = ((length - self.state.time) * samples_per_note)
+            .round()
+            .max(0.0);
+        self.resting_filters = self.sound.filters;
+        self.rest_samples_left = Some(left as u64);
     }
 
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
@@ -647,6 +672,9 @@ impl Voice {
         let base_offset = self.state.offset;
         let plays_a_note = self.state.playing;
         update_sound(&self.sound, &mut self.state, &mut new_synth, 0, 1.0);
+        if plays_a_note && !self.state.playing {
+            self.ring_through_trailing_silence();
+        }
         // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the
         // next note starts there.
         if plays_a_note && new_synth.volume == 0.0 {
@@ -748,8 +776,16 @@ impl Voice {
         }
         self.last_synth = new_synth;
 
-        // Measured on PICO-8: the echo rings through silent notes and after a sound ends at LEN
-        // inside a Pattern, and is cut when a sound played on its own ends.
+        // Measured on PICO-8: the echo rings through silent notes, through those after a sound's
+        // last audible note up to its LEN or last note, and on after an SFX ends at LEN inside a
+        // Pattern. A sound played on its own cuts it there.
+        if !self.state.playing {
+            match &mut self.rest_samples_left {
+                Some(0) => self.resting_filters = 0,
+                Some(left) => *left -= 1,
+                None => {}
+            }
+        }
         let echo_filters = if new_synth.volume > 0.0 {
             new_synth.filters
         } else if self.state.playing {
@@ -856,12 +892,11 @@ fn update_sound(
 
     let mut has_end = false;
     let mut end_time = NOTES as f64;
-    let has_len = sound.loop_end == 0 && sound.loop_start > 0;
-    if has_len {
-        // Measured on PICO-8: a sound with a LEN plays its silent notes up to it.
+    if let Some(len) = sound.len() {
         has_end = true;
-        end_time = end_time.min(loop_start);
-    } else if loop_range <= 0.0 {
+        end_time = end_time.min(f64::from(len));
+    }
+    if loop_range <= 0.0 {
         has_end = true;
         let last_note = sound
             .notes
