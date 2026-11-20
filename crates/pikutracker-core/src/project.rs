@@ -407,7 +407,7 @@ impl Default for CustomInstrument {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Claim {
     pub sfx: Vec<u8>,
-    pub patterns: Option<(u8, u8)>,
+    pub first_and_last_pattern: Option<(u8, u8)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -527,7 +527,7 @@ impl Project {
         self.default_speed = speed.clamp(MIN_SPEED, MAX_SPEED) as u8;
     }
 
-    pub const fn export_tracks(&self) -> [Option<u8>; EXPORT_CHANNELS] {
+    pub const fn export_track_numbers(&self) -> [Option<u8>; EXPORT_CHANNELS] {
         self.export_tracks
     }
 

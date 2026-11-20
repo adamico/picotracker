@@ -84,7 +84,7 @@ fn undoing_an_edit_keeps_the_claim_and_the_custom_instruments_of_an_opened_proje
         path: "game.p8".to_owned(),
         claim: Claim {
             sfx: vec![1, 2],
-            patterns: Some((0, 3)),
+            first_and_last_pattern: Some((0, 3)),
         },
         claimed_bytes_hash: Some("aa".to_owned()),
     }));

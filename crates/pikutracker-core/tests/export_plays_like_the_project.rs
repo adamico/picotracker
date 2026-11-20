@@ -107,7 +107,7 @@ fn instrumented_project() -> Project {
 fn assert_exports_sample_for_sample(project: &Project, song_ticks: usize) {
     let claim = Claim {
         sfx: (0..4).chain(10..30).collect(),
-        patterns: Some((FIRST_PATTERN, 30)),
+        first_and_last_pattern: Some((FIRST_PATTERN, 30)),
     };
     let original = format!("{HEADER}__lua__\nprint(1)\n");
 

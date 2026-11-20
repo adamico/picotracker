@@ -70,7 +70,7 @@ impl ChainPane {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (columns, rows) = direction.delta();
+        let (columns, rows) = direction.column_and_row_delta();
         self.column = stepped(self.column, columns, ENTRY_CELLS.len());
         self.entry = stepped(self.entry, rows, CHAIN_ENTRIES);
     }

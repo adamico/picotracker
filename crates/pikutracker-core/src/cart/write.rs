@@ -35,7 +35,7 @@ impl Cart {
             let at = SFX_AT + usize::from(slot) * SFX_BYTES;
             put_bytes(&mut pixels, at, self.sfx_bytes(slot));
         }
-        if let Some((first, last)) = claim.patterns {
+        if let Some((first, last)) = claim.first_and_last_pattern {
             for slot in first..=last {
                 let at = PATTERNS_AT + usize::from(slot) * PATTERN_BYTES;
                 put_bytes(&mut pixels, at, &self.pattern_bytes(slot));
@@ -71,7 +71,7 @@ impl Cart {
             &sfx_line(Cart::default().sfx_bytes(0)),
         );
         let patterns: Vec<u8> = claim
-            .patterns
+            .first_and_last_pattern
             .map_or(Vec::new(), |(first, last)| (first..=last).collect());
         let new_music = claimed_rows(
             &layout.music.rows,

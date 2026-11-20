@@ -160,7 +160,7 @@ fn claim_is_valid(claim: &Claim) -> bool {
     let exists = |slot: u8| usize::from(slot) < SLOTS;
     claim.sfx.iter().all(|slot| exists(*slot))
         && claim
-            .patterns
+            .first_and_last_pattern
             .is_none_or(|(first, last)| first <= last && exists(last))
 }
 
@@ -173,7 +173,7 @@ fn without_repeats(claim: &Claim) -> Claim {
             .copied()
             .filter(|slot| seen.insert(*slot))
             .collect(),
-        patterns: claim.patterns,
+        first_and_last_pattern: claim.first_and_last_pattern,
     }
 }
 
@@ -198,7 +198,7 @@ impl ClaimedSlots {
             .filter(|slot| *slot < INSTRUMENT_SLOTS)
             .collect();
         let patterns = claim
-            .patterns
+            .first_and_last_pattern
             .map_or(Vec::new(), |(first, last)| (first..=last).collect());
         Self {
             sfx,
@@ -214,12 +214,12 @@ pub fn export(
     original: &[u8],
 ) -> Result<Exported, Vec<ExportFailure>> {
     let mut failures = Vec::new();
-    let has_tracks = project.export_tracks().iter().any(Option::is_some);
+    let has_tracks = project.export_track_numbers().iter().any(Option::is_some);
     if !has_tracks {
         failures.push(ExportFailure::NoExportTracks);
     }
     let claim = &without_repeats(claim);
-    let claim_is_empty = claim.sfx.is_empty() && claim.patterns.is_none();
+    let claim_is_empty = claim.sfx.is_empty() && claim.first_and_last_pattern.is_none();
     if claim_is_empty {
         failures.push(ExportFailure::EmptyClaim);
     }
@@ -272,7 +272,7 @@ pub struct ExportNeeds {
 }
 
 pub fn needs(project: &Project) -> ExportNeeds {
-    let has_tracks = project.export_tracks().iter().any(Option::is_some);
+    let has_tracks = project.export_track_numbers().iter().any(Option::is_some);
     let every_instrument_slot: Vec<u8> = (0..INSTRUMENT_SLOTS).collect();
     let song = compile_song(
         project,

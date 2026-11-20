@@ -783,7 +783,7 @@ impl App {
         }
         self.stop_following();
         let (row, track) = (self.song.row(), self.song.track());
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         match (self.focus, direction) {
             (Focus::Song, Direction::Up) => {
                 self.song.jump_to(row.saturating_sub(SONG_JUMP_ROWS), track);
@@ -914,7 +914,7 @@ impl App {
                 &mut grid,
                 layout::RIGHT_SLOT,
                 right_slot_focused,
-                self.project.export_tracks(),
+                self.project.export_track_numbers(),
                 &self.scope,
             );
         }

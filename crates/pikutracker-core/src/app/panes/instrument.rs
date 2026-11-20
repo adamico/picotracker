@@ -186,7 +186,7 @@ impl InstrumentView {
 
     fn move_cursor(&mut self, direction: Direction, sound: &InstrumentSound) {
         let rows = rows(sound);
-        let (columns, down) = direction.delta();
+        let (columns, down) = direction.column_and_row_delta();
         self.row = stepped(self.row.min(rows.len() - 1), down, rows.len());
         let fields = rows[self.row].fields.len();
         self.column = stepped(self.column.min(fields - 1), columns, fields);

@@ -7,7 +7,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub(super) const fn delta(self) -> (isize, isize) {
+    pub(super) const fn column_and_row_delta(self) -> (isize, isize) {
         match self {
             Direction::Up => (0, -1),
             Direction::Down => (0, 1),

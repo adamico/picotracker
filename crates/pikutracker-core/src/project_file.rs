@@ -214,7 +214,7 @@ impl ProjectDocument {
             version: FORMAT_VERSION,
             default_speed: project.default_speed(),
             song_loop_row: project.song_loop_row().map(|row| row as u16),
-            export_tracks: project.export_tracks().to_vec(),
+            export_tracks: project.export_track_numbers().to_vec(),
             target_cart: project.target_cart().map(TargetCartDocument::from_cart),
             song,
             chains,
@@ -296,7 +296,7 @@ impl TargetCartDocument {
                 sfx: cart.claim.sfx.clone(),
                 patterns: cart
                     .claim
-                    .patterns
+                    .first_and_last_pattern
                     .map(|(first, last)| PatternRangeDocument { first, last }),
             },
             claimed_bytes_hash: cart.claimed_bytes_hash.clone(),
@@ -318,7 +318,7 @@ impl TargetCartDocument {
             path: self.path,
             claim: Claim {
                 sfx: self.claim.sfx,
-                patterns: self.claim.patterns.map(|range| (range.first, range.last)),
+                first_and_last_pattern: self.claim.patterns.map(|range| (range.first, range.last)),
             },
             claimed_bytes_hash: self.claimed_bytes_hash,
         })

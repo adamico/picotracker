@@ -21,7 +21,7 @@ fn fixture_project() -> Project {
         path: "../carts/game.p8".to_owned(),
         claim: Claim {
             sfx: vec![3, 4, 50],
-            patterns: Some((24, 29)),
+            first_and_last_pattern: Some((24, 29)),
         },
         claimed_bytes_hash: Some("5d41402abc4b2a76b9719d911017c592".to_owned()),
     }));

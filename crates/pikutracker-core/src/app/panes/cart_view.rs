@@ -124,7 +124,7 @@ fn suggestion(slot_use: &SlotUse, needs: ExportNeeds) -> Claim {
         .flatten();
     Claim {
         sfx: free_sfx.into_iter().take(needs.sfx).collect(),
-        patterns,
+        first_and_last_pattern: patterns,
     }
 }
 
@@ -135,7 +135,7 @@ fn claimed_slots(claim: &Claim) -> Slots {
     Slots {
         sfx,
         patterns: claim
-            .patterns
+            .first_and_last_pattern
             .map_or_else(Vec::new, |(first, last)| (first..=last).collect()),
     }
 }
@@ -175,7 +175,7 @@ impl CartView {
                 CartField::Cart
             },
             sfx: ClaimText::sfx(&claimed_slots(&claim).sfx),
-            patterns: ClaimText::patterns(claim.patterns),
+            patterns: ClaimText::patterns(claim.first_and_last_pattern),
             opened_with: target.cloned(),
             contents: TargetCartContents::Unknown,
             focus_before,
@@ -195,7 +195,7 @@ impl CartView {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         let index = FIELDS
             .iter()
             .position(|field| *field == self.field)
@@ -232,13 +232,16 @@ impl CartView {
     pub fn typed_claim(&self, claim: &Claim) -> Claim {
         Claim {
             sfx: self.sfx.sfx_slots().unwrap_or_else(|| claim.sfx.clone()),
-            patterns: self.patterns.pattern_range().unwrap_or(claim.patterns),
+            first_and_last_pattern: self
+                .patterns
+                .pattern_range()
+                .unwrap_or(claim.first_and_last_pattern),
         }
     }
 
     pub fn show_claim(&mut self, claim: &Claim) {
         self.sfx = ClaimText::sfx(&claimed_slots(claim).sfx);
-        self.patterns = ClaimText::patterns(claim.patterns);
+        self.patterns = ClaimText::patterns(claim.first_and_last_pattern);
     }
 
     pub fn show_contents(&mut self, contents: Result<Cart, String>) {

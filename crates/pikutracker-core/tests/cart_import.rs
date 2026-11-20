@@ -75,7 +75,7 @@ fn the_export_tracks_are_tracks_1_to_4() {
     let (project, _) = imported(&cart);
 
     assert_eq!(
-        project.export_tracks(),
+        project.export_track_numbers(),
         [Some(1), Some(2), Some(3), Some(4)]
     );
 }
@@ -197,7 +197,7 @@ fn the_claim_covers_exactly_the_songs_sfx_and_patterns() {
     let target = project.target_cart().unwrap();
     assert_eq!(target.path, CART_NAME);
     assert_eq!(target.claim.sfx, [1, 3]);
-    assert_eq!(target.claim.patterns, Some((0, 1)));
+    assert_eq!(target.claim.first_and_last_pattern, Some((0, 1)));
 }
 
 #[test]
@@ -246,7 +246,10 @@ fn a_song_ending_in_stop_does_not_loop_and_stops_the_claim() {
     let (project, warnings) = imported(&cart);
 
     assert_eq!(project.song_loop_row(), None);
-    assert_eq!(project.target_cart().unwrap().claim.patterns, Some((0, 1)));
+    assert_eq!(
+        project.target_cart().unwrap().claim.first_and_last_pattern,
+        Some((0, 1))
+    );
     assert!(project.song_row_is_empty(2));
     assert_eq!(warnings, Vec::<String>::new());
 }
@@ -277,7 +280,10 @@ fn a_song_that_runs_into_an_empty_pattern_ends_there_without_a_loop() {
     let (project, _) = imported(&cart);
 
     assert_eq!(project.song_loop_row(), None);
-    assert_eq!(project.target_cart().unwrap().claim.patterns, Some((0, 0)));
+    assert_eq!(
+        project.target_cart().unwrap().claim.first_and_last_pattern,
+        Some((0, 0))
+    );
 }
 
 #[test]
@@ -293,7 +299,7 @@ fn a_cart_with_no_music_gives_an_empty_song_and_an_empty_claim() {
     assert_eq!(project.song_loop_row(), None);
     let claim = &project.target_cart().unwrap().claim;
     assert!(claim.sfx.is_empty());
-    assert_eq!(claim.patterns, None);
+    assert_eq!(claim.first_and_last_pattern, None);
     assert_eq!(phrases_starting_on(&project, 12).len(), 1);
     assert_eq!(phrases_starting_on(&project, 19).len(), 1);
 }
@@ -442,7 +448,7 @@ fn a_later_song_starts_on_song_row_0_and_claims_only_its_own_patterns() {
     assert_eq!(project.phrase(entry.phrase()).step(0).pitch(), 19);
     assert!(project.song_row_is_empty(1));
     let claim = &project.target_cart().unwrap().claim;
-    assert_eq!(claim.patterns, Some((1, 1)));
+    assert_eq!(claim.first_and_last_pattern, Some((1, 1)));
     assert_eq!(claim.sfx, [1]);
 }
 

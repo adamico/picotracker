@@ -148,7 +148,7 @@ impl PhrasePane {
     }
 
     pub fn move_cursor(&mut self, direction: Direction, phrase: &Phrase) {
-        let (columns, rows) = direction.delta();
+        let (columns, rows) = direction.column_and_row_delta();
         match self.header_row {
             Some(row) => self.move_in_header(row, columns, rows),
             None if rows < 0 && self.step == 0 => self.enter_header(),

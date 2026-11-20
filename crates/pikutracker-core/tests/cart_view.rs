@@ -265,7 +265,7 @@ fn patterns_are_typed_as_one_range() {
     type_text(&mut app, "181d");
 
     assert_eq!(right_slot(&app, 6), ">18-1D_");
-    assert_eq!(claim(&app).patterns, Some((0x18, 0x1d)));
+    assert_eq!(claim(&app).first_and_last_pattern, Some((0x18, 0x1d)));
     app.apply(Action::HexDigit(4));
     assert_eq!(right_slot(&app, 6), ">18-1D_");
 }
@@ -280,7 +280,7 @@ fn a_single_pattern_is_a_range_of_one() {
     clear_field(&mut app);
     type_text(&mut app, "05");
 
-    assert_eq!(claim(&app).patterns, Some((5, 5)));
+    assert_eq!(claim(&app).first_and_last_pattern, Some((5, 5)));
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn claimed_slots_that_hold_other_sounds_show_as_overwritten_with_a_warning() {
         path: CART_NAME.to_owned(),
         claim: Claim {
             sfx: vec![2, 3],
-            patterns: Some((1, 2)),
+            first_and_last_pattern: Some((1, 2)),
         },
         claimed_bytes_hash: None,
     }));
@@ -448,7 +448,7 @@ fn a_newly_picked_cart_gets_a_suggested_claim_of_the_lowest_free_slots() {
         target.claim,
         Claim {
             sfx: vec![2],
-            patterns: Some((1, 1)),
+            first_and_last_pattern: Some((1, 1)),
         }
     );
     assert_eq!(right_slot(&app, 1), " game.p8");

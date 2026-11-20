@@ -63,7 +63,7 @@ impl SongPicker {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.picked = stepped(self.picked, rows, self.choices.len());
     }
 
@@ -105,7 +105,7 @@ impl SongPicker {
         let sfx = project
             .target_cart()
             .map_or(0, |target| target.claim.sfx.len());
-        let ending = if choice.song.loop_row.is_some() {
+        let ending = if choice.song.loop_back_row.is_some() {
             "LOOP"
         } else {
             "STOP"

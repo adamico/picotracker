@@ -74,7 +74,7 @@ fn failure_item(failure: ExportFailure) -> LogItem {
 fn still_claimed(slots: Slots, claim: &Claim) -> Slots {
     let in_pattern_range = |slot: &u8| {
         claim
-            .patterns
+            .first_and_last_pattern
             .is_some_and(|(first, last)| (first..=last).contains(slot))
     };
     Slots {
@@ -208,7 +208,7 @@ impl App {
             "EXPORTED TO {cart_name}: {} SFX, {} PATTERNS. {}",
             exported.sfx_count,
             exported.pattern_count,
-            tracks_text(self.project.export_tracks()),
+            tracks_text(self.project.export_track_numbers()),
         );
         let report = written_report(summary, &exported.warnings);
         self.request_write_bytes(path.clone(), exported.cart_bytes);

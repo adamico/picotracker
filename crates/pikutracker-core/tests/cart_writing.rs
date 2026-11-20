@@ -24,7 +24,7 @@ fn old_sfx_line(digit: char) -> String {
 fn claim(sfx: &[u8], patterns: (u8, u8)) -> Claim {
     Claim {
         sfx: sfx.to_vec(),
-        patterns: Some(patterns),
+        first_and_last_pattern: Some(patterns),
     }
 }
 
@@ -33,7 +33,7 @@ fn write_into(original: &str, claim: &Claim) -> String {
     for &slot in &claim.sfx {
         cart.set_sfx_bytes(slot, sfx_bytes());
     }
-    if let Some((first, last)) = claim.patterns {
+    if let Some((first, last)) = claim.first_and_last_pattern {
         for slot in first..=last {
             cart.set_pattern_bytes(slot, [0x81, 0x02, 0xC3, 0x44]);
         }
@@ -118,7 +118,7 @@ fn windows_line_endings_are_kept_and_used_for_new_lines() {
     let original = format!("{header}__music__\r\n00 01424344\r\n__meta:a__\r\nb\r\n");
     let only_patterns = Claim {
         sfx: Vec::new(),
-        patterns: Some((0, 1)),
+        first_and_last_pattern: Some((0, 1)),
     };
 
     let written = write_into(&original, &only_patterns);
@@ -133,7 +133,7 @@ fn a_file_without_a_final_newline_stays_without_one() {
     let original = format!("{HEADER}__music__\n00 01424344");
     let only_patterns = Claim {
         sfx: Vec::new(),
-        patterns: Some((0, 1)),
+        first_and_last_pattern: Some((0, 1)),
     };
 
     let written = write_into(&original, &only_patterns);
@@ -150,7 +150,7 @@ fn blank_lines_inside_a_section_do_not_shift_the_claimed_row() {
     let original = format!("{HEADER}__sfx__\n{first}\n\n{second}\n");
     let only_sfx = Claim {
         sfx: vec![1],
-        patterns: None,
+        first_and_last_pattern: None,
     };
 
     let written = write_into(&original, &only_sfx);

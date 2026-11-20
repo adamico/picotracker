@@ -47,7 +47,7 @@ impl ImportWarning {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CartSong {
     pub patterns: (u8, u8),
-    pub loop_row: Option<usize>,
+    pub loop_back_row: Option<usize>,
 }
 
 pub fn songs(cart: &Cart) -> Vec<CartSong> {
@@ -83,7 +83,7 @@ fn song_from(cart: &Cart, first: u8) -> CartSong {
         .flatten();
     CartSong {
         patterns: (first, last),
-        loop_row,
+        loop_back_row: loop_row,
     }
 }
 
@@ -298,13 +298,13 @@ impl<'a> SongBuilder<'a> {
         for (row, slot) in (first..=last).enumerate() {
             self.add_pattern(row, slot);
         }
-        self.project.set_song_loop_row(song.loop_row);
+        self.project.set_song_loop_row(song.loop_back_row);
         self.warn_about_the_whole_song(song);
         let mut claimed = self.played;
         claimed.extend(self.instruments.iter());
         Claim {
             sfx: claimed.into_iter().collect(),
-            patterns: Some(song.patterns),
+            first_and_last_pattern: Some(song.patterns),
         }
     }
 

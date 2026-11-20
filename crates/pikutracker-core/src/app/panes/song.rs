@@ -67,7 +67,7 @@ impl SongPane {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (columns, rows) = direction.delta();
+        let (columns, rows) = direction.column_and_row_delta();
         self.track = stepped(self.track, columns, TRACKS);
         self.row = stepped(self.row, rows, SONG_ROWS);
     }
@@ -195,7 +195,7 @@ impl SongPane {
             .map_or_else(|| "--".to_owned(), |row| format!("{row:02X}"));
         let title = format!("SONG  LOOP {loop_row}");
         draw_title(grid, area.column, 0, &title, focused);
-        let export_tracks = project.export_tracks();
+        let export_tracks = project.export_track_numbers();
         for track in 0..TRACKS {
             let column = area.column + FIRST_TRACK_COLUMN + track * TRACK_WIDTH;
             let (letter, style) = track_header(track_mix, track);

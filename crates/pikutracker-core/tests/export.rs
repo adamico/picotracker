@@ -17,7 +17,7 @@ fn blank_cart() -> Vec<u8> {
 fn claim(sfx: &[u8], patterns: (u8, u8)) -> Claim {
     Claim {
         sfx: sfx.to_vec(),
-        patterns: Some(patterns),
+        first_and_last_pattern: Some(patterns),
     }
 }
 

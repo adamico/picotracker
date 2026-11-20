@@ -330,7 +330,7 @@ fn is_song_2(project: &Project) -> bool {
     first.is_some_and(|phrase| phrase.step(0).pitch() == 30)
         && project.song_row_is_empty(1)
         && project.song_loop_row() == Some(0)
-        && project.target_cart().unwrap().claim.patterns == Some((2, 2))
+        && project.target_cart().unwrap().claim.first_and_last_pattern == Some((2, 2))
 }
 
 fn song_title(app: &App) -> String {

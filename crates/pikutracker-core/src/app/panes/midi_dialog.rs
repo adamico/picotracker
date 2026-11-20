@@ -179,7 +179,7 @@ impl MidiDialog {
     fn use_voices(&mut self, action: Action) {
         match action {
             Action::Move(direction) => {
-                let (_, rows) = direction.delta();
+                let (_, rows) = direction.column_and_row_delta();
                 self.voice = stepped(self.voice, rows, self.choices.ticked.len());
             }
             Action::ToggleVoice => {
@@ -238,7 +238,7 @@ impl MidiDialog {
 
     fn use_programs(&mut self, action: Action) {
         if let Action::Move(direction @ (Direction::Up | Direction::Down)) = action {
-            let (_, rows) = direction.delta();
+            let (_, rows) = direction.column_and_row_delta();
             self.program_row = stepped(self.program_row, rows, self.programs.len());
             return;
         }
@@ -273,7 +273,7 @@ impl MidiDialog {
             return;
         };
         let count = self.preview.as_ref().map_or(0, |p| p.warnings.len());
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.warning_scroll = stepped(self.warning_scroll, rows, count);
     }
 

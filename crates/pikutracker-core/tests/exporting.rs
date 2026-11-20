@@ -121,7 +121,10 @@ fn typing_a_digit_in_overview_sets_the_channels_track() {
     app.apply(DOWN);
     app.apply(Action::HexDigit(6));
 
-    assert_eq!(app.project().export_tracks(), [None, Some(6), None, None]);
+    assert_eq!(
+        app.project().export_track_numbers(),
+        [None, Some(6), None, None]
+    );
 }
 
 #[test]
@@ -152,7 +155,7 @@ fn digits_that_name_no_track_are_ignored() {
         app.apply(Action::HexDigit(digit));
     }
 
-    assert_eq!(app.project().export_tracks(), [None; 4]);
+    assert_eq!(app.project().export_track_numbers(), [None; 4]);
 }
 
 #[test]
@@ -164,7 +167,7 @@ fn clear_takes_the_track_off_a_channel() {
 
     app.apply(Action::Clear);
 
-    assert_eq!(app.project().export_tracks(), [None; 4]);
+    assert_eq!(app.project().export_track_numbers(), [None; 4]);
 }
 
 #[test]
@@ -178,7 +181,7 @@ fn choosing_a_track_used_elsewhere_swaps_the_two() {
     app.apply(Action::HexDigit(2));
 
     assert_eq!(
-        app.project().export_tracks(),
+        app.project().export_track_numbers(),
         [Some(2), Some(1), None, None]
     );
 }
@@ -192,7 +195,10 @@ fn choosing_a_track_from_an_empty_channel_moves_it() {
 
     app.apply(Action::HexDigit(2));
 
-    assert_eq!(app.project().export_tracks(), [Some(2), None, None, None]);
+    assert_eq!(
+        app.project().export_track_numbers(),
+        [Some(2), None, None, None]
+    );
 }
 
 #[test]
@@ -205,7 +211,10 @@ fn each_channel_edit_is_its_own_undo_step() {
 
     app.apply(Action::Undo);
 
-    assert_eq!(app.project().export_tracks(), [Some(1), None, None, None]);
+    assert_eq!(
+        app.project().export_track_numbers(),
+        [Some(1), None, None, None]
+    );
 }
 
 #[test]
@@ -717,7 +726,7 @@ fn export_warnings_are_counted_on_the_status_line_and_listed_in_the_log() {
         path: CART_NAME.to_owned(),
         claim: Claim {
             sfx: vec![8],
-            patterns: Some((0, 0)),
+            first_and_last_pattern: Some((0, 0)),
         },
         claimed_bytes_hash: None,
     }));

@@ -145,7 +145,7 @@ fn random_claim(rng: &mut Rng, needs: &Needs) -> Claim {
     let last = rng.between(first + needs.patterns - 1, 63);
     Claim {
         sfx,
-        patterns: Some((first as u8, last as u8)),
+        first_and_last_pattern: Some((first as u8, last as u8)),
     }
 }
 
@@ -278,7 +278,7 @@ fn mark_position(lines: &[Line<'_>], name: &[u8]) -> Option<usize> {
 
 fn assert_only_the_claim_changed(case: u64, before: &[u8], after: &[u8], claim: &Claim) {
     let claimed_sfx: BTreeSet<usize> = claim.sfx.iter().map(|slot| usize::from(*slot)).collect();
-    let (first, last) = claim.patterns.unwrap();
+    let (first, last) = claim.first_and_last_pattern.unwrap();
     let claimed_music = usize::from(first)..=usize::from(last);
     let is_claimed = |kind: Kind| match kind {
         Kind::SfxRow(row) => claimed_sfx.contains(&row),
@@ -386,7 +386,7 @@ fn assert_slots_changed_only_inside_the_claim(
 ) {
     let old = Cart::read(before).unwrap();
     let new = Cart::read(after).unwrap();
-    let (first, last) = claim.patterns.unwrap();
+    let (first, last) = claim.first_and_last_pattern.unwrap();
     for slot in 0..64 {
         if !claim.sfx.contains(&slot) {
             assert_eq!(
@@ -447,8 +447,8 @@ fn break_export(rng: &mut Rng, project: &mut Project, claim: &mut Claim) -> &'st
             "too few SFX"
         }
         2 => {
-            claim.patterns = claim
-                .patterns
+            claim.first_and_last_pattern = claim
+                .first_and_last_pattern
                 .filter(|_| needed.patterns > 1)
                 .map(|(first, _)| (first, first + needed.patterns as u8 - 2));
             "too few Patterns"
@@ -459,7 +459,7 @@ fn break_export(rng: &mut Rng, project: &mut Project, claim: &mut Claim) -> &'st
         }
         _ => {
             let track = project
-                .export_tracks()
+                .export_track_numbers()
                 .into_iter()
                 .flatten()
                 .next()
@@ -552,7 +552,7 @@ fn claimed_addresses(claim: &Claim) -> BTreeSet<usize> {
         let at = SFX_AT + usize::from(*slot) * 68;
         addresses.extend(at..at + 68);
     }
-    let (first, last) = claim.patterns.unwrap();
+    let (first, last) = claim.first_and_last_pattern.unwrap();
     for slot in first..=last {
         let at = PATTERNS_AT + usize::from(slot) * 4;
         addresses.extend(at..at + 4);

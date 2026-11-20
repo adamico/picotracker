@@ -20,7 +20,7 @@ pub struct OverviewPane {
 
 impl OverviewPane {
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.channel = stepped(self.channel, rows, CHANNELS);
     }
 
@@ -36,7 +36,7 @@ impl OverviewPane {
         if !(1..=TRACKS as u8).contains(&digit) {
             return;
         }
-        let tracks = project.export_tracks();
+        let tracks = project.export_track_numbers();
         if let Some(other) = tracks.iter().position(|track| *track == Some(digit)) {
             project.set_export_track(other, tracks[self.channel]);
         }

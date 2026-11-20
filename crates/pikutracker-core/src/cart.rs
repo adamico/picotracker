@@ -219,7 +219,7 @@ impl Cart {
         for &slot in &claim.sfx {
             push_slot_hash(&mut hash, 'S', slot, self.sfx_bytes(slot));
         }
-        if let Some((first, last)) = claim.patterns {
+        if let Some((first, last)) = claim.first_and_last_pattern {
             for slot in first..=last {
                 push_slot_hash(&mut hash, 'P', slot, &self.pattern_bytes(slot));
             }

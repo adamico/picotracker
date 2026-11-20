@@ -118,7 +118,7 @@ impl FileList {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        let (_, rows) = direction.delta();
+        let (_, rows) = direction.column_and_row_delta();
         self.picked = stepped(self.picked, rows, self.rows.len() + self.top_rows());
     }
 
