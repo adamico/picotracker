@@ -1,10 +1,10 @@
-//! Imported Instruments: each SFX 0–7 that notes use as an instrument becomes a Custom Instrument
+//! Custom Instruments from a Cart: each SFX 0–7 that notes use as an instrument becomes one
 //! (ADR 0004).
 
-use super::rebuild::{filters_of, has_bit_7, notes_when_setting_length};
-use crate::cart::{Cart, SFX_NOTES};
+use super::rebuild::{built_in_step, filters_of, has_bit_7, stored_length};
+use crate::cart::Cart;
 use crate::project::{
-    CustomInstrument, InstrumentSound, SfxInstrument, Step, WAVEFORM_SAMPLES, WaveformInstrument,
+    CustomInstrument, InstrumentSound, SfxInstrument, WAVEFORM_SAMPLES, WaveformInstrument,
 };
 
 const BASS_BIT: u8 = 0x01;
@@ -25,13 +25,9 @@ pub(super) fn imported_instrument(cart: &Cart, slot: u8) -> CustomInstrument {
             dampen: filters.dampen(),
         })
     } else {
-        let length = (notes_when_setting_length(sfx) as usize).min(SFX_NOTES);
         // PICO-8 plays a note marked as an SFX Instrument inside one as a Built-in Instrument.
-        let steps = (0..length)
-            .map(|index| {
-                let note = sfx.note(index);
-                Step::new(note.pitch, note.instrument, note.volume, note.effect).unwrap_or_default()
-            })
+        let steps = (0..stored_length(sfx))
+            .map(|index| built_in_step(sfx.note(index)))
             .collect();
         let (loop_start, loop_end) = if sfx.loop_start() < sfx.loop_end() {
             (sfx.loop_start(), sfx.loop_end())

@@ -87,7 +87,7 @@ pub(super) fn speed_of(sfx: Sfx<'_>) -> u32 {
 }
 
 /// How many notes an SFX plays when it sets the Pattern's length: its LEN, or else all of them.
-pub(super) fn notes_when_setting_length(sfx: Sfx<'_>) -> u32 {
+fn notes_when_setting_length(sfx: Sfx<'_>) -> u32 {
     if sfx.loop_end() == 0 && sfx.loop_start() > 0 {
         u32::from(sfx.loop_start())
     } else {
@@ -146,16 +146,29 @@ fn carry_arpeggio_pitches(
     changed
 }
 
-/// The Step that plays a note. A note on SFX n used as an instrument plays Custom Instrument
-/// 8 + n.
-fn step_of(note: CartNote) -> Step {
-    let instrument = if note.custom {
-        FIRST_CUSTOM_INSTRUMENT + note.instrument
-    } else {
-        note.instrument
-    };
+/// The Custom Instrument that notes using SFX `slot` as an instrument play.
+pub(super) const fn instrument_of_slot(slot: u8) -> u8 {
+    FIRST_CUSTOM_INSTRUMENT + slot
+}
+
+/// The Step that plays a note on its Built-in Instrument, whatever its SFX Instrument mark.
+pub(super) fn built_in_step(note: CartNote) -> Step {
     // The Cart codec hands out values that are always inside a Step's limits.
-    Step::new(note.pitch, instrument, note.volume, note.effect).unwrap_or_default()
+    Step::new(note.pitch, note.instrument, note.volume, note.effect).unwrap_or_default()
+}
+
+/// The Step that plays a note, on the Custom Instrument its SFX Instrument mark names.
+fn step_of(note: CartNote) -> Step {
+    let mut step = built_in_step(note);
+    if note.custom {
+        step.set_instrument(i32::from(instrument_of_slot(note.instrument)));
+    }
+    step
+}
+
+/// How many notes an SFX holds: its LEN, or else all 32.
+pub(super) fn stored_length(sfx: Sfx<'_>) -> usize {
+    (notes_when_setting_length(sfx) as usize).min(SFX_NOTES)
 }
 
 /// The entry that plays these stored notes, with silence for `None`.
@@ -188,7 +201,7 @@ fn entry_of(sfx: Sfx<'_>, notes: impl Iterator<Item = Option<usize>>, fill: bool
 /// The Phrase that holds a loose SFX's notes up to its LEN, or all 32 of them, with its loop
 /// dropped, and the instruments its audible notes use. A silent SFX gives none.
 pub(super) fn loose_phrase(sfx: Sfx<'_>) -> Option<(Phrase, BTreeSet<u8>)> {
-    let length = (notes_when_setting_length(sfx) as usize).min(SFX_NOTES);
+    let length = stored_length(sfx);
     let entry = entry_of(sfx, (0..length).map(Some), false);
     (!entry.phrase.is_silent()).then_some((entry.phrase, entry.instruments))
 }

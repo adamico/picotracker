@@ -51,6 +51,11 @@ fn warning_item(text: String, place: Option<SongPlace>) -> LogItem {
     }
 }
 
+/// What an Import of one song of a Cart reports it Imported, such as `SONG 2 OF DEMO.P8`.
+fn song_source(number: usize, cart_name: &str) -> String {
+    format!("SONG {number} OF {cart_name}")
+}
+
 /// The result of an Import: its warnings, if any, go to the Log.
 fn import_report(source: &str, warnings: Vec<LogItem>) -> Report {
     if warnings.is_empty() {
@@ -127,7 +132,7 @@ impl App {
         }
         let song = songs.first().copied();
         let source = match song {
-            Some(_) => format!("SONG 1 OF {name}"),
+            Some(_) => song_source(1, &name),
             None => name,
         };
         let imported = cart_import::import_song(&cart, file_name, song);
@@ -176,7 +181,7 @@ impl App {
             Action::Confirm => {
                 if let Some(picking) = self.picking_song.take() {
                     let (name, folder, number, imported) = picking.picker.finish();
-                    let source = format!("SONG {number} OF {name}");
+                    let source = song_source(number, &name);
                     self.finish_cart_import(folder, &source, imported);
                 }
             }
