@@ -645,7 +645,7 @@ impl Player {
                 .filter(|_| lane.state == LaneState::Playing);
             match sound {
                 Some(sound) => self.voices[track].continue_at(sound, lane.step),
-                None => self.voices[track].play(Sound::default(), 0),
+                None => self.voices[track].rest(),
             }
         }
     }
