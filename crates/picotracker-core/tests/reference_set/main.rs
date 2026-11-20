@@ -58,22 +58,12 @@ const SPEC_LIMITS: Limits = Limits {
 };
 
 const AWAITING_SYNTH_FIXES_39: &[&str] = &[
-    "coverage_sfx08",
-    "coverage_sfx09",
-    "coverage_sfx10",
-    "coverage_sfx11",
-    "coverage_sfx12",
-    "coverage_sfx13",
-    "coverage_sfx15",
     "coverage_sfx14",
-    "coverage_sfx15",
     "coverage_sfx21",
     "coverage_sfx22",
     "coverage_sfx25",
-    "coverage_music0",
     "coverage_music1",
     "coverage_music4",
-    "slide_is_linear_in_pitch",
     "reverb_1_rings_through_silent_steps",
     "reverb_2_rings_through_silent_steps",
     "reverb_2_rings_after_len_inside_a_pattern",
@@ -88,15 +78,8 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "coverage_music0",
     "coverage_music1",
     "coverage_music4",
-    "coverage_sfx08",
-    "coverage_sfx09",
-    "coverage_sfx10",
-    "coverage_sfx11",
-    "coverage_sfx12",
-    "coverage_sfx13",
     "coverage_sfx15",
     "coverage_sfx14",
-    "coverage_sfx15",
     "coverage_sfx16",
     "coverage_sfx17",
     "coverage_sfx18",
@@ -108,7 +91,6 @@ const AWAITING_SYNTH_DIFFERENCES_54: &[&str] = &[
     "reverb_1_rings_through_silent_steps",
     "reverb_2_rings_after_len_inside_a_pattern",
     "reverb_2_rings_through_silent_steps",
-    "slide_is_linear_in_pitch",
     "slow_arpeggio_inside_an_sfx_instrument_follows_the_played_pitch",
 ];
 
@@ -293,7 +275,7 @@ fn window_pitch_cents(case: &Case, ticks: std::ops::Range<u32>) -> Vec<(u32, Opt
 }
 
 /// Vibrato matches real PICO-8 within the pitch limit on each waveform with a steady pitch. The
-/// whole coverage cases still wait on #39's slide, so this checks their vibrato Steps on their own.
+/// phaser's whole coverage case still waits on #54, so this checks its vibrato Steps on their own.
 #[test]
 fn vibrato_matches_real_pico8_within_the_pitch_limit() {
     let off: Vec<String> = cases::all()

@@ -7,8 +7,9 @@
 //! Where the PICO-8 reference set measures real PICO-8 differently, the synth follows PICO-8
 //! instead of the port: the pitch of each note in whole phase units, the phase a voice starts from
 //! and keeps, the crossfade between notes, the phase of saw, square and pulse, the level of the
-//! whole output, the saw, noise and Waveform Instruments, BUZZ and DETUNE, the steps of vibrato,
-//! and silence on a silent note of an SFX Instrument.
+//! whole output, the saw, noise and Waveform Instruments, BUZZ and DETUNE, the steps of vibrato
+//! and slide, the retrigger of an SFX Instrument under drop, and silence on a silent note of an
+//! SFX Instrument.
 //!
 //! zepto8, `src/synth.cpp`:
 //!
@@ -197,6 +198,19 @@ fn pitch_increment(pitch: i16) -> f32 {
         phase_units >> (-octaves_up).min(MAX_OCTAVE_SHIFT)
     };
     phase_units as f32 / PHASE_UNITS_PER_CYCLE
+}
+
+/// The phase step of a pitch between two whole pitches. Measured on PICO-8, a slide moves through
+/// pitches in a straight line, and between two whole pitches PICO-8 takes the whole number of phase
+/// units nearest the straight line between their steps.
+fn between_pitches_increment(pitch: f32) -> f32 {
+    let whole = pitch.floor() as i16;
+    let units = mix(
+        pitch_increment(whole),
+        pitch_increment(whole + 1),
+        pitch - f32::from(whole),
+    ) * PHASE_UNITS_PER_CYCLE;
+    units.round() / PHASE_UNITS_PER_CYCLE
 }
 
 /// How far through their cycles a voice's waves are. The phaser and DETUNE mix in a second wave
@@ -584,12 +598,15 @@ impl Voice {
     /// Moves on to one note of a sound as the next Step of what is already playing, so that a
     /// slide carries over from the note just played and nothing retriggers.
     pub fn continue_at(&mut self, sound: Sound, note: usize) {
-        let played = self.sound.notes[(self.state.offset as usize).min(NOTES - 1)];
+        // A voice that has just crossed into its next note already holds the one it played.
+        if self.state.offset.fract() != 0.0 {
+            let played = self.sound.notes[(self.state.offset as usize).min(NOTES - 1)];
+            self.state.previous_key = played.pitch;
+            self.state.previous_volume = f32::from(played.volume) / 7.0;
+        }
         self.sound = sound;
         self.state.playing = true;
         self.state.offset = note.min(NOTES - 1) as f64;
-        self.state.previous_key = played.pitch;
-        self.state.previous_volume = f32::from(played.volume) / 7.0;
     }
 
     /// Cuts the sound at once, along with any echo and crossfade still ringing.
@@ -850,7 +867,10 @@ fn update_sound(
         if volume > 0.0 {
             match note.effect {
                 FX_SLIDE => {
-                    increment = mix(pitch_increment(state.previous_key), increment, progress);
+                    let from = f32::from(state.previous_key + pitch_shift);
+                    let to = f32::from(note.pitch + pitch_shift);
+                    increment =
+                        between_pitches_increment(mix(from, to, progress)) * increment_factor;
                     if state.previous_volume > 0.0 {
                         volume = mix(state.previous_volume, volume, progress);
                     }
