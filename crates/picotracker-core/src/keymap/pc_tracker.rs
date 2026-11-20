@@ -100,9 +100,14 @@ pub(super) fn context_bindings() -> Vec<(KeyContext, Key, Action)> {
         (Key::Char('r'), Action::ResetMidiRow),
     ]
     .map(|(key, action)| (KeyContext::MidiImport, key, action));
+    let song_picker = (
+        KeyContext::SongPicker,
+        Key::Char('p'),
+        Action::PlayFocusedPane,
+    );
     piano
         .chain(digits)
-        .chain([backspace])
+        .chain([backspace, song_picker])
         .chain(midi_import)
         .collect()
 }
