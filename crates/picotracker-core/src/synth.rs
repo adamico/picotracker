@@ -521,6 +521,7 @@ pub struct Voice {
     low_pass_output: f32,
     resting_filters: u8,
     rest_samples_left: Option<u64>,
+    resting: bool,
     tick_sample: u32,
     rng: Rng,
 }
@@ -552,6 +553,7 @@ impl Voice {
             low_pass_output: 0.0,
             resting_filters: 0,
             rest_samples_left: None,
+            resting: false,
             tick_sample: 0,
             rng: Rng(NOISE_SEED),
         }
@@ -585,6 +587,7 @@ impl Voice {
     /// Starts a sound from one of its notes.
     pub fn play(&mut self, sound: Sound, from_note: usize) {
         self.resting_filters = 0;
+        self.resting = false;
         self.latched_dampen = dampen_level(sound.filters);
         self.tick_sample = 0;
         self.sound = sound;
@@ -620,6 +623,7 @@ impl Voice {
         self.sound = sound;
         self.state.playing = true;
         self.state.offset = note.min(NOTES - 1) as f64;
+        self.resting = false;
     }
 
     /// Falls silent the way a PICO-8 channel does when its SFX ends at LEN inside a Pattern: as
@@ -629,6 +633,7 @@ impl Voice {
         self.play(Sound::default(), 0);
         self.resting_filters = filters;
         self.rest_samples_left = None;
+        self.resting = true;
     }
 
     /// After a sound's last audible note, its echo rings on through the silent notes up to its LEN,
@@ -673,7 +678,7 @@ impl Voice {
         let base_offset = self.state.offset;
         let plays_a_note = self.state.playing;
         update_sound(&self.sound, &mut self.state, &mut new_synth, 0.0, 1.0);
-        if plays_a_note && !self.state.playing {
+        if plays_a_note && !self.state.playing && !self.resting {
             self.ring_through_trailing_silence();
         }
         // Measured on PICO-8: a silent note sets the wave back to the start of its cycle, so the

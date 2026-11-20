@@ -3,13 +3,18 @@
 
 mod support;
 
-use picotracker_core::app::{Action, App, Direction, DirectoryEntry, FileRequest, FileResponse};
+use picotracker_core::app::{
+    Action, App, Direction, DirectoryEntry, FileRequest, FileResponse, KeyContext,
+};
+use picotracker_core::keymap::{Key, KeyPress, Keymap, Modifiers};
 use picotracker_core::player::AudioRequest;
+use picotracker_core::project::Project;
 use std::path::{Path, PathBuf};
 use support::status_line;
 use support::{TestCart, TestPattern, TestSfx};
 
 const DOWN: Action = Action::Move(Direction::Down);
+const PICKER_KEYS: &str = "UP/DOWN PICK  P LISTEN  ENTER IMPORT  ESC BACK";
 const UNSAVED_QUESTION: &str = "UNSAVED CHANGES WILL BE LOST  ENTER DISCARD  ESC CANCEL";
 
 fn right_slot(app: &App, line: usize) -> String {
@@ -299,4 +304,181 @@ fn a_cart_that_cannot_be_read_says_why() {
         status_line(&app),
         "! CANNOT IMPORT DEMO.P8: PERMISSION DENIED"
     );
+}
+
+/// A Cart of two songs. Song 1, Patterns 00-01, plays SFX 0 and 1 and uses SFX 2 as an instrument,
+/// for 512 Ticks, and stops. Song 2, Pattern 02, plays SFX 3 for 512 Ticks and loops.
+fn two_song_cart() -> TestCart {
+    let mut melody = TestSfx::with_pitches(8, &[12, 14]);
+    melody.notes[0].custom = true;
+    melody.notes[0].instrument = 2;
+    let mut stop = TestPattern::playing([Some(1), None, None, None]);
+    stop.stop = true;
+    let mut looping = TestPattern::playing([Some(3), None, None, None]);
+    looping.loop_start = true;
+    looping.loop_back = true;
+    TestCart {
+        sfx: vec![
+            melody,
+            TestSfx::with_pitches(8, &[19, 21]),
+            TestSfx::with_pitches(4, &[24]),
+            TestSfx::with_pitches(16, &[30]),
+        ],
+        patterns: vec![
+            TestPattern::playing([Some(0), Some(1), None, None]),
+            stop,
+            looping,
+        ],
+    }
+}
+
+/// Whether a Project holds song 2 of the two-song Cart: Pattern 02, playing pitch 30 and looping.
+fn is_song_2(project: &Project) -> bool {
+    let first = project
+        .chain_row_entry(0, 0, 0)
+        .map(|entry| project.phrase(entry.phrase()));
+    first.is_some_and(|phrase| phrase.step(0).pitch() == 30)
+        && project.song_row_is_empty(1)
+        && project.song_loop_row() == Some(0)
+        && project.target_cart().unwrap().claim.patterns == Some((2, 2))
+}
+
+/// The first line of the Song pane.
+fn song_title(app: &App) -> String {
+    let dump = app.grid().text_dump();
+    dump.lines()
+        .next()
+        .unwrap()
+        .chars()
+        .take(28)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
+#[test]
+fn a_cart_with_several_songs_opens_the_song_picker() {
+    let mut app = App::new();
+    let before = app.project().clone();
+
+    import_file(&mut app, "demo.p8", two_song_cart().p8());
+
+    assert_eq!(app.project(), &before);
+    let lines: Vec<String> = (0..10).map(|line| right_slot(&app, line)).collect();
+    assert_eq!(
+        lines,
+        [
+            "IMPORT SONG",
+            "DEMO.P8",
+            ">SONG 1 PATTERNS 00-01",
+            "  3 SFX  0:04  STOP",
+            "  INSTRUMENTS 0A",
+            "",
+            " SONG 2 PATTERN 02",
+            "  1 SFX  0:04  LOOP",
+            "  NO INSTRUMENTS",
+            "",
+        ]
+    );
+    assert_eq!(status_line(&app), PICKER_KEYS);
+}
+
+#[test]
+fn the_song_pane_previews_the_highlighted_song() {
+    let mut app = App::new();
+    import_file(&mut app, "demo.p8", two_song_cart().p8());
+    assert_eq!(song_title(&app), "SONG  LOOP --");
+
+    app.apply(DOWN);
+
+    assert_eq!(right_slot(&app, 6), ">SONG 2 PATTERN 02");
+    assert_eq!(song_title(&app), "SONG  LOOP 00");
+    // Song 2's first Step plays pitch 30, F#2, which song 1 never plays.
+    let dump = app.grid().text_dump();
+    assert!(dump.contains("F#2"), "{dump}");
+}
+
+#[test]
+fn p_listens_to_the_highlighted_song_and_stops_it_again() {
+    let mut app = App::new();
+    import_file(&mut app, "demo.p8", two_song_cart().p8());
+    app.take_audio_requests();
+    app.apply(DOWN);
+    let p = KeyPress::new(Key::Char('p'), Modifiers::NONE);
+    let listen = Keymap::pc_tracker()
+        .action_in(p, app.key_context())
+        .unwrap();
+
+    app.apply(listen);
+
+    assert_eq!(app.key_context(), KeyContext::SongPicker);
+    let requests = app.take_audio_requests();
+    let [AudioRequest::PlaySong { project, from_row }] = requests.as_slice() else {
+        panic!("expected the song to play, got {requests:?}");
+    };
+    assert!(is_song_2(project));
+    assert_eq!(*from_row, 0);
+    app.apply(listen);
+    assert_eq!(app.take_audio_requests(), [AudioRequest::Stop]);
+}
+
+#[test]
+fn enter_imports_the_highlighted_song() {
+    let mut app = App::new();
+    import_file(&mut app, "demo.p8", two_song_cart().p8());
+    app.apply(DOWN);
+
+    app.apply(Action::Confirm);
+
+    assert!(is_song_2(app.project()));
+    assert_eq!(
+        status_line(&app),
+        "! IMPORTED SONG 2 OF DEMO.P8 WITH 1 WARNING  ^L LOG"
+    );
+    assert_eq!(right_slot(&app, 0), "LOG");
+}
+
+#[test]
+fn esc_leaves_the_song_picker_and_keeps_the_project() {
+    let mut app = App::new();
+    edit(&mut app);
+    let edited = app.project().clone();
+    app.apply(Action::Import);
+    app.apply(Action::Confirm);
+    answer_listing(&mut app, vec![file("demo.p8")]);
+    app.apply(DOWN);
+    app.apply(Action::Confirm);
+    let path = PathBuf::from("./demo.p8");
+    app.take_file_requests();
+    app.receive_file(FileResponse::BytesRead {
+        path,
+        contents: two_song_cart().p8(),
+    });
+    app.apply(Action::PlayFocusedPane);
+    app.take_audio_requests();
+
+    app.apply(Action::Cancel);
+
+    assert_eq!(app.project(), &edited);
+    assert_eq!(right_slot(&app, 0), "OVERVIEW");
+    assert_eq!(app.take_audio_requests(), [AudioRequest::Stop]);
+    assert_eq!(app.chain_under_cursor(), edited.song_cell(0, 0));
+}
+
+#[test]
+fn a_cart_with_no_music_skips_the_song_picker() {
+    let cart = TestCart {
+        sfx: vec![TestSfx::with_pitches(8, &[12])],
+        patterns: vec![],
+    };
+    let mut app = App::new();
+
+    import_file(&mut app, "demo.p8", cart.p8());
+
+    assert_eq!(right_slot(&app, 0), "LOG");
+    assert_eq!(
+        status_line(&app),
+        "! IMPORTED DEMO.P8 WITH 1 WARNING  ^L LOG"
+    );
+    assert!(app.project().song_row_is_empty(0));
 }
