@@ -1,3 +1,5 @@
+use pikutracker_core::app::{Action, App, Direction};
+use pikutracker_core::project::{ChainEntry, ChainId, PhraseId, Project, Step};
 use pikutracker_core::screen::frame::{Frame, LOGICAL_HEIGHT, LOGICAL_WIDTH};
 use pikutracker_core::screen::grid::{GRID_COLUMNS, GRID_ROWS, Grid, Style};
 use pikutracker_core::screen::palette::Colour;
@@ -6,6 +8,10 @@ use pikutracker_core::screen::viewport::integer_scale;
 const SNAPSHOT: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/snapshots/font_and_palette.png"
+);
+const README_SCREENSHOT_AT_DOUBLE_SIZE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../docs/images/song-chain-phrase.png"
 );
 
 const PICO8_PALETTE: [[u8; 3]; 16] = [
@@ -112,25 +118,107 @@ fn a_separator_is_an_unbroken_line_down_the_cell() {
     }
 }
 
-#[test]
-fn the_font_and_palette_match_the_pixel_snapshot() {
-    let frame = Frame::from_grid(&font_and_palette_grid());
+fn assert_matches_snapshot(frame: &Frame, scale: usize, path: &str) {
+    let width = LOGICAL_WIDTH as usize * scale;
+    let height = LOGICAL_HEIGHT as usize * scale;
+    let mut pixels = Vec::with_capacity(width * height * 4);
+    for y in 0..height {
+        for x in 0..width {
+            pixels.extend(pixel(frame, x / scale, y / scale));
+        }
+    }
 
     if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
-        let file = std::fs::File::create(SNAPSHOT).unwrap();
-        let mut encoder = png::Encoder::new(file, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        let file = std::fs::File::create(path).unwrap();
+        let mut encoder = png::Encoder::new(file, width as u32, height as u32);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
-        writer.write_image_data(frame.rgba()).unwrap();
+        writer.write_image_data(&pixels).unwrap();
     }
 
-    let file = std::io::BufReader::new(std::fs::File::open(SNAPSHOT).unwrap());
+    let file = std::io::BufReader::new(std::fs::File::open(path).unwrap());
     let mut reader = png::Decoder::new(file).read_info().unwrap();
     let mut snapshot = vec![0; reader.output_buffer_size().unwrap()];
     reader.next_frame(&mut snapshot).unwrap();
 
-    assert!(snapshot == frame.rgba(), "pixels differ from {SNAPSHOT}");
+    assert!(snapshot == pixels, "pixels differ from {path}");
+}
+
+#[test]
+fn the_font_and_palette_match_the_pixel_snapshot() {
+    assert_matches_snapshot(&Frame::from_grid(&font_and_palette_grid()), 1, SNAPSHOT);
+}
+
+const SQUARE: u8 = 3;
+const TRIANGLE: u8 = 0;
+
+fn notes(project: &mut Project, phrase: u8, instrument: u8, pitches: &[u8]) -> PhraseId {
+    let id = PhraseId::new(phrase);
+    let phrase = project.phrase_mut(id);
+    phrase.set_length(pitches.len() as i32);
+    for (index, pitch) in pitches.iter().enumerate() {
+        *phrase.step_mut(index) = Step::new(*pitch, instrument, 5, 0).unwrap();
+    }
+    id
+}
+
+fn chain(project: &mut Project, chain: u8, phrases: &[PhraseId]) -> ChainId {
+    let id = ChainId::new(chain);
+    for (index, phrase) in phrases.iter().enumerate() {
+        *project.chain_mut(id).entry_mut(index) = Some(ChainEntry::new(*phrase));
+    }
+    id
+}
+
+fn readme_project() -> Project {
+    let mut project = Project::new();
+    let verse = notes(
+        &mut project,
+        0x00,
+        SQUARE,
+        &[24, 28, 31, 28, 24, 28, 31, 36],
+    );
+    let turn = notes(
+        &mut project,
+        0x01,
+        SQUARE,
+        &[33, 31, 29, 28, 26, 28, 29, 31],
+    );
+    let ending = notes(&mut project, 0x02, SQUARE, &[24, 24, 24, 24, 0, 0, 0, 0]);
+    let bass = notes(
+        &mut project,
+        0x03,
+        TRIANGLE,
+        &[12, 12, 19, 19, 17, 17, 19, 19],
+    );
+    let melody = chain(&mut project, 0x00, &[verse, verse, turn]);
+    let melody_end = chain(&mut project, 0x01, &[turn, ending]);
+    let bass_line = chain(&mut project, 0x02, &[bass, bass, bass]);
+    let bass_end = chain(&mut project, 0x03, &[bass, bass]);
+    project.set_song_cell(0, 0, Some(melody));
+    project.set_song_cell(0, 1, Some(bass_line));
+    project.set_song_cell(1, 0, Some(melody_end));
+    project.set_song_cell(1, 1, Some(bass_end));
+    project
+}
+
+#[test]
+fn the_readme_screenshot_matches_the_app() {
+    let mut app = App::with_project(readme_project());
+    for action in [
+        Action::FocusNext,
+        Action::Move(Direction::Down),
+        Action::Move(Direction::Down),
+    ] {
+        app.apply(action);
+    }
+
+    assert_matches_snapshot(
+        &Frame::from_grid(&app.grid()),
+        2,
+        README_SCREENSHOT_AT_DOUBLE_SIZE,
+    );
 }
 
 #[test]
