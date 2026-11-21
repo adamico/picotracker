@@ -8,6 +8,8 @@ dist/
 !crates/**/tests/**/*.p8.png
 !crates/**/tests/**/*.ptrk
 
-# Reference manuals: keep local copies, never commit them. The README links the official downloads.
+# Reference manuals: keep local copies, never commit them. Official downloads:
+#   PICO-8 manual: https://www.lexaloffle.com/dl/docs/pico-8_manual.html
+#   M8 operation manual: https://dirtywave.com/pages/resources-downloads
 docs/sources/
 __pycache__/
