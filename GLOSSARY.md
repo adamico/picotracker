@@ -14,6 +14,10 @@ _Avoid_: Song file, module
 The top-level arrangement of a Project: rows of Chains, one per Track.
 _Avoid_: Arrangement, sequence
 
+**Song row**:
+One row of the Song: a Chain, or nothing, for each Track. Its Chains play together, one Chain row at a time.
+_Avoid_: Song position, Song line
+
 **Song loop row**:
 The Song row that playback jumps back to once the Song reaches its first empty row. A Song with no Song loop row stops there.
 _Avoid_: Loop start (that is PICO-8's flag), loop point
